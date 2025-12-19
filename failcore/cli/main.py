@@ -5,7 +5,10 @@ import tempfile
 import json
 from pathlib import Path
 
-from failcore.cli.show import show_trace
+from failcore.cli.show_cmd import show_trace
+from failcore.cli.validate_cmd import validate_trace
+from failcore.cli.trace_cmd import trace_ingest, trace_query, trace_stats
+from failcore.cli.replay_cmd import replay_trace, replay_diff
 
 
 def run_sample(args):
@@ -313,14 +316,52 @@ def main():
         help="Custom run directory (default: ./.failcore/runs/<run_id>)"
     )
 
-    # show - display trace
-    show_p = sub.add_parser("show", help="Show trace summary")
-    show_p.add_argument("trace")
-    show_p.add_argument(
-        "--last",
-        action="store_true",
-        help="Show only the last run",
-    )
+    # validate - validate trace file
+    validate_p = sub.add_parser("validate", help="Validate trace file against v0.1.1 spec")
+    validate_p.add_argument("trace", help="Path to trace file")
+
+    # show - display trace with various views
+    show_p = sub.add_parser("show", help="Show trace with various views")
+    show_p.add_argument("trace", help="Path to trace file")
+    show_p.add_argument("--run", help="Filter by run_id")
+    show_p.add_argument("--steps", action="store_true", help="Show steps table")
+    show_p.add_argument("--errors", action="store_true", help="Show errors summary")
+    show_p.add_argument("--step", help="Show specific step detail")
+    show_p.add_argument("--verbose", action="store_true", help="Verbose output for --step")
+    show_p.add_argument("--stats", action="store_true", help="Show statistics")
+
+    # trace - trace management commands
+    trace_p = sub.add_parser("trace", help="Trace management (ingest, query, stats)")
+    trace_sub = trace_p.add_subparsers(dest="trace_command")
+    
+    # trace ingest
+    ingest_p = trace_sub.add_parser("ingest", help="Ingest trace.jsonl into database")
+    ingest_p.add_argument("trace", help="Path to trace.jsonl file")
+    ingest_p.add_argument("--db", help="Database path (default: <trace>.db)")
+    
+    # trace query
+    query_p = trace_sub.add_parser("query", help="Execute SQL query on trace database")
+    query_p.add_argument("db", help="Path to database file")
+    query_p.add_argument("sql", help="SQL query to execute")
+    
+    # trace stats
+    stats_p = trace_sub.add_parser("stats", help="Show trace statistics")
+    stats_p.add_argument("source", help="Path to .jsonl or .db file")
+
+    # replay - replay commands
+    replay_p = sub.add_parser("replay", help="Replay execution from trace")
+    replay_sub = replay_p.add_subparsers(dest="replay_command")
+    
+    # replay run
+    replay_run_p = replay_sub.add_parser("run", help="Replay execution")
+    replay_run_p.add_argument("trace", help="Path to trace.jsonl file")
+    replay_run_p.add_argument("--mode", choices=["report", "mock"], default="report",
+                             help="Replay mode: report (audit) or mock (inject outputs)")
+    replay_run_p.add_argument("--run", help="Filter by run_id")
+    
+    # replay diff
+    replay_diff_p = replay_sub.add_parser("diff", help="Show policy/output diffs")
+    replay_diff_p.add_argument("trace", help="Path to trace.jsonl file")
 
     args = parser.parse_args()
 
@@ -329,10 +370,32 @@ def main():
         parser.print_help()
         return
 
-    if args.command == "show":
-        show_trace(args.trace, last=args.last)
+    if args.command == "validate":
+        return validate_trace(args)
+    elif args.command == "show":
+        return show_trace(args)
     elif args.command == "sample":
         run_sample(args)
+    elif args.command == "trace":
+        if not args.trace_command:
+            trace_p.print_help()
+            return
+        
+        if args.trace_command == "ingest":
+            return trace_ingest(args)
+        elif args.trace_command == "query":
+            return trace_query(args)
+        elif args.trace_command == "stats":
+            return trace_stats(args)
+    elif args.command == "replay":
+        if not args.replay_command:
+            replay_p.print_help()
+            return
+        
+        if args.replay_command == "run":
+            return replay_trace(args)
+        elif args.replay_command == "diff":
+            return replay_diff(args)
     else:
         parser.print_help()
 

@@ -1,22 +1,20 @@
 # failcore/core/replay/__init__.py
 """
-状态回放和调试模块。
-
-提供：
-- trace 回放
-- 状态重建
-- 调试工具
+Replay system for deterministic execution simulation
 """
 
-from .replayer import (
-    TraceReplayer,
-    ReplayMode,
-    ReplayResult,
-)
+from .replayer import Replayer, ReplayMode, ReplayResult, ReplayHitType
+from .matcher import FingerprintMatcher, MatchResult
+from .loader import TraceLoader
+from .context import ReplayContext
 
 __all__ = [
-    "TraceReplayer",
+    "Replayer",
     "ReplayMode",
     "ReplayResult",
+    "ReplayHitType",
+    "ReplayContext",
+    "FingerprintMatcher",
+    "MatchResult",
+    "TraceLoader",
 ]
-

@@ -23,6 +23,10 @@ from ..trace import (
     build_step_end_event,
     build_policy_denied_event,
     build_output_normalized_event,
+    build_replay_hit_event,
+    build_replay_miss_event,
+    build_replay_policy_diff_event,
+    build_replay_injected_event,
     build_run_context,
     StepStatus as TraceStepStatus,
     ExecutionPhase,
@@ -90,12 +94,14 @@ class Executor:
         policy: Optional[Policy] = None,
         validator: Optional[ValidatorRegistry] = None,
         config: Optional[ExecutorConfig] = None,
+        replayer: Optional[Any] = None,
     ) -> None:
         self.tools = tools
         self.recorder = recorder or TraceRecorder()
         self.policy = policy or Policy()
         self.validator = validator
         self.config = config or ExecutorConfig()
+        self.replayer = replayer
         self._attempt_counter = {}
 
     # ---- public API ----
@@ -179,7 +185,13 @@ class Executor:
             
             return self._fail(step, ctx, run_ctx, attempt, started_at, t0, "POLICY_DENY", reason or "Denied by policy", ExecutionPhase.POLICY)
 
-        # Dispatch
+        # 4. Replay Hook (CRITICAL: before tool execution)
+        if self.replayer:
+            replay_result = self._try_replay(step, ctx, run_ctx, attempt, allowed, reason)
+            if replay_result:
+                return replay_result
+
+        # 5. Dispatch
         fn = self.tools.get(step.tool)
         if fn is None:
             return self._fail(step, ctx, run_ctx, attempt, started_at, t0, "TOOL_NOT_FOUND", f"Tool not found: {step.tool}", ExecutionPhase.EXECUTE)
@@ -247,6 +259,156 @@ class Executor:
                 detail["stack"] = traceback.format_exc()
 
             return self._fail(step, ctx, run_ctx, attempt, started_at, t0, code, msg, ExecutionPhase.EXECUTE, detail)
+
+    # ---- replay hook ----
+
+    def _try_replay(
+        self,
+        step: Step,
+        ctx: RunContext,
+        run_ctx: Dict[str, Any],
+        attempt: int,
+        policy_allowed: bool,
+        policy_reason: str,
+    ) -> Optional[StepResult]:
+        """
+        Try to replay this step from historical trace
+        
+        Returns:
+            StepResult if replay succeeded (HIT)
+            None if replay failed (MISS) - continue normal execution
+        """
+        # Compute current fingerprint (must match builder.py logic)
+        import json
+        import hashlib
+        params_str = json.dumps(step.params, sort_keys=True)
+        params_hash = f"sha256:{hashlib.sha256(params_str.encode()).hexdigest()[:16]}"
+        fingerprint_id = f"{step.tool}#{params_hash}"
+        
+        fingerprint = {
+            "id": fingerprint_id,
+            "inputs": {
+                "params_hash": params_hash,
+            }
+        }
+        
+        # Ask replayer to attempt replay
+        replay_result = self.replayer.replay_step(
+            step_id=step.id,
+            tool=step.tool,
+            params=step.params,
+            fingerprint=fingerprint,
+            current_policy_decision=(policy_allowed, policy_reason),
+        )
+        
+        # Record replay events
+        if hasattr(self.recorder, 'next_seq'):
+            seq = self.recorder.next_seq()
+            
+            if replay_result.hit_type == "HIT":
+                # Record HIT
+                self._record(
+                    build_replay_hit_event(
+                        seq=seq,
+                        run_context=run_ctx,
+                        step_id=step.id,
+                        tool=step.tool,
+                        attempt=attempt,
+                        mode=self.replayer.mode.value,
+                        fingerprint_id=fingerprint["id"],
+                        matched_step_id=replay_result.match_info.matched_step.get("step_id", "unknown"),
+                        source_trace=self.replayer.trace_path,
+                    )
+                )
+                
+                # Check for diffs
+                if replay_result.diff_details:
+                    policy_diff = replay_result.diff_details.get("policy")
+                    if policy_diff:
+                        seq = self.recorder.next_seq()
+                        self._record(
+                            build_replay_policy_diff_event(
+                                seq=seq,
+                                run_context=run_ctx,
+                                step_id=step.id,
+                                tool=step.tool,
+                                attempt=attempt,
+                                historical_decision=policy_diff["historical"],
+                                current_decision=policy_diff["current"],
+                                historical_reason=policy_diff.get("historical_reason"),
+                                current_reason=policy_diff.get("current_reason"),
+                            )
+                        )
+                
+                # If mock mode, inject output
+                if self.replayer.mode.value == "mock" and replay_result.injected:
+                    seq = self.recorder.next_seq()
+                    output_kind = replay_result.step_result.output.kind.value if replay_result.step_result.output else "none"
+                    self._record(
+                        build_replay_injected_event(
+                            seq=seq,
+                            run_context=run_ctx,
+                            step_id=step.id,
+                            tool=step.tool,
+                            attempt=attempt,
+                            fingerprint_id=fingerprint["id"],
+                            output_kind=output_kind,
+                        )
+                    )
+                    
+                    # Return the injected result
+                    return replay_result.step_result
+            
+            elif replay_result.hit_type == "MISS":
+                # Record MISS
+                self._record(
+                    build_replay_miss_event(
+                        seq=seq,
+                        run_context=run_ctx,
+                        step_id=step.id,
+                        tool=step.tool,
+                        attempt=attempt,
+                        mode=self.replayer.mode.value,
+                        fingerprint_id=fingerprint.get("id"),
+                        reason=replay_result.message or "No matching fingerprint",
+                    )
+                )
+                
+                # MISS: stop replay, don't execute tool
+                # Return a special SKIPPED result
+                return StepResult(
+                    step_id=step.id,
+                    tool=step.tool,
+                    status=StepStatus.FAIL,
+                    started_at=utc_now_iso(),
+                    finished_at=utc_now_iso(),
+                    duration_ms=0,
+                    output=None,
+                    error=StepError(
+                        error_code="REPLAY_MISS",
+                        message=f"Replay miss: {replay_result.message}",
+                    ),
+                    meta={"replay": True, "hit_type": "MISS"},
+                )
+        
+        # If report mode, don't execute
+        if self.replayer.mode.value == "report":
+            return StepResult(
+                step_id=step.id,
+                tool=step.tool,
+                status=StepStatus.FAIL,
+                started_at=utc_now_iso(),
+                finished_at=utc_now_iso(),
+                duration_ms=0,
+                output=None,
+                error=StepError(
+                    error_code="REPLAY_REPORT_MODE",
+                    message="Report mode - execution skipped",
+                ),
+                meta={"replay": True, "mode": "report"},
+            )
+        
+        return None
 
     # ---- internals ----
 

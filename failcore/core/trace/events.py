@@ -28,13 +28,18 @@ class EventType(str, Enum):
     
     # Execution gateway events
     FINGERPRINT_COMPUTED = "FINGERPRINT_COMPUTED"
-    REPLAY_HIT = "REPLAY_HIT"
-    REPLAY_MISS = "REPLAY_MISS"
     VALIDATION_FAILED = "VALIDATION_FAILED"
     POLICY_DENIED = "POLICY_DENIED"
     OUTPUT_NORMALIZED = "OUTPUT_NORMALIZED"
     ARTIFACT_WRITTEN = "ARTIFACT_WRITTEN"
     SIDE_EFFECT_APPLIED = "SIDE_EFFECT_APPLIED"
+    
+    # Replay events
+    REPLAY_STEP_HIT = "REPLAY_STEP_HIT"
+    REPLAY_STEP_MISS = "REPLAY_STEP_MISS"
+    REPLAY_POLICY_DIFF = "REPLAY_POLICY_DIFF"
+    REPLAY_OUTPUT_DIFF = "REPLAY_OUTPUT_DIFF"
+    REPLAY_INJECTED = "REPLAY_INJECTED"
 
 
 class LogLevel(str, Enum):
@@ -151,6 +156,21 @@ class ArtifactInfo:
     media_type: Optional[str] = None
     size_bytes: Optional[int] = None
     sha256: Optional[str] = None
+
+
+@dataclass
+class ReplayInfo:
+    """Replay execution information"""
+    mode: str  # report | mock | resume
+    hit_type: str  # HIT | MISS | DIFF
+    fingerprint_id: Optional[str] = None
+    matched_step_id: Optional[str] = None
+    source_trace: Optional[str] = None
+    injected: bool = False
+    diff_type: Optional[str] = None  # policy | output | normalize
+    historical_value: Optional[Any] = None
+    current_value: Optional[Any] = None
+    reason: Optional[str] = None
 
 
 @dataclass

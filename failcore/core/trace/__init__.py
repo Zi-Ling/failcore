@@ -13,6 +13,7 @@ from .events import (
     ValidationInfo,
     NormalizeInfo,
     ArtifactInfo,
+    ReplayInfo,
     utc_now_iso,
 )
 from .recorder import TraceRecorder, JsonlTraceRecorder, NullTraceRecorder
@@ -23,8 +24,15 @@ from .builder import (
     build_step_end_event,
     build_policy_denied_event,
     build_output_normalized_event,
+    build_replay_hit_event,
+    build_replay_miss_event,
+    build_replay_policy_diff_event,
+    build_replay_output_diff_event,
+    build_replay_injected_event,
     build_run_context,
 )
+from .writer import TraceWriter, TraceContext
+from .validator import TraceValidator, ValidationError
 
 __all__ = [
     # Events
@@ -42,6 +50,7 @@ __all__ = [
     "ValidationInfo",
     "NormalizeInfo",
     "ArtifactInfo",
+    "ReplayInfo",
     # Utilities
     "utc_now_iso",
     # Recorders
@@ -55,21 +64,16 @@ __all__ = [
     "build_step_end_event",
     "build_policy_denied_event",
     "build_output_normalized_event",
+    "build_replay_hit_event",
+    "build_replay_miss_event",
+    "build_replay_policy_diff_event",
+    "build_replay_output_diff_event",
+    "build_replay_injected_event",
     "build_run_context",
-]
-"""
-Core trace types for Failcore.
-
-This package defines the components responsible for:
-- Recording events
-- Serializing events
-- Storing events
-
-No side effects on import.
-"""
-
-from .recorder import JsonlTraceRecorder
-
-__all__ = [
-    "JsonlTraceRecorder",
+    # Writer
+    "TraceWriter",
+    "TraceContext",
+    # Validator
+    "TraceValidator",
+    "ValidationError",
 ]

@@ -20,6 +20,7 @@ from .events import (
     PolicyInfo,
     ValidationInfo,
     NormalizeInfo,
+    ReplayInfo,
     utc_now_iso,
 )
 
@@ -128,15 +129,20 @@ def build_step_start_event(
     depends_on: Optional[list] = None,
 ) -> TraceEvent:
     """Build STEP_START event"""
-    # Build fingerprint
+    # Build fingerprint (CRITICAL for replay)
+    # Format: tool#params_hash (deterministic, not tied to run_id)
+    import json
+    params_str = json.dumps(params, sort_keys=True)
+    params_hash = f"sha256:{hashlib.sha256(params_str.encode()).hexdigest()[:16]}"
+    fingerprint_id = f"{tool}#{params_hash}"
+    
     fingerprint = {
-        "id": f"fp_{run_context['run_id']}_{step_id}",
+        "id": fingerprint_id,
         "algo": "sha256",
-        "scope": "tool+params+run_context",
+        "scope": "tool+params",
         "inputs": {
             "tool": tool,
-            "params_hash": _hash_value(params),
-            "context_hash": _hash_value({"run_id": run_context["run_id"]}),
+            "params_hash": params_hash,
         }
     }
     
@@ -153,7 +159,7 @@ def build_step_start_event(
         "input": {
             "mode": "summary",
             "summary": params,
-            "hash": _hash_value(params),
+            "hash": params_hash,
         }
     }
     
@@ -308,6 +314,180 @@ def build_run_end_event(
         event={
             "type": EventType.RUN_END.value,
             "data": {"summary": summary},
+        },
+        run={"run_id": run_context["run_id"], "created_at": run_context["created_at"]},
+    )
+
+
+# Replay event builders
+
+def build_replay_hit_event(
+    seq: int,
+    run_context: Dict[str, Any],
+    step_id: str,
+    tool: str,
+    attempt: int,
+    mode: str,
+    fingerprint_id: str,
+    matched_step_id: str,
+    source_trace: str,
+) -> TraceEvent:
+    """Build REPLAY_STEP_HIT event"""
+    return TraceEvent(
+        schema=SCHEMA_VERSION,
+        seq=seq,
+        ts=utc_now_iso(),
+        level=LogLevel.INFO,
+        event={
+            "type": EventType.REPLAY_STEP_HIT.value,
+            "step": {"id": step_id, "tool": tool, "attempt": attempt},
+            "data": {
+                "replay": {
+                    "mode": mode,
+                    "hit_type": "HIT",
+                    "fingerprint_id": fingerprint_id,
+                    "matched_step_id": matched_step_id,
+                    "source_trace": source_trace,
+                    "injected": mode == "mock",
+                }
+            },
+        },
+        run={"run_id": run_context["run_id"], "created_at": run_context["created_at"]},
+    )
+
+
+def build_replay_miss_event(
+    seq: int,
+    run_context: Dict[str, Any],
+    step_id: str,
+    tool: str,
+    attempt: int,
+    mode: str,
+    fingerprint_id: Optional[str],
+    reason: str,
+) -> TraceEvent:
+    """Build REPLAY_STEP_MISS event"""
+    return TraceEvent(
+        schema=SCHEMA_VERSION,
+        seq=seq,
+        ts=utc_now_iso(),
+        level=LogLevel.WARN,
+        event={
+            "type": EventType.REPLAY_STEP_MISS.value,
+            "step": {"id": step_id, "tool": tool, "attempt": attempt},
+            "data": {
+                "replay": {
+                    "mode": mode,
+                    "hit_type": "MISS",
+                    "fingerprint_id": fingerprint_id,
+                    "reason": reason,
+                }
+            },
+        },
+        run={"run_id": run_context["run_id"], "created_at": run_context["created_at"]},
+    )
+
+
+def build_replay_policy_diff_event(
+    seq: int,
+    run_context: Dict[str, Any],
+    step_id: str,
+    tool: str,
+    attempt: int,
+    historical_decision: str,
+    current_decision: str,
+    historical_reason: Optional[str],
+    current_reason: Optional[str],
+) -> TraceEvent:
+    """Build REPLAY_POLICY_DIFF event"""
+    return TraceEvent(
+        schema=SCHEMA_VERSION,
+        seq=seq,
+        ts=utc_now_iso(),
+        level=LogLevel.WARN,
+        event={
+            "type": EventType.REPLAY_POLICY_DIFF.value,
+            "step": {"id": step_id, "tool": tool, "attempt": attempt},
+            "data": {
+                "replay": {
+                    "mode": "mock",
+                    "hit_type": "DIFF",
+                    "diff_type": "policy",
+                    "historical_value": historical_decision,
+                    "current_value": current_decision,
+                    "reason": f"Policy decision changed: {historical_decision} -> {current_decision}",
+                },
+                "diff_details": {
+                    "historical_reason": historical_reason,
+                    "current_reason": current_reason,
+                }
+            },
+        },
+        run={"run_id": run_context["run_id"], "created_at": run_context["created_at"]},
+    )
+
+
+def build_replay_output_diff_event(
+    seq: int,
+    run_context: Dict[str, Any],
+    step_id: str,
+    tool: str,
+    attempt: int,
+    historical_kind: str,
+    current_kind: str,
+) -> TraceEvent:
+    """Build REPLAY_OUTPUT_DIFF event"""
+    return TraceEvent(
+        schema=SCHEMA_VERSION,
+        seq=seq,
+        ts=utc_now_iso(),
+        level=LogLevel.WARN,
+        event={
+            "type": EventType.REPLAY_OUTPUT_DIFF.value,
+            "step": {"id": step_id, "tool": tool, "attempt": attempt},
+            "data": {
+                "replay": {
+                    "mode": "mock",
+                    "hit_type": "DIFF",
+                    "diff_type": "output",
+                    "historical_value": historical_kind,
+                    "current_value": current_kind,
+                    "reason": f"Output kind differs: {historical_kind} -> {current_kind}",
+                }
+            },
+        },
+        run={"run_id": run_context["run_id"], "created_at": run_context["created_at"]},
+    )
+
+
+def build_replay_injected_event(
+    seq: int,
+    run_context: Dict[str, Any],
+    step_id: str,
+    tool: str,
+    attempt: int,
+    fingerprint_id: str,
+    output_kind: str,
+) -> TraceEvent:
+    """Build REPLAY_INJECTED event when output is injected"""
+    return TraceEvent(
+        schema=SCHEMA_VERSION,
+        seq=seq,
+        ts=utc_now_iso(),
+        level=LogLevel.DEBUG,
+        event={
+            "type": EventType.REPLAY_INJECTED.value,
+            "step": {"id": step_id, "tool": tool, "attempt": attempt},
+            "data": {
+                "replay": {
+                    "mode": "mock",
+                    "fingerprint_id": fingerprint_id,
+                    "injected": True,
+                },
+                "output": {
+                    "kind": output_kind,
+                }
+            },
         },
         run={"run_id": run_context["run_id"], "created_at": run_context["created_at"]},
     )
