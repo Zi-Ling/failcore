@@ -1,0 +1,75 @@
+[build-system]
+requires = ["hatchling>=1.25.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "failcore"
+version = "0.1.0a1"
+description = "A minimal execution runtime and tracing toolkit for agent plans."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [
+  { name = "ZiLing(FailCore)" }
+]
+keywords = ["agent", "runtime", "execution", "tracing", "debugging", "forensics"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Topic :: Software Development :: Debuggers",
+  "Topic :: Software Development :: Libraries",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "License :: OSI Approved :: MIT License",
+]
+
+# Keep core runtime dependencies minimal for TestPyPI
+dependencies = []
+
+[project.optional-dependencies]
+# Optional integration layer (only needed if you import langchain types/adapters)
+langchain = [
+  "langchain-core>=0.3.0,<1.0.0",
+]
+# Dev-only tooling
+dev = [
+  "pytest>=9.0.2",
+  "build>=1.2.2",
+  "twine>=5.1.1",
+  "ruff>=0.6.0",
+]
+
+[project.scripts]
+failcore = "failcore.cli.main:main"
+
+# Wheel: ship only the failcore package
+[tool.hatch.build.targets.wheel]
+packages = ["failcore"]
+
+# sdist: include only what you actually want to publish (no tests/docs/examples)
+[tool.hatch.build.targets.sdist]
+include = [
+  "failcore/**",
+  "pyproject.toml",
+  "README.md",
+  "LICENSE",
+]
+exclude = [
+  "tests/**",
+  "docs/**",
+  "examples/**",
+  ".github/**",
+  ".venv/**",
+  "dist/**",
+  "build/**",
+  "**/__pycache__/**",
+  "**/*.pyc",
+]
+
+# Optional: keep your local dev mirror config (does not affect pip installs)
+[[tool.uv.index]]
+url = "https://mirrors.aliyun.com/pypi/simple"
