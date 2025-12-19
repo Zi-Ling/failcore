@@ -2,6 +2,10 @@
 
 > *“Success has many fathers, but failure has its own core.”*
 
+## FailCore is a Fail-Fast execution runtime for AI agents.
+
+It is designed to stop unsafe or invalid actions early, preserve execution state, and make failures auditable.
+
 FailCore is a lightweight, production-grade execution runtime for AI Agents.  
 It does **not** aim to make agents smarter — it makes them **reliable**.
 
