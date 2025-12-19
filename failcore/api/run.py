@@ -4,7 +4,7 @@ Run API - one-line execution for quick testing and single-step operations
 """
 
 from typing import Any, Dict, Optional
-from ..core.step import Step, RunContext, StepResult, new_step_id, new_run_id
+from ..core.step import Step, RunContext, StepResult, generate_step_id, generate_run_id
 from ..core.executor.executor import Executor, ExecutorConfig
 from ..core.tools.registry import ToolRegistry
 from ..core.trace.recorder import JsonlTraceRecorder, NullTraceRecorder
@@ -49,8 +49,8 @@ def run(
         - Automatically closes after execution
     """
     # Auto-generate IDs
-    run_id = new_run_id()
-    step_id = new_step_id()
+    run_id = generate_run_id()
+    step_id = generate_step_id()
     
     # Use provided tool registry or create empty one
     tools = _tools or ToolRegistry()

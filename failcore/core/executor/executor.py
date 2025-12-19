@@ -1,4 +1,4 @@
-# failcore/core/executor/tool_runner.py
+# failcore/core/executor/executor.py
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -18,7 +18,15 @@ from ..step import (
     utc_now_iso,
 )
 
-from .lifecycle import TraceEvent, TraceEventType
+from ..trace import (
+    build_step_start_event,
+    build_step_end_event,
+    build_policy_denied_event,
+    build_output_normalized_event,
+    build_run_context,
+    StepStatus as TraceStepStatus,
+    ExecutionPhase,
+)
 from ..tools import ToolProvider
 from ..validate import ValidatorRegistry
 
@@ -67,11 +75,11 @@ class ExecutorConfig:
 
 class Executor:
     """
-    v0.1 minimal executor:
-      - record STEP_START / STEP_OK / STEP_FAIL
-      - fail-fast validation (basic)
-      - policy gate (optional)
-      - tools dispatch via ToolRegistry
+    v0.1.1 executor with structured trace events:
+      - record structured events (v0.1.1 spec)
+      - fail-fast validation
+      - policy gate
+      - tools dispatch
       - returns StepResult (never raises unless misconfigured)
     """
 
@@ -86,33 +94,52 @@ class Executor:
         self.tools = tools
         self.recorder = recorder or TraceRecorder()
         self.policy = policy or Policy()
-        self.validator = validator  # 可选的验证器注册表
+        self.validator = validator
         self.config = config or ExecutorConfig()
+        self._attempt_counter = {}
 
     # ---- public API ----
 
     def execute(self, step: Step, ctx: RunContext) -> StepResult:
         started_at = utc_now_iso()
         t0 = time.perf_counter()
-
-        # Record start
-        self._record(
-            TraceEvent(
-                type=TraceEventType.STEP_START,
-                ts=started_at,
-                run_id=ctx.run_id,
-                step_id=step.id,
-                tool=step.tool,
-                params_summary=self._summarize_params(step.params),
-            )
+        
+        # Track attempt number
+        attempt = self._attempt_counter.get(step.id, 0) + 1
+        self._attempt_counter[step.id] = attempt
+        
+        # Build run context for tracing
+        run_ctx = build_run_context(
+            run_id=ctx.run_id,
+            created_at=ctx.created_at,
+            workspace=None,
+            sandbox_root=ctx.sandbox_root,
+            cwd=ctx.cwd,
+            tags=ctx.tags,
+            flags=ctx.flags,
         )
 
-        # 1. 基础参数验证
+        # Record STEP_START with v0.1.1 format
+        if hasattr(self.recorder, 'next_seq'):
+            seq = self.recorder.next_seq()
+            self._record(
+                build_step_start_event(
+                    seq=seq,
+                    run_context=run_ctx,
+                    step_id=step.id,
+                    tool=step.tool,
+                    params=step.params,
+                    attempt=attempt,
+                    depends_on=step.depends_on,
+                )
+            )
+
+        # 1. Basic parameter validation
         ok, err = self._validate_step(step)
         if not ok:
-            return self._fail(step, ctx, started_at, t0, "PARAM_INVALID", err, meta={"phase": "validate"})
+            return self._fail(step, ctx, run_ctx, attempt, started_at, t0, "PARAM_INVALID", err, ExecutionPhase.VALIDATE)
 
-        # 2. 前置条件验证（拒绝机制）
+        # 2. Precondition validation
         if self.validator and self.validator.has_preconditions(step.tool):
             validation_context = {
                 "step": step,
@@ -121,43 +148,84 @@ class Executor:
             }
             validation_results = self.validator.validate_preconditions(step.tool, validation_context)
             
-            # 检查是否有验证失败
             for result in validation_results:
                 if not result.valid:
                     return self._fail(
-                        step, ctx, started_at, t0,
+                        step, ctx, run_ctx, attempt, started_at, t0,
                         "PRECONDITION_FAILED",
                         result.message,
-                        meta={"phase": "precondition", "details": result.details}
+                        ExecutionPhase.VALIDATE,
                     )
 
-        # 3. 策略检查（拒绝机制）
+        # 3. Policy check
         allowed, reason = self.policy.allow(step, ctx)
         if not allowed:
-            return self._fail(step, ctx, started_at, t0, "POLICY_DENY", reason or "Denied by policy", meta={"phase": "policy"})
+            # Record POLICY_DENIED event
+            if hasattr(self.recorder, 'next_seq'):
+                seq = self.recorder.next_seq()
+                self._record(
+                    build_policy_denied_event(
+                        seq=seq,
+                        run_context=run_ctx,
+                        step_id=step.id,
+                        tool=step.tool,
+                        attempt=attempt,
+                        policy_id="System-Protection",
+                        rule_id="P001",
+                        rule_name="PolicyCheck",
+                        reason=reason or "Denied by policy",
+                    )
+                )
+            
+            return self._fail(step, ctx, run_ctx, attempt, started_at, t0, "POLICY_DENY", reason or "Denied by policy", ExecutionPhase.POLICY)
 
         # Dispatch
         fn = self.tools.get(step.tool)
         if fn is None:
-            return self._fail(step, ctx, started_at, t0, "TOOL_NOT_FOUND", f"Tool not found: {step.tool}", meta={"phase": "dispatch"})
+            return self._fail(step, ctx, run_ctx, attempt, started_at, t0, "TOOL_NOT_FOUND", f"Tool not found: {step.tool}", ExecutionPhase.EXECUTE)
 
         try:
             out = fn(**step.params)
             output = self._normalize_output(out)
             finished_at, duration_ms = self._finish_times(t0)
+            
+            # Record OUTPUT_NORMALIZED if type differs from expected
+            # For now, we just detect TEXT vs JSON
+            warnings = []
+            if isinstance(out, str) and not output.kind == OutputKind.JSON:
+                if hasattr(self.recorder, 'next_seq'):
+                    seq = self.recorder.next_seq()
+                    self._record(
+                        build_output_normalized_event(
+                            seq=seq,
+                            run_context=run_ctx,
+                            step_id=step.id,
+                            tool=step.tool,
+                            attempt=attempt,
+                            expected_kind="json",
+                            observed_kind=output.kind.value,
+                            reason="Output is text, not valid JSON",
+                        )
+                    )
+                    warnings.append("OUTPUT_KIND_MISMATCH")
 
-            # Record ok
-            self._record(
-                TraceEvent(
-                    type=TraceEventType.STEP_OK,
-                    ts=finished_at,
-                    run_id=ctx.run_id,
-                    step_id=step.id,
-                    tool=step.tool,
-                    output_summary=self._summarize_output(output),
-                    duration_ms=duration_ms,
+            # Record STEP_END
+            if hasattr(self.recorder, 'next_seq'):
+                seq = self.recorder.next_seq()
+                self._record(
+                    build_step_end_event(
+                        seq=seq,
+                        run_context=run_ctx,
+                        step_id=step.id,
+                        tool=step.tool,
+                        attempt=attempt,
+                        status=TraceStepStatus.OK,
+                        phase=ExecutionPhase.EXECUTE,
+                        duration_ms=duration_ms,
+                        output={"kind": output.kind.value, "value": output.value},
+                        warnings=warnings if warnings else None,
+                    )
                 )
-            )
 
             return StepResult(
                 step_id=step.id,
@@ -172,14 +240,13 @@ class Executor:
             )
 
         except Exception as e:
-            # Map exception -> error_code
             code = "TOOL_RAISED"
             msg = f"{type(e).__name__}: {e}"
-            meta: Dict[str, Any] = {"phase": "tools"}
+            detail = {}
             if self.config.include_stack:
-                meta["stack"] = traceback.format_exc()
+                detail["stack"] = traceback.format_exc()
 
-            return self._fail(step, ctx, started_at, t0, code, msg, meta=meta)
+            return self._fail(step, ctx, run_ctx, attempt, started_at, t0, code, msg, ExecutionPhase.EXECUTE, detail)
 
     # ---- internals ----
 
@@ -200,28 +267,40 @@ class Executor:
         self,
         step: Step,
         ctx: RunContext,
+        run_ctx: Dict[str, Any],
+        attempt: int,
         started_at: str,
         t0: float,
         error_code: str,
         message: str,
-        meta: Optional[Dict[str, Any]] = None,
+        phase: ExecutionPhase,
+        detail: Optional[Dict[str, Any]] = None,
     ) -> StepResult:
         finished_at, duration_ms = self._finish_times(t0)
+        
+        # Determine status
+        status = TraceStepStatus.BLOCKED if error_code == "POLICY_DENY" else TraceStepStatus.FAIL
 
-        # Record fail
-        self._record(
-            TraceEvent(
-                type=TraceEventType.STEP_FAIL,
-                ts=finished_at,
-                run_id=ctx.run_id,
-                step_id=step.id,
-                tool=step.tool,
-                error_code=error_code,
-                error_message=self._truncate(message),
-                duration_ms=duration_ms,
-                meta=meta or {},
+        # Record STEP_END
+        if hasattr(self.recorder, 'next_seq'):
+            seq = self.recorder.next_seq()
+            self._record(
+                build_step_end_event(
+                    seq=seq,
+                    run_context=run_ctx,
+                    step_id=step.id,
+                    tool=step.tool,
+                    attempt=attempt,
+                    status=status,
+                    phase=phase,
+                    duration_ms=duration_ms,
+                    error={
+                        "code": error_code,
+                        "message": self._truncate(message),
+                        "detail": detail or {},
+                    },
+                )
             )
-        )
 
         return StepResult(
             step_id=step.id,
@@ -231,8 +310,8 @@ class Executor:
             finished_at=finished_at,
             duration_ms=duration_ms,
             output=None,
-            error=StepError(error_code=error_code, message=self._truncate(message), detail=meta),
-            meta={},
+            error=StepError(error_code=error_code, message=self._truncate(message), detail=detail),
+            meta={"phase": phase.value},
         )
 
     def _record(self, event: TraceEvent) -> None:

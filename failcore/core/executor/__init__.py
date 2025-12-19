@@ -1,22 +1,13 @@
 # failcore/core/executor/__init__.py
 """
-Core executor types for Failcore.
-
-This package defines the components responsible for:
-- Executing steps
-- Managing tools registries
-- Recording traces
-
-No side effects on import.
+Executor module - step execution engine
 """
 
-from .executor import Executor
-from .runner import Runner, AgentState, RunContext, Final
+from .executor import Executor, ExecutorConfig, Policy, TraceRecorder
 
 __all__ = [
     "Executor",
-    "Runner",
-    "AgentState",
-    "RunContext",
-    "Final",
+    "ExecutorConfig",
+    "Policy",
+    "TraceRecorder",
 ]

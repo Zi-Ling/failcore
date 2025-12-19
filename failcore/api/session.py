@@ -5,7 +5,7 @@ Session API - recommended main entry point for real usage
 
 from __future__ import annotations
 from typing import Any, Callable, Dict, Optional
-from ..core.step import Step, RunContext, StepResult, new_step_id, new_run_id
+from ..core.step import Step, RunContext, StepResult, generate_step_id, generate_run_id
 from ..core.executor.executor import Executor, ExecutorConfig
 from ..core.tools.registry import ToolRegistry
 from ..core.trace.recorder import JsonlTraceRecorder, NullTraceRecorder, TraceRecorder
@@ -76,7 +76,7 @@ class Session:
         
         # Run context
         self._ctx = RunContext(
-            run_id=run_id or new_run_id(),
+            run_id=run_id or generate_run_id(),
             sandbox_root=sandbox,
             tags=tags or {}
         )

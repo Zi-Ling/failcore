@@ -18,8 +18,8 @@ from .step import (
     OutputKind,
     ArtifactRef,
     utc_now_iso,
-    new_run_id,
-    new_step_id,
+    generate_run_id,
+    generate_step_id,
 )
 
 __all__ = [
@@ -32,6 +32,6 @@ __all__ = [
     "OutputKind",
     "ArtifactRef",
     "utc_now_iso",
-    "new_run_id",
-    "new_step_id",
+    "generate_run_id",
+    "generate_step_id",
 ]

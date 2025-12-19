@@ -16,7 +16,7 @@ def run_sample(args):
     Act 3: Blackbox replay (forensic evidence)
     """
     from failcore import Session
-    from failcore.core.step import new_run_id
+    from failcore.core.step import generate_run_id
     from datetime import datetime
     
     # Setup .failcore/ workspace structure
@@ -24,7 +24,7 @@ def run_sample(args):
         run_root = Path(args.sandbox).absolute()
     else:
         # .failcore/runs/run_<timestamp>/
-        run_id = new_run_id()
+        run_id = generate_run_id()
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         run_root = Path("./.failcore/runs").absolute() / f"{run_id}_{timestamp}"
     

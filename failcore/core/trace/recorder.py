@@ -64,6 +64,7 @@ class JsonlTraceRecorder(TraceRecorder):
     JSONL recorder (one event per line).
     - thread-safe (simple lock)
     - line-buffered (flush each write by default)
+    - maintains sequence number per run
     """
 
     def __init__(
@@ -81,6 +82,7 @@ class JsonlTraceRecorder(TraceRecorder):
 
         _ensure_parent_dir(self.path)
         self._lock = threading.Lock()
+        self._seq = 0  # Sequence counter for this run
 
         # Keep file handle open for performance; safe enough for v0.1.
         # If you prefer reopen-per-write, you can change it later.
@@ -92,25 +94,23 @@ class JsonlTraceRecorder(TraceRecorder):
                 self._fp.close()
             except Exception:
                 pass
+    
+    def next_seq(self) -> int:
+        """Get next sequence number (thread-safe)"""
+        with self._lock:
+            self._seq += 1
+            return self._seq
 
     def record(self, event: Any) -> None:
         """
         Convert event -> dict -> json line.
-        Event can be:
-        - dataclass (recommended)
-        - dict-like
-        - any object (fallback to string)
+        Event must be TraceEvent with to_dict() method.
         """
-        payload: Union[Dict[str, Any], str]
-
-        if is_dataclass(event):
-            payload = asdict(event)
-        elif isinstance(event, dict):
-            payload = event
+        # Only accept TraceEvent
+        if hasattr(event, 'to_dict') and callable(getattr(event, 'to_dict')):
+            payload = event.to_dict()
         else:
-            # Try __dict__ for simple objects
-            d = getattr(event, "__dict__", None)
-            payload = d if isinstance(d, dict) else str(event)
+            raise TypeError(f"Event must be TraceEvent with to_dict() method, got {type(event)}")
 
         line = json.dumps(
             payload,
