@@ -82,7 +82,7 @@ class Step:
         if not isinstance(self.id, str) or not self.id.strip():
             raise ValueError("Step.id must be a non-empty string")
         if not isinstance(self.tool, str) or not self.tool.strip():
-            raise ValueError("Step.tools must be a non-empty string")
+            raise ValueError("Step.tool must be a non-empty string")
         if not isinstance(self.params, dict):
             raise ValueError("Step.params must be a dict")
         if not isinstance(self.depends_on, list):
@@ -182,7 +182,7 @@ class StepResult:
         if not isinstance(self.step_id, str) or not self.step_id.strip():
             raise ValueError("StepResult.step_id must be a non-empty string")
         if not isinstance(self.tool, str) or not self.tool.strip():
-            raise ValueError("StepResult.tools must be a non-empty string")
+            raise ValueError("StepResult.tool must be a non-empty string")
         if self.status in (StepStatus.OK,) and self.error is not None:
             raise ValueError("StepResult.error must be None when status is OK")
         if self.status in (StepStatus.FAIL,) and self.error is None:
@@ -225,7 +225,7 @@ def _to_jsonable(x: Any) -> JSONLike:
 def step_to_dict(step: Step) -> Dict[str, JSONLike]:
     return {
         "id": step.id,
-        "tools": step.tool,
+        "tool": step.tool,
         "params": _to_jsonable(step.params),
         "depends_on": _to_jsonable(step.depends_on),
         "meta": _to_jsonable(step.meta),
@@ -244,7 +244,7 @@ def ctx_to_dict(ctx: RunContext) -> Dict[str, JSONLike]:
 def result_to_dict(r: StepResult) -> Dict[str, JSONLike]:
     return {
         "step_id": r.step_id,
-        "tools": r.tool,
+        "tool": r.tool,
         "status": r.status.value,
         "started_at": r.started_at,
         "finished_at": r.finished_at,

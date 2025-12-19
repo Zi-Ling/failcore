@@ -8,7 +8,19 @@ executable steps in a Failcore workflow.
 No side effects on import.
 """
 
-from .step import Step, RunContext, StepResult, StepStatus, StepError, StepOutput, OutputKind, ArtifactRef, utc_now_iso
+from .step import (
+    Step,
+    RunContext,
+    StepResult,
+    StepStatus,
+    StepError,
+    StepOutput,
+    OutputKind,
+    ArtifactRef,
+    utc_now_iso,
+    new_run_id,
+    new_step_id,
+)
 
 __all__ = [
     "Step",
@@ -20,4 +32,6 @@ __all__ = [
     "OutputKind",
     "ArtifactRef",
     "utc_now_iso",
+    "new_run_id",
+    "new_step_id",
 ]
