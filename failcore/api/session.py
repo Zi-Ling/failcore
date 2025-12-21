@@ -10,6 +10,7 @@ from datetime import datetime
 from ..core.step import Step, RunContext, StepResult, generate_step_id, generate_run_id
 from ..core.executor.executor import Executor, ExecutorConfig
 from ..core.tools.registry import ToolRegistry
+from ..core.tools.invoker import ToolInvoker
 from ..core.trace.recorder import JsonlTraceRecorder, NullTraceRecorder, TraceRecorder
 from ..core.validate.validator import ValidatorRegistry
 from ..core.policy.policy import Policy
@@ -118,6 +119,10 @@ class Session:
         
         # Step counter (for generating step_id)
         self._step_counter = 0
+        
+        # Create invoker (unified tool execution interface)
+        # This is the entry point for all adapters
+        self.invoker = ToolInvoker(self._executor, self._ctx)
         
         # Auto-register as the watch session
         from .watch import set_watch_session

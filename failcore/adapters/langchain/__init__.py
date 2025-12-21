@@ -1,44 +1,32 @@
 # /failcore/adapters/langchain/__init__.py
 """
-LangChain adapters.
+LangChain Adapter - Thin translation layer
 
-核心组件：
-- LangChainExecutor: FailCore 执行器包装，用于执行 LangChain 工具
-- wrap_langchain_tool_for_failcore: 工具转换函数
+This adapter ONLY translates LangChain tools to FailCore's ToolSpec.
+Execution is handled by FailCore core, not by this adapter.
 
-注意：
-    使用此适配器需要安装 langchain-core：
-    pip install failcore[langchain]
+Philosophy:
+- Adapter = Translator (not Executor)
+- Execution stays in FailCore core
+- LangChain-specific code isolated here
+
+Usage:
+    from failcore import Session, presets
+    from failcore.adapters.langchain import langchain_tool_to_spec
+    from langchain_core.tools import tool
+    
+    @tool
+    def my_tool(x: int) -> int:
+        return x * 2
+    
+    session = Session(validator=presets.fs_safe())
+    spec = langchain_tool_to_spec(my_tool)
+    session.invoker.register_spec(spec)
+    result = session.invoker.invoke("my_tool", x=5)
 """
 
-# 检查 langchain-core 是否可用
-try:
-    import langchain_core
-    _LANGCHAIN_AVAILABLE = True
-except ImportError:
-    _LANGCHAIN_AVAILABLE = False
-
-from .tool_runner import (
-    LangChainExecutor,
-    ToolResult,
-    ToolExecutionError,
-    wrap_langchain_tool_for_failcore,
-)
+from .mapper import map_langchain_tool
 
 __all__ = [
-    # Executor
-    "LangChainExecutor",
-    "ToolResult",
-    "ToolExecutionError",
-    "wrap_langchain_tool_for_failcore",
+    "map_langchain_tool",
 ]
-
-# 如果 langchain-core 未安装，发出警告
-if not _LANGCHAIN_AVAILABLE:
-    import warnings
-    warnings.warn(
-        "langchain-core not installed. LangChain adapter may not work properly. "
-        "Install with: pip install failcore[langchain]",
-        ImportWarning,
-        stacklevel=2
-    )
