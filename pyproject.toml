@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "failcore"
-version = "0.1.0a1"
+version = "0.1.0a2"
 description = "A minimal execution runtime and tracing toolkit for agent plans."
 readme = "README.md"
 requires-python = ">=3.10"
