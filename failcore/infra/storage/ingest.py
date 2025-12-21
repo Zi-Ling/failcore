@@ -24,14 +24,51 @@ class TraceIngestor:
         self.store = store
         self.step_cache: Dict[tuple, Dict[str, Any]] = {}  # (run_id, step_id, attempt) -> step_data
     
-    def ingest_file(self, trace_path: str) -> Dict[str, int]:
+    def ingest_file(self, trace_path: str, skip_if_exists: bool = False) -> Dict[str, int]:
         """
         Ingest trace file into database
         
+        Args:
+            trace_path: Path to trace.jsonl
+            skip_if_exists: If True, skip if run_id already exists
+        
         Returns:
-            Statistics: {"events": count, "steps": count, "errors": count}
+            Statistics: {"events": count, "steps": count, "errors": count, "skipped": bool}
         """
-        stats = {"events": 0, "steps": 0, "errors": 0, "incomplete": 0}
+        stats = {"events": 0, "steps": 0, "errors": 0, "incomplete": 0, "skipped": False}
+        
+        run_metadata = {
+            "run_id": None,
+            "created_at": None,
+            "workspace": None,
+            "sandbox_root": None,
+            "trace_path": trace_path,
+            "first_event_ts": None,
+            "last_event_ts": None,
+            "total_events": 0,
+            "total_steps": 0,
+        }
+        
+        # Read first event to get run_id
+        with open(trace_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        event = json.loads(line)
+                        run = event.get("run", {})
+                        run_metadata["run_id"] = run.get("run_id")
+                        break
+                    except:
+                        pass
+        
+        # Check if run already exists
+        if skip_if_exists and run_metadata["run_id"]:
+            cursor = self.store.conn.cursor()
+            cursor.execute("SELECT 1 FROM runs WHERE run_id = ?", (run_metadata["run_id"],))
+            if cursor.fetchone():
+                stats["skipped"] = True
+                return stats
         
         # Read and process events
         with open(trace_path, 'r', encoding='utf-8') as f:
@@ -42,6 +79,18 @@ class TraceIngestor:
                 
                 try:
                     event = json.loads(line)
+                    
+                    # Extract run metadata from first event
+                    if not run_metadata["created_at"]:
+                        run = event.get("run", {})
+                        run_metadata["created_at"] = run.get("created_at")
+                        run_metadata["workspace"] = run.get("workspace")
+                        run_metadata["sandbox_root"] = run.get("sandbox_root")
+                        run_metadata["first_event_ts"] = event.get("ts")
+                    
+                    # Update last event timestamp
+                    run_metadata["last_event_ts"] = event.get("ts")
+                    run_metadata["total_events"] += 1
                     
                     # Insert raw event
                     self.store.insert_event(event)
@@ -64,6 +113,12 @@ class TraceIngestor:
             
             self.store.upsert_step(step_data)
             stats["steps"] += 1
+        
+        run_metadata["total_steps"] = stats["steps"]
+        
+        # Upsert run metadata
+        if run_metadata["run_id"]:
+            self.store.upsert_run(run_metadata["run_id"], run_metadata)
         
         self.store.commit()
         

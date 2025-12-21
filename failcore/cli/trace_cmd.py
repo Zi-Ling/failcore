@@ -11,7 +11,10 @@ from failcore.infra.storage import SQLiteStore, TraceIngestor
 def trace_ingest(args):
     """Ingest trace file into database"""
     trace_path = args.trace
-    db_path = args.db or trace_path.replace(".jsonl", ".db")
+    db_path = ".failcore/failcore.db"  # Global shared database
+    
+    # Ensure .failcore directory exists
+    Path(".failcore").mkdir(exist_ok=True)
     
     if not Path(trace_path).exists():
         print(f"Error: Trace file not found: {trace_path}")
@@ -26,16 +29,20 @@ def trace_ingest(args):
         # Initialize schema
         store.init_schema()
         
-        # Ingest file
+        # Ingest file (skip if run_id already exists)
         ingestor = TraceIngestor(store)
-        stats = ingestor.ingest_file(trace_path)
+        stats = ingestor.ingest_file(trace_path, skip_if_exists=True)
         
-        print("✓ Ingest completed")
+        if stats.get("skipped"):
+            print("[SKIPPED] Run already exists in database")
+            return 0
+        
+        print("[OK] Ingest completed")
         print(f"  Events ingested: {stats['events']}")
         print(f"  Steps aggregated: {stats['steps']}")
-        if stats['incomplete'] > 0:
+        if stats.get('incomplete', 0) > 0:
             print(f"  Incomplete steps: {stats['incomplete']}")
-        if stats['errors'] > 0:
+        if stats.get('errors', 0) > 0:
             print(f"  Errors: {stats['errors']}")
         print()
         
@@ -47,15 +54,15 @@ def trace_ingest(args):
         print(f"  Runs: {db_stats['runs']}")
         print()
         
-        if db_stats['status_distribution']:
+        if db_stats.get('status_distribution'):
             print("Status Distribution:")
             for status, count in sorted(db_stats['status_distribution'].items(), key=lambda x: -x[1]):
                 print(f"  {status:15s} {count:5d}")
             print()
         
-        if db_stats['top_tools']:
+        if db_stats.get('tool_distribution'):
             print("Top Tools:")
-            for tool, count in list(db_stats['top_tools'].items())[:5]:
+            for tool, count in list(db_stats['tool_distribution'].items())[:5]:
                 print(f"  {tool:20s} {count:5d}")
     
     return 0
@@ -63,12 +70,12 @@ def trace_ingest(args):
 
 def trace_query(args):
     """Execute SQL query on trace database"""
-    db_path = args.db
-    sql = args.sql
+    db_path = ".failcore/failcore.db"  # Global shared database
+    sql = args.query
     
     if not Path(db_path).exists():
         print(f"Error: Database not found: {db_path}")
-        print("Run 'failcore trace ingest' first")
+        print("Hint: Run 'failcore trace ingest <trace.jsonl>' first")
         return 1
     
     with SQLiteStore(db_path) as store:
@@ -76,134 +83,65 @@ def trace_query(args):
             results = store.query(sql)
             
             if not results:
-                print("(no results)")
+                print("(0 rows)")
                 return 0
             
-            # Print results as table
-            if results:
-                keys = list(results[0].keys())
-                
-                # Print header
-                print(" | ".join(f"{k:20s}" for k in keys))
-                print("-" * (len(keys) * 23))
-                
-                # Print rows
-                for row in results:
-                    print(" | ".join(f"{str(row[k])[:20]:20s}" for k in keys))
-                
-                print()
-                print(f"({len(results)} row{'s' if len(results) != 1 else ''})")
-        
+            # Get column names
+            columns = list(results[0].keys())
+            
+            # Print header
+            header = " | ".join(f"{col:20s}" for col in columns)
+            print(header)
+            print("-" * len(header))
+            
+            # Print rows
+            for row in results:
+                values = [str(row[col]) if row[col] is not None else "NULL" for col in columns]
+                print(" | ".join(f"{val:20s}" for val in values))
+            
+            print()
+            print(f"({len(results)} rows)")
+            
         except Exception as e:
-            print(f"Query error: {e}")
+            print(f"Error executing query: {e}")
             return 1
     
     return 0
 
 
 def trace_stats(args):
-    """Show trace statistics (from jsonl or db)"""
-    source = args.source
+    """Show trace database statistics"""
+    db_path = ".failcore/failcore.db"  # Global shared database
+    run_id = getattr(args, 'run', None)
     
-    # Check if it's a database
-    if source.endswith(".db") and Path(source).exists():
-        return _stats_from_db(source)
-    elif source.endswith(".jsonl") and Path(source).exists():
-        return _stats_from_jsonl(source)
-    else:
-        print(f"Error: Unknown source type or file not found: {source}")
-        print("Supported: .jsonl or .db files")
+    if not Path(db_path).exists():
+        print(f"Error: Database not found: {db_path}")
+        print("Hint: Run 'failcore trace ingest <trace.jsonl>' first")
         return 1
-
-
-def _stats_from_db(db_path: str):
-    """Show stats from database"""
+    
     with SQLiteStore(db_path) as store:
-        stats = store.get_stats()
+        stats = store.get_stats(run_id=run_id)
         
         print(f"Database Statistics: {Path(db_path).name}")
-        print(f"{'='*60}")
+        if run_id:
+            print(f"Run Filter: {run_id}")
+        print("="*60)
         print(f"Total Events: {stats['events']}")
         print(f"Total Steps: {stats['steps']}")
         print(f"Runs: {stats['runs']}")
         print()
         
-        if stats['status_distribution']:
+        if stats.get('status_distribution'):
             print("Status Distribution:")
-            for status, count in sorted(stats['status_distribution'].items(), key=lambda x: -x[1]):
-                pct = count / stats['steps'] * 100 if stats['steps'] > 0 else 0
-                print(f"  {status:15s} {count:5d} ({pct:5.1f}%)")
+            total = sum(stats['status_distribution'].values())
+            for status, count in stats['status_distribution'].items():
+                pct = count / total * 100 if total > 0 else 0
+                print(f"  {status:20s} {count:3d} ({pct:5.1f}%)")
             print()
         
-        if stats['top_tools']:
+        if stats.get('tool_distribution'):
             print("Top Tools:")
-            for tool, count in stats['top_tools'].items():
-                print(f"  {tool:30s} {count:5d}")
-    
-    return 0
-
-
-def _stats_from_jsonl(trace_path: str):
-    """Show stats from jsonl (without database)"""
-    from collections import Counter
-    
-    events = []
-    steps_by_status = Counter()
-    tools = Counter()
-    event_types = Counter()
-    
-    with open(trace_path, 'r') as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            
-            try:
-                event = json.loads(line)
-                events.append(event)
-                
-                evt = event.get("event", {})
-                evt_type = evt.get("type", "UNKNOWN")
-                event_types[evt_type] += 1
-                
-                step = evt.get("step", {})
-                if step.get("tool"):
-                    tools[step["tool"]] += 1
-                
-                if evt_type == "STEP_END":
-                    data = evt.get("data", {})
-                    result = data.get("result", {})
-                    status = result.get("status", "UNKNOWN")
-                    steps_by_status[status] += 1
-            
-            except json.JSONDecodeError:
-                continue
-    
-    print(f"Trace Statistics: {Path(trace_path).name}")
-    print(f"{'='*60}")
-    print(f"Total Events: {len(events)}")
-    print(f"Total Steps: {sum(steps_by_status.values())}")
-    print()
-    
-    print("Event Types:")
-    for evt_type, count in event_types.most_common():
-        print(f"  {evt_type:25s} {count:5d}")
-    print()
-    
-    if steps_by_status:
-        print("Status Distribution:")
-        total_steps = sum(steps_by_status.values())
-        for status, count in steps_by_status.most_common():
-            pct = count / total_steps * 100 if total_steps > 0 else 0
-            print(f"  {status:15s} {count:5d} ({pct:5.1f}%)")
-        print()
-    
-    if tools:
-        print("Top Tools:")
-        for tool, count in tools.most_common(10):
-            print(f"  {tool:30s} {count:5d}")
-        print()
-    
-    print("Note: For faster analysis, run 'failcore trace ingest' to create a database")
+            for tool, count in sorted(stats['tool_distribution'].items(), key=lambda x: -x[1])[:10]:
+                print(f"  {tool:40s} {count:3d}")
     
     return 0

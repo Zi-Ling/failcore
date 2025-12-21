@@ -23,11 +23,11 @@ def validate_trace(args):
     is_valid, errors = validator.validate_file(trace_path)
     
     if is_valid:
-        print("✓ Validation passed")
+        print("[OK] Validation passed")
         print(f"  All events conform to spec")
         return 0
     else:
-        print(f"✗ Validation failed with {len(errors)} error(s)")
+        print(f"[ERROR] Validation failed with {len(errors)} error(s)")
         print()
         
         # Group errors by code

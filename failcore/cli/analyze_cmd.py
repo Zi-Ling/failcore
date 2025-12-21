@@ -30,9 +30,9 @@ def analyze_command(args):
         replayer.print_analysis(run_id=run_id, detailed=detailed)
         
     except FileNotFoundError:
-        print(f"\n✗ 错误: 找不到文件 {trace_file}")
+        print(f"\n[ERROR] Cannot find file: {trace_file}")
     except Exception as e:
-        print(f"\n✗ 错误: {e}")
+        print(f"\n[ERROR] {e}")
         import traceback
         traceback.print_exc()
 

@@ -54,6 +54,22 @@ class SQLiteStore:
             )
         """)
         
+        # Runs table - track all runs
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS runs (
+                run_id TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL,
+                workspace TEXT,
+                sandbox_root TEXT,
+                trace_path TEXT,
+                first_event_ts TEXT,
+                last_event_ts TEXT,
+                total_events INTEGER DEFAULT 0,
+                total_steps INTEGER DEFAULT 0,
+                ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
         # Events table - raw events
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS events (
@@ -107,12 +123,36 @@ class SQLiteStore:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_steps_phase ON steps(phase)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_steps_run_id ON steps(run_id)")
         
+        # Create index for runs
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_runs_created_at ON runs(created_at)")
+        
         # Store schema version
         cursor.execute("""
             INSERT OR REPLACE INTO _metadata (key, value)
             VALUES ('schema_version', ?)
         """, (self.SCHEMA_VERSION,))
         
+        self.conn.commit()
+    
+    def upsert_run(self, run_id: str, run_data: Dict[str, Any]):
+        """Insert or update run metadata"""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            INSERT OR REPLACE INTO runs 
+            (run_id, created_at, workspace, sandbox_root, trace_path, 
+             first_event_ts, last_event_ts, total_events, total_steps)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            run_id,
+            run_data.get("created_at"),
+            run_data.get("workspace"),
+            run_data.get("sandbox_root"),
+            run_data.get("trace_path"),
+            run_data.get("first_event_ts"),
+            run_data.get("last_event_ts"),
+            run_data.get("total_events", 0),
+            run_data.get("total_steps", 0),
+        ))
         self.conn.commit()
     
     def insert_event(self, event: Dict[str, Any]):
@@ -187,36 +227,42 @@ class SQLiteStore:
         rows = cursor.fetchall()
         return [dict(row) for row in rows]
     
-    def get_stats(self) -> Dict[str, Any]:
-        """Get database statistics"""
+    def get_stats(self, run_id: Optional[str] = None) -> Dict[str, Any]:
+        """Get database statistics, optionally filtered by run_id"""
         cursor = self.conn.cursor()
         
+        where_clause = f"WHERE run_id = '{run_id}'" if run_id else ""
+        
         # Count events
-        cursor.execute("SELECT COUNT(*) as count FROM events")
+        cursor.execute(f"SELECT COUNT(*) as count FROM events {where_clause}")
         event_count = cursor.fetchone()["count"]
         
         # Count steps
-        cursor.execute("SELECT COUNT(*) as count FROM steps")
+        cursor.execute(f"SELECT COUNT(*) as count FROM steps {where_clause}")
         step_count = cursor.fetchone()["count"]
         
         # Count runs
-        cursor.execute("SELECT COUNT(DISTINCT run_id) as count FROM events")
-        run_count = cursor.fetchone()["count"]
+        if run_id:
+            run_count = 1
+        else:
+            cursor.execute("SELECT COUNT(*) as count FROM runs")
+            run_count = cursor.fetchone()["count"]
         
         # Status distribution
-        cursor.execute("""
-            SELECT status, COUNT(*) as count
-            FROM steps
-            WHERE status IS NOT NULL
+        cursor.execute(f"""
+            SELECT status, COUNT(*) as count 
+            FROM steps 
+            WHERE status IS NOT NULL {f"AND run_id = '{run_id}'" if run_id else ""}
             GROUP BY status
             ORDER BY count DESC
         """)
         status_dist = {row["status"]: row["count"] for row in cursor.fetchall()}
         
         # Tool distribution
-        cursor.execute("""
+        cursor.execute(f"""
             SELECT tool, COUNT(*) as count
             FROM steps
+            {where_clause}
             GROUP BY tool
             ORDER BY count DESC
             LIMIT 10
@@ -228,7 +274,7 @@ class SQLiteStore:
             "steps": step_count,
             "runs": run_count,
             "status_distribution": status_dist,
-            "top_tools": tool_dist,
+            "tool_distribution": tool_dist,
         }
     
     def commit(self):

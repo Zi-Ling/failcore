@@ -1,303 +1,235 @@
 # failcore/cli/show_cmd.py
 """
-Trace viewing command with multiple views
+Show command - Display run/step details from database
 """
 
-import json
 from pathlib import Path
-from collections import defaultdict
-from typing import List, Dict, Any
+from failcore.infra.storage import SQLiteStore
 
 
 def show_trace(args):
-    """Show trace with various views"""
-    trace_path = args.trace
+    """
+    Show run/step details from database
     
-    if not Path(trace_path).exists():
-        print(f"Error: File not found: {trace_path}")
+    Usage:
+    - failcore show                    # Show last run
+    - failcore show --last             # Show last run
+    - failcore show --run <run_id>     # Show specific run
+    - failcore show --steps            # Show steps list
+    - failcore show --errors           # Only errors/blocked
+    - failcore show --step <step_id>   # Show step detail
+    """
+    db_path = ".failcore/failcore.db"
+    
+    if not Path(db_path).exists():
+        print(f"Error: Database not found: {db_path}")
+        print("Hint: Run 'failcore sample' or 'failcore trace ingest <trace.jsonl>' first")
         return 1
     
-    # Load events
-    events = []
-    with open(trace_path, 'r') as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                try:
-                    events.append(json.loads(line))
-                except json.JSONDecodeError:
-                    continue
+    run_id = args.run
+    show_last = args.last or (not run_id and not args.step)  # Default to last
+    show_steps = args.steps
+    show_errors = args.errors
+    step_id = args.step
+    verbose = args.verbose
     
-    if not events:
-        print("No valid events found in trace")
+    with SQLiteStore(db_path) as store:
+        # Get run_id
+        if show_last or not run_id:
+            # Get last run
+            cursor = store.conn.cursor()
+            cursor.execute("""
+                SELECT run_id FROM runs
+                ORDER BY created_at DESC
+                LIMIT 1
+            """)
+            row = cursor.fetchone()
+            if not row:
+                print("No runs found in database")
+                return 1
+            run_id = row["run_id"]
+        
+        # Show step detail
+        if step_id:
+            return _show_step_detail(store, run_id, step_id, verbose)
+        
+        # Show run summary
+        return _show_run_summary(store, run_id, show_steps, show_errors, verbose)
+
+
+def _show_run_summary(store: SQLiteStore, run_id: str, show_steps: bool, show_errors: bool, verbose: bool):
+    """Show run summary and optionally steps"""
+    cursor = store.conn.cursor()
+    
+    # Get run info
+    cursor.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,))
+    run = cursor.fetchone()
+    
+    if not run:
+        print(f"Run not found: {run_id}")
         return 1
     
-    # Route to appropriate view
-    if args.steps:
-        show_steps_table(events)
-    elif args.errors:
-        show_errors(events)
-    elif args.step:
-        show_step_detail(events, args.step, args.verbose)
-    elif args.stats:
-        show_stats(events)
-    elif args.run:
-        show_run(events, args.run)
+    # Print run header
+    print("="*80)
+    print(f"Run: {run['run_id']}")
+    print("="*80)
+    print(f"Created: {run['created_at']}")
+    if run['trace_path']:
+        print(f"Trace: {run['trace_path']}")
+    print(f"Events: {run['total_events']}")
+    print(f"Steps: {run['total_steps']}")
+    print()
+    
+    # Get steps
+    where_clause = "WHERE run_id = ?"
+    params = [run_id]
+    
+    if show_errors:
+        where_clause += " AND status IN ('BLOCKED', 'FAIL')"
+    
+    cursor.execute(f"""
+        SELECT step_id, tool, status, phase, duration_ms, error_code, error_message,
+               has_policy_denied, has_output_normalized
+        FROM steps
+        {where_clause}
+        ORDER BY start_ts
+    """, params)
+    
+    steps = cursor.fetchall()
+    
+    if not steps:
+        print("No steps found" + (" (no errors)" if show_errors else ""))
+        return 0
+    
+    # Print steps
+    if show_steps or show_errors:
+        print("Steps:")
+        print("-"*80)
+        for idx, step in enumerate(steps, 1):
+            _print_step_row(idx, step, verbose)
     else:
-        # Default: summary
-        show_summary(events)
+        # Summary only
+        status_counts = {}
+        for step in steps:
+            status = step['status'] or 'UNKNOWN'
+            status_counts[status] = status_counts.get(status, 0) + 1
+        
+        print("Status Summary:")
+        for status, count in sorted(status_counts.items()):
+            marker = {
+                'OK': '[OK]',
+                'FAIL': '[FAIL]',
+                'BLOCKED': '[BLOCKED]',
+            }.get(status, f'[{status}]')
+            print(f"  {marker:12s} {count}")
+        
+        print()
+        print("Use --steps to see step list")
+        print("Use --errors to see only errors")
+        print(f"Use --step <step_id> to see step details")
     
     return 0
 
 
-def show_summary(events: List[Dict[str, Any]]):
-    """Show trace summary"""
-    runs = set()
-    steps = set()
-    event_types = defaultdict(int)
+def _print_step_row(idx: int, step: dict, verbose: bool):
+    """Print a single step row"""
+    status_marker = {
+        'OK': '[OK]',
+        'FAIL': '[FAIL]',
+        'BLOCKED': '[BLOCKED]',
+        'INCOMPLETE': '[INCOMPLETE]',
+    }.get(step['status'], f"[{step['status']}]")
     
-    for evt in events:
-        run_id = evt.get("run", {}).get("run_id")
-        if run_id:
-            runs.add(run_id)
-        
-        event_type = evt.get("event", {}).get("type")
-        if event_type:
-            event_types[event_type] += 1
-        
-        step = evt.get("event", {}).get("step", {})
-        if step.get("id"):
-            steps.add(step["id"])
+    print(f"\n[{idx}] {step['step_id']}")
+    print(f"    Tool: {step['tool']}")
+    print(f"    Status: {status_marker}")
     
-    print(f"Trace Summary")
-    print(f"{'='*60}")
-    print(f"Total Events: {len(events)}")
-    print(f"Runs: {len(runs)}")
-    print(f"Steps: {len(steps)}")
-    print()
-    print(f"Event Types:")
-    for evt_type, count in sorted(event_types.items()):
-        print(f"  {evt_type:25s} {count:5d}")
+    if step['duration_ms']:
+        print(f"    Duration: {step['duration_ms']}ms")
+    
+    if step['has_policy_denied']:
+        print(f"    [POLICY] Denied")
+    
+    if step['has_output_normalized']:
+        print(f"    [OUTPUT] Normalized")
+    
+    if step['error_code']:
+        print(f"    Error: {step['error_code']}")
+        if verbose and step['error_message']:
+            print(f"      {step['error_message']}")
 
 
-def show_steps_table(events: List[Dict[str, Any]]):
-    """Show steps as a table"""
-    steps = {}
+def _show_step_detail(store: SQLiteStore, run_id: str, step_id: str, verbose: bool):
+    """Show detailed step information"""
+    cursor = store.conn.cursor()
     
-    for evt in events:
-        event = evt.get("event", {})
-        step = event.get("step", {})
-        step_id = step.get("id")
-        
-        if not step_id:
-            continue
-        
-        if step_id not in steps:
-            steps[step_id] = {
-                "id": step_id,
-                "tool": step.get("tool", ""),
-                "attempt": step.get("attempt", 1),
-                "status": "PENDING",
-                "phase": "-",
-                "duration_ms": 0,
-            }
-        
-        if event.get("type") == "STEP_END":
-            data = event.get("data", {})
-            result = data.get("result", {})
-            steps[step_id].update({
-                "status": result.get("status", "UNKNOWN"),
-                "phase": result.get("phase", "-"),
-                "duration_ms": result.get("duration_ms", 0),
-            })
+    # Get step
+    cursor.execute("""
+        SELECT * FROM steps
+        WHERE run_id = ? AND step_id = ?
+    """, (run_id, step_id))
     
-    print(f"Steps Table")
-    print(f"{'='*100}")
-    print(f"{'ID':<12} {'Tool':<20} {'Attempt':<8} {'Status':<10} {'Phase':<10} {'Duration (ms)':>15}")
-    print(f"{'-'*100}")
+    step = cursor.fetchone()
     
-    for step in sorted(steps.values(), key=lambda s: s["id"]):
-        print(f"{step['id']:<12} {step['tool']:<20} {step['attempt']:<8} {step['status']:<10} {step['phase']:<10} {step['duration_ms']:>15}")
-
-
-def show_errors(events: List[Dict[str, Any]]):
-    """Show aggregated errors"""
-    policy_denies = []
-    blocked = []
-    schema_mismatches = []
-    other_errors = []
+    if not step:
+        print(f"Step not found: {step_id} in run {run_id}")
+        return 1
     
-    for evt in events:
-        event = evt.get("event", {})
-        evt_type = event.get("type")
-        
-        if evt_type == "POLICY_DENIED":
-            policy_denies.append(evt)
-        elif evt_type == "OUTPUT_NORMALIZED":
-            data = event.get("data", {})
-            normalize = data.get("normalize", {})
-            if normalize.get("decision") == "mismatch":
-                schema_mismatches.append(evt)
-        elif evt_type == "STEP_END":
-            data = event.get("data", {})
-            result = data.get("result", {})
-            if result.get("status") == "BLOCKED":
-                blocked.append(evt)
-            elif result.get("status") == "FAIL":
-                other_errors.append(evt)
-    
-    print(f"Errors Summary")
-    print(f"{'='*60}")
-    print(f"Policy Denies: {len(policy_denies)}")
-    print(f"Blocked Steps: {len(blocked)}")
-    print(f"Schema Mismatches: {len(schema_mismatches)}")
-    print(f"Other Failures: {len(other_errors)}")
+    # Print step detail
+    print("="*80)
+    print(f"Step: {step['step_id']}")
+    print("="*80)
+    print(f"Run: {step['run_id']}")
+    print(f"Tool: {step['tool']}")
+    print(f"Attempt: {step['attempt']}")
+    print(f"Status: {step['status']}")
+    print(f"Phase: {step['phase']}")
     print()
     
-    if policy_denies:
-        print(f"Policy Denies:")
-        for evt in policy_denies[:5]:
-            event = evt.get("event", {})
-            step = event.get("step", {})
-            data = event.get("data", {})
-            policy = data.get("policy", {})
-            print(f"  [{evt.get('seq', '?')}] {step.get('id', '?'):12} - {policy.get('reason', 'No reason')}")
-        if len(policy_denies) > 5:
-            print(f"  ... and {len(policy_denies) - 5} more")
+    print("Timing:")
+    print(f"  Started: {step['start_ts']}")
+    print(f"  Finished: {step['end_ts']}")
+    print(f"  Duration: {step['duration_ms']}ms")
+    print()
+    
+    if step['fingerprint_id']:
+        print(f"Fingerprint: {step['fingerprint_id']}")
         print()
     
-    if schema_mismatches:
-        print(f"Schema Mismatches:")
-        for evt in schema_mismatches[:5]:
-            event = evt.get("event", {})
-            step = event.get("step", {})
-            data = event.get("data", {})
-            normalize = data.get("normalize", {})
-            print(f"  [{evt.get('seq', '?')}] {step.get('id', '?'):12} - expected={normalize.get('expected_kind')}, got={normalize.get('observed_kind')}")
-        if len(schema_mismatches) > 5:
-            print(f"  ... and {len(schema_mismatches) - 5} more")
-
-
-def show_step_detail(events: List[Dict[str, Any]], step_id: str, verbose: bool):
-    """Show detailed lifecycle for a specific step"""
-    step_events = []
-    for evt in events:
-        event = evt.get("event", {})
-        step = event.get("step", {})
-        if step.get("id") == step_id:
-            step_events.append(evt)
+    # Flags
+    flags = []
+    if step['has_policy_denied']:
+        flags.append("Policy Denied")
+    if step['has_output_normalized']:
+        flags.append("Output Normalized")
     
-    if not step_events:
-        print(f"No events found for step: {step_id}")
-        return
-    
-    print(f"Step Detail: {step_id}")
-    print(f"{'='*80}")
-    
-    for evt in step_events:
-        seq = evt.get("seq", "?")
-        ts = evt.get("ts", "?")[:19]  # Truncate timestamp
-        event = evt.get("event", {})
-        evt_type = event.get("type", "UNKNOWN")
-        
-        print(f"[{seq:3}] {ts} {evt_type}")
-        
-        if verbose:
-            # Show more details
-            if evt_type == "STEP_START":
-                data = event.get("data", {})
-                payload = data.get("payload", {})
-                inp = payload.get("input", {})
-                print(f"     Tool: {event.get('step', {}).get('tool')}")
-                print(f"     Params: {inp.get('summary', {})}")
-            elif evt_type == "STEP_END":
-                data = event.get("data", {})
-                result = data.get("result", {})
-                print(f"     Status: {result.get('status')}")
-                print(f"     Phase: {result.get('phase')}")
-                print(f"     Duration: {result.get('duration_ms')}ms")
-                if result.get("error"):
-                    error = result["error"]
-                    print(f"     Error: [{error.get('code')}] {error.get('message')}")
-            elif evt_type == "POLICY_DENIED":
-                data = event.get("data", {})
-                policy = data.get("policy", {})
-                print(f"     Rule: {policy.get('rule_id')} - {policy.get('rule_name')}")
-                print(f"     Reason: {policy.get('reason')}")
+    if flags:
+        print("Flags:")
+        for flag in flags:
+            print(f"  - {flag}")
         print()
-
-
-def show_stats(events: List[Dict[str, Any]]):
-    """Show statistics"""
-    policy_denies = 0
-    kind_mismatches = 0
-    durations = []
-    status_counts = defaultdict(int)
-    phase_counts = defaultdict(int)
     
-    for evt in events:
-        event = evt.get("event", {})
-        evt_type = event.get("type")
+    # Error
+    if step['error_code']:
+        print("Error:")
+        print(f"  Code: {step['error_code']}")
+        print(f"  Message: {step['error_message']}")
+        print()
+    
+    # Get related events if verbose
+    if verbose:
+        cursor.execute("""
+            SELECT seq, ts, type, level
+            FROM events
+            WHERE run_id = ? AND step_id = ?
+            ORDER BY seq
+        """, (run_id, step_id))
         
-        if evt_type == "POLICY_DENIED":
-            policy_denies += 1
-        elif evt_type == "OUTPUT_NORMALIZED":
-            data = event.get("data", {})
-            if data.get("normalize", {}).get("decision") == "mismatch":
-                kind_mismatches += 1
-        elif evt_type == "STEP_END":
-            data = event.get("data", {})
-            result = data.get("result", {})
-            status = result.get("status")
-            phase = result.get("phase")
-            duration = result.get("duration_ms", 0)
-            
-            if status:
-                status_counts[status] += 1
-            if phase:
-                phase_counts[phase] += 1
-            if duration:
-                durations.append(duration)
-    
-    avg_duration = sum(durations) / len(durations) if durations else 0
-    
-    print(f"Trace Statistics")
-    print(f"{'='*60}")
-    print(f"Policy Denies: {policy_denies}")
-    print(f"Output Kind Mismatches: {kind_mismatches}")
-    print(f"Average Duration: {avg_duration:.2f}ms")
-    print()
-    print(f"Status Distribution:")
-    for status, count in sorted(status_counts.items()):
-        print(f"  {status:15s} {count:5d}")
-    print()
-    print(f"Phase Distribution:")
-    for phase, count in sorted(phase_counts.items()):
-        print(f"  {phase:15s} {count:5d}")
-
-
-def show_run(events: List[Dict[str, Any]], run_id: str):
-    """Show events for specific run"""
-    run_events = [evt for evt in events if evt.get("run", {}).get("run_id") == run_id]
-    
-    if not run_events:
-        print(f"No events found for run: {run_id}")
-        return
-    
-    print(f"Run: {run_id}")
-    print(f"{'='*80}")
-    print(f"Events: {len(run_events)}")
-    print()
-    
-    # Show timeline
-    for evt in run_events[:20]:  # Show first 20
-        seq = evt.get("seq", "?")
-        ts = evt.get("ts", "?")[:19]
-        evt_type = evt.get("event", {}).get("type", "UNKNOWN")
-        step = evt.get("event", {}).get("step", {})
-        step_id = step.get("id", "")
+        events = cursor.fetchall()
         
-        print(f"[{seq:3}] {ts} {evt_type:25s} {step_id}")
+        if events:
+            print("Events:")
+            for evt in events:
+                print(f"  [{evt['seq']:3d}] {evt['type']:25s} ({evt['level']})")
     
-    if len(run_events) > 20:
-        print(f"... and {len(run_events) - 20} more events")
+    return 0

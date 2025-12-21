@@ -9,6 +9,10 @@ from failcore.cli.show_cmd import show_trace
 from failcore.cli.validate_cmd import validate_trace
 from failcore.cli.trace_cmd import trace_ingest, trace_query, trace_stats
 from failcore.cli.replay_cmd import replay_trace, replay_diff
+from failcore.cli.list_cmd import list_runs
+from failcore.infra.storage import SQLiteStore, TraceIngestor
+from failcore.infra.storage import SQLiteStore, TraceIngestor
+from pathlib import Path
 
 
 def run_sample(args):
@@ -97,6 +101,9 @@ def run_sample(args):
     print(f"\n  Workspace: {run_root_rel}")
     print(f"  Safe to delete after review")
     print(f"{'='*70}\n")
+    
+    # Auto-ingest to database
+    _auto_ingest(trace_path)
 
 
 def _register_sample_tools(session, sandbox):
@@ -299,6 +306,27 @@ def _act3_replay(trace_path):
     print("[VALUE] FailCore provides offline forensics - replay, attribute, write rules, not \"hope to reproduce\"")
 
 
+def _auto_ingest(trace_path: str):
+    """Auto-ingest trace to database after run completes"""
+    db_path = ".failcore/failcore.db"
+    
+    # Ensure .failcore directory exists
+    Path(".failcore").mkdir(exist_ok=True)
+    
+    try:
+        with SQLiteStore(db_path) as store:
+            store.init_schema()
+            ingestor = TraceIngestor(store)
+            stats = ingestor.ingest_file(trace_path, skip_if_exists=True)
+            
+            if not stats.get("skipped"):
+                print(f"\n[AUTO-INGEST] Trace ingested to {db_path}")
+                print(f"              Use 'failcore show' to view")
+    except Exception as e:
+        # Don't fail the sample command if ingest fails
+        print(f"\n[WARNING] Auto-ingest failed: {e}")
+
+
 def main():
     parser = argparse.ArgumentParser(
         "failcore",
@@ -320,15 +348,18 @@ def main():
     validate_p = sub.add_parser("validate", help="Validate trace file against v0.1.1 spec")
     validate_p.add_argument("trace", help="Path to trace file")
 
-    # show - display trace with various views
-    show_p = sub.add_parser("show", help="Show trace with various views")
-    show_p.add_argument("trace", help="Path to trace file")
-    show_p.add_argument("--run", help="Filter by run_id")
-    show_p.add_argument("--steps", action="store_true", help="Show steps table")
-    show_p.add_argument("--errors", action="store_true", help="Show errors summary")
+    # list - list recent runs
+    list_p = sub.add_parser("list", help="List recent runs")
+    list_p.add_argument("--limit", type=int, default=10, help="Number of runs to show (default: 10)")
+    
+    # show - display run/step details
+    show_p = sub.add_parser("show", help="Show run/step details")
+    show_p.add_argument("--run", help="Show specific run_id")
+    show_p.add_argument("--last", action="store_true", help="Show last run (default)")
+    show_p.add_argument("--steps", action="store_true", help="Show steps list")
+    show_p.add_argument("--errors", action="store_true", help="Show only errors/blocked")
     show_p.add_argument("--step", help="Show specific step detail")
-    show_p.add_argument("--verbose", action="store_true", help="Verbose output for --step")
-    show_p.add_argument("--stats", action="store_true", help="Show statistics")
+    show_p.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
 
     # trace - trace management commands
     trace_p = sub.add_parser("trace", help="Trace management (ingest, query, stats)")
@@ -337,16 +368,14 @@ def main():
     # trace ingest
     ingest_p = trace_sub.add_parser("ingest", help="Ingest trace.jsonl into database")
     ingest_p.add_argument("trace", help="Path to trace.jsonl file")
-    ingest_p.add_argument("--db", help="Database path (default: <trace>.db)")
     
     # trace query
     query_p = trace_sub.add_parser("query", help="Execute SQL query on trace database")
-    query_p.add_argument("db", help="Path to database file")
-    query_p.add_argument("sql", help="SQL query to execute")
+    query_p.add_argument("query", help="SQL query to execute")
     
     # trace stats
     stats_p = trace_sub.add_parser("stats", help="Show trace statistics")
-    stats_p.add_argument("source", help="Path to .jsonl or .db file")
+    stats_p.add_argument("--run", help="Filter by run_id")
 
     # replay - replay commands
     replay_p = sub.add_parser("replay", help="Replay execution from trace")
@@ -376,6 +405,8 @@ def main():
 
     if args.command == "validate":
         return validate_trace(args)
+    elif args.command == "list":
+        return list_runs(args)
     elif args.command == "show":
         return show_trace(args)
     elif args.command == "sample":

@@ -49,7 +49,7 @@ Context Manager:
 __version__ = "0.1.0"
 
 # User-facing API (main entry point)
-from .api import run, Session, Result, presets
+from .api import run, Session, Result, presets, watch, set_watch_session, WatchContext
 
 # Core types (optional imports)
 from .core.step import (
@@ -79,6 +79,9 @@ __all__ = [
     "Session",
     "Result",
     "presets",
+    "watch",
+    "set_watch_session",
+    "WatchContext",
     
     # Core types
     "Step",
