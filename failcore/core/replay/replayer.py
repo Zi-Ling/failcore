@@ -100,7 +100,7 @@ class Replayer:
             params: Tool parameters
             fingerprint: Current fingerprint
             current_policy_decision: (allowed, reason) if policy was checked
-        
+            
         Returns:
             ReplayResult with hit/miss/diff information
         """

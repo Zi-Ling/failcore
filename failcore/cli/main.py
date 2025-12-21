@@ -358,10 +358,14 @@ def main():
     replay_run_p.add_argument("--mode", choices=["report", "mock"], default="report",
                              help="Replay mode: report (audit) or mock (inject outputs)")
     replay_run_p.add_argument("--run", help="Filter by run_id")
+    replay_run_p.add_argument("--format", choices=["text", "json"], default="text",
+                             help="Output format")
     
     # replay diff
     replay_diff_p = replay_sub.add_parser("diff", help="Show policy/output diffs")
     replay_diff_p.add_argument("trace", help="Path to trace.jsonl file")
+    replay_diff_p.add_argument("--format", choices=["text", "json"], default="text",
+                             help="Output format")
 
     args = parser.parse_args()
 
