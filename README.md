@@ -1,105 +1,125 @@
 # FailCore — A Deterministic Execution Runtime for AI Agents
 
+> **Status:** Beta (0.1.x) · PyPI available · CLI included  
+> Install: `pip install failcore` · Try: `failcore sample`
+
 > *“Success has many fathers, but failure has its own core.”*
 
-## FailCore is a Fail-Fast execution runtime for AI agents.
+FailCore is a **fail-fast execution runtime** for AI agents.
 
-It is designed to stop unsafe or invalid actions early, preserve execution state, and make failures auditable.
+It does not try to make agents smarter — it makes them **reliable**.
 
-FailCore is a lightweight, production-grade execution runtime for AI Agents.  
-It does **not** aim to make agents smarter — it makes them **reliable**.
-
-Most agent frameworks focus on planning and reasoning. FailCore focuses on what happens **after** a plan is generated: execution correctness, persistence, auditability, and safe recovery from failure.
-
-By introducing **trace-based persistence** (append-only, replayable execution logs) and **fail-fast validation** at the atomic tool-calling level, FailCore enables breakpoint-resume execution for complex, long-running LLM workflows.
+Most agent frameworks focus on planning and reasoning.  
+FailCore focuses on what happens **after a plan is generated**:
+execution correctness, persistence, auditability, and safe recovery from failure.
 
 ---
 
 ## Why FailCore?
 
-Most AI agent systems today operate in a fragile “best-effort” mode:
+Modern AI agent systems often run in a fragile, best-effort mode:
 
 - **Expensive retries**  
-  If a 10-step task fails at step 9, the entire workflow restarts, wasting time and tokens.
+  If a 10-step workflow fails at step 9, the entire chain restarts.
 
 - **Opaque state**  
-  When an agent hallucinates or crashes, it is difficult to reconstruct the exact execution context that caused the failure.
+  When an agent hallucinates or crashes, it is hard to reconstruct *what actually happened*.
 
 - **Uncontrolled execution**  
-  Granting agents permission to perform sensitive actions is risky without an atomic interceptor and an auditable trail.
+  Granting agents real permissions without guardrails is dangerous.
 
-FailCore acts as the **Black Box** (flight data recorder) and **Airbag** for AI agent execution.
-
----
-
-## Core Features
-
-- **Instant Rehydration (Breakpoint Resume)**  
-  Smart replay based on a deterministic fingerprint (e.g., `input_hash`). If a step succeeded previously, FailCore replays the result instantly and skips redundant execution.
-
-- **Audit-Grade Tracing**  
-  Records every tool call’s inputs, outputs, latency, and environment snapshot in an append-only JSONL trace.
-
-- **Execution Guardrails (Policy Gate)**  
-  Validates inputs and blocks risky operations before they touch production systems.
-
-- **Framework-Agnostic Integration**  
-  Designed to be embedded beneath LangChain, AutoGen, CrewAI, or custom Python runtimes.
-
-- **Cost Attribution**  
-  Computes time/token savings gained from replay and early failure detection.
+FailCore acts as the **Black Box (flight data recorder)** and **Airbag** for AI agent execution.
 
 ---
 
 ## Quick Start
 
-### 1) Install
+### Install
 
-    uv venv
-    uv pip install -e .
+```bash
+pip install failcore
+```
+
+### Try the built-in demo
+
+```bash
+failcore sample
+failcore show
+```
+
+The demo showcases:
+- Policy interception (permission boundaries)
+- Output contract drift detection (TEXT vs JSON)
+- Offline replay from execution trace
 
 ---
 
-## Architecture: The “Black Box” Protocol
+## A Concrete Failure Scenario
+
+A 10-step agent workflow fails at step 9.
+
+**Without FailCore**
+- The entire workflow restarts
+- All previous tool calls are re-executed
+- Root cause is difficult to reproduce
+
+**With FailCore**
+- Steps 1–8 are replayed instantly from trace
+- Only the failing step is re-executed
+- Full inputs/outputs are inspectable offline
+
+---
+
+## Core Features
+
+- **Deterministic Replay (Breakpoint Resume)**  
+  Previously successful steps are replayed instantly using execution fingerprints.
+
+- **Audit-Grade Tracing**  
+  Append-only JSONL traces capture inputs, outputs, latency, and failure reasons.
+
+- **Execution Guardrails (Policy Gate)**  
+  Unsafe or invalid actions are blocked before execution.
+
+- **Framework-Agnostic Design**  
+  Can be embedded beneath LangChain, AutoGen, CrewAI, or custom runtimes.
+
+- **Cost Attribution (experimental)**  
+  Enables measuring time and execution savings gained from replay.
+
+---
+
+## Architecture: The "Black Box" Protocol
 
 FailCore follows a strict **Verify-then-Run** lifecycle:
 
-1. **Resolve** — generate a unique fingerprint for the current step.
-2. **Validate** — check inputs against policies and invariants.
-3. **Execute** — call the tool only if no successful record exists in the trace.
-4. **Commit** — append the result to the persistent trace and flush to disk.
+1. **Resolve** — Generate a deterministic fingerprint for the step  
+2. **Validate** — Check inputs against policies and invariants  
+3. **Execute** — Run only if no successful record exists  
+4. **Commit** — Append results to the persistent execution trace  
 
-This design ensures deterministic execution, replayability, and auditability.
-
----
-
-## Engineering Value
-
-- **Debug faster**  
-  Stop re-running long chains to reproduce bugs. Inspect and replay directly at the point of failure.
-
-- **Reduce token and time costs**  
-  Avoid redundant tool calls and repeated LLM work by replaying cached outputs.
-
-- **Compliance-ready auditing**  
-  Provide an immutable execution trail suitable for enterprise safety and governance.
+This design enables deterministic execution, replayability, and auditability.
 
 ---
 
-## What FailCore is not
+## What FailCore Is Not
 
-FailCore is intentionally *not* a planner, memory system, or agent framework.  
-It does not generate plans — it ensures that executing plans is safe, deterministic, and observable.
+FailCore is intentionally *not*:
+- A planner
+- A memory system
+- An agent framework
+
+It does not generate plans — it ensures executing plans is safe, observable, and recoverable.
 
 ---
 
 ## Contributing
 
-PRs and issues are welcome. If you’re building agent systems that need stronger execution guarantees, we’d love your feedback.
+Contributions are welcome.  
+If you are building agent systems that need stronger execution guarantees, we would love your feedback.
 
 ---
 
 ## License
 
-FailCore is released under the MIT License.
-
+MIT
