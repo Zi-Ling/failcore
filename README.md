@@ -1,3 +1,4 @@
+English | [中文](README_ZH.md)
 # FailCore — A Deterministic Execution Runtime for AI Agents
 
 > **Status:** Beta (0.1.x) · PyPI available · CLI included  
@@ -124,3 +125,5 @@ If you are building agent systems that need stronger execution guarantees, we wo
 
 This project is licensed under the **Apache License 2.0**.  
 See the [LICENSE](LICENSE) file for details.
+
+Copyright © 2025 ZiLing
