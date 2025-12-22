@@ -1,0 +1,106 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://failcore.dev/trace/v0.1.1.schema.json",
+  "title": "FailCore Trace Event v0.1.1",
+  "description": "Trace event schema for FailCore execution traces",
+  "type": "object",
+  "required": ["schema", "seq", "ts", "level", "event", "run"],
+  "properties": {
+    "schema": {
+      "type": "string",
+      "const": "failcore.trace.v0.1.1",
+      "description": "Schema version identifier"
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Monotonic sequence number within run"
+    },
+    "ts": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO8601 timestamp with timezone"
+    },
+    "level": {
+      "type": "string",
+      "enum": ["DEBUG", "INFO", "WARN", "ERROR"],
+      "description": "Log level"
+    },
+    "event": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "RUN_START", "RUN_END",
+            "STEP_START", "STEP_END",
+            "FINGERPRINT_COMPUTED",
+            "REPLAY_HIT", "REPLAY_MISS",
+            "VALIDATION_FAILED",
+            "POLICY_DENIED",
+            "OUTPUT_NORMALIZED",
+            "ARTIFACT_WRITTEN",
+            "SIDE_EFFECT_APPLIED"
+          ]
+        },
+        "step": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" },
+            "tool": { "type": "string" },
+            "attempt": { "type": "integer", "minimum": 1 },
+            "depends_on": { "type": "array", "items": { "type": "string" } },
+            "fingerprint": { "type": "object" },
+            "contract": { "type": "object" }
+          }
+        },
+        "data": { "type": "object" }
+      }
+    },
+    "run": {
+      "type": "object",
+      "required": ["run_id", "created_at"],
+      "properties": {
+        "run_id": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "workspace": { "type": "string" },
+        "sandbox_root": { "type": "string" },
+        "cwd": { "type": "string" },
+        "tags": { "type": "object" },
+        "flags": { "type": "object" },
+        "version": {
+          "type": "object",
+          "properties": {
+            "failcore": { "type": "string" },
+            "spec": { "type": "string" }
+          }
+        }
+      }
+    },
+    "host": {
+      "type": "object",
+      "properties": {
+        "os": { "type": "string" },
+        "python": { "type": "string" },
+        "pid": { "type": "integer" }
+      }
+    },
+    "actor": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string" },
+        "name": { "type": "string" }
+      }
+    },
+    "security": {
+      "type": "object",
+      "properties": {
+        "payload_mode": {
+          "type": "string",
+          "enum": ["none", "summary", "full", "ref"]
+        }
+      }
+    }
+  }
+}
