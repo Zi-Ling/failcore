@@ -10,6 +10,7 @@ from failcore.cli.validate_cmd import validate_trace
 from failcore.cli.trace_cmd import trace_ingest, trace_query, trace_stats
 from failcore.cli.replay_cmd import replay_trace, replay_diff
 from failcore.cli.list_cmd import list_runs
+from failcore.cli.report_cmd import generate_report
 from failcore.infra.storage import SQLiteStore, TraceIngestor
 from failcore.infra.storage import SQLiteStore, TraceIngestor
 from pathlib import Path
@@ -28,29 +29,26 @@ def run_sample(args):
     
     # Setup .failcore/ workspace structure
     if args.sandbox:
-        run_root = Path(args.sandbox).absolute()
+        # Custom sandbox - keep as is
+        run_root = Path(args.sandbox)
     else:
-        # .failcore/runs/run_<timestamp>/
+        # Default: use relative path .failcore/runs/<date>/<run_id>_<time>/
+        # Group by date to avoid too many directories in one folder
         run_id = generate_run_id()
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        run_root = Path("./.failcore/runs").absolute() / f"{run_id}_{timestamp}"
+        now = datetime.now()
+        date = now.strftime("%Y%m%d")
+        time = now.strftime("%H%M%S")
+        run_root = Path(".failcore/runs") / date / f"{run_id}_{time}"
     
     run_root.mkdir(parents=True, exist_ok=True)
     sandbox = run_root / "workspace"
     sandbox.mkdir(exist_ok=True)
     trace_path = str(run_root / "trace.jsonl")
     
-    # Convert to relative paths for display
-    cwd = Path.cwd()
-    try:
-        run_root_rel = run_root.relative_to(cwd)
-        sandbox_rel = sandbox.relative_to(cwd)
-        trace_rel = Path(trace_path).relative_to(cwd)
-    except ValueError:
-        # If paths are not relative to cwd, use absolute
-        run_root_rel = run_root
-        sandbox_rel = sandbox
-        trace_rel = Path(trace_path)
+    # For display, use relative paths directly (no conversion needed)
+    run_root_rel = run_root
+    sandbox_rel = sandbox
+    trace_rel = Path(trace_path)
     
     print(f"\n{'='*70}")
     print(f"  FailCore Three-Act Demonstration")
@@ -63,13 +61,14 @@ def run_sample(args):
     class SandboxPolicy:
         """Strict sandbox policy - any path operation must be within sandbox"""
         def __init__(self, sandbox_root):
-            self.sandbox_root = Path(sandbox_root).absolute()
+            # Use absolute path for comparison, but derived from relative path
+            self.sandbox_root = Path(sandbox_root).resolve()
         
         def allow(self, step, ctx):
             # Check if tool has path parameter
             path_param = step.params.get("path")
             if path_param:
-                abs_path = Path(path_param).absolute()
+                abs_path = Path(path_param).resolve()
                 # Check if path is within sandbox
                 try:
                     abs_path.relative_to(self.sandbox_root)
@@ -341,7 +340,7 @@ def main():
     )
     sample_p.add_argument(
         "--sandbox", 
-        help="Custom run directory (default: ./.failcore/runs/<run_id>)"
+        help="Custom run directory (default: ./.failcore/runs/<date>/<run_id>_<time>)"
     )
 
     # validate - validate trace file
@@ -360,6 +359,11 @@ def main():
     show_p.add_argument("--errors", action="store_true", help="Show only errors/blocked")
     show_p.add_argument("--step", help="Show specific step detail")
     show_p.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
+
+    # report - generate HTML execution report
+    report_p = sub.add_parser("report", help="Generate HTML execution report")
+    report_p.add_argument("--trace", help="Path to trace.jsonl file (default: last run)")
+    report_p.add_argument("--html", action="store_true", default=True, help="Generate HTML format (default)")
 
     # trace - trace management commands
     trace_p = sub.add_parser("trace", help="Trace management (ingest, query, stats)")
@@ -409,6 +413,8 @@ def main():
         return list_runs(args)
     elif args.command == "show":
         return show_trace(args)
+    elif args.command == "report":
+        return generate_report(args)
     elif args.command == "sample":
         run_sample(args)
     elif args.command == "trace":

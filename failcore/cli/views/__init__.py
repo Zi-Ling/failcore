@@ -10,9 +10,11 @@ Views are stable, serializable output structures that separate:
 from .trace_show import TraceShowView
 from .replay_run import ReplayRunView
 from .replay_diff import ReplayDiffView
+from .trace_report import TraceReportView
 
 __all__ = [
     "TraceShowView",
     "ReplayRunView",
     "ReplayDiffView",
+    "TraceReportView",
 ]
