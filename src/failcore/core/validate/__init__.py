@@ -4,10 +4,12 @@
 
 提供执行前的条件验证（前置拒绝机制）：
 - 前置条件验证（precondition） - 在执行前拒绝不满足条件的操作
+- 后置条件验证（postcondition） - 在执行后检查输出契约
 - 自定义验证器
 - 验证结果追踪
 
-注意：我们只做前置验证（拒绝），不做后置验证（修复）
+契约层集成：
+- 输出契约验证（contract drift detection）
 """
 
 from .validator import (
@@ -24,6 +26,12 @@ from .validator import (
     param_not_empty_precondition,
 )
 
+from .validators.contract import (
+    output_contract_postcondition,
+    json_output_postcondition,
+    text_output_postcondition,
+)
+
 __all__ = [
     "ValidationResult",
     "ValidationError",
@@ -36,5 +44,9 @@ __all__ = [
     "file_not_exists_precondition",
     "dir_exists_precondition",
     "param_not_empty_precondition",
+    # 契约验证器
+    "output_contract_postcondition",
+    "json_output_postcondition",
+    "text_output_postcondition",
 ]
 

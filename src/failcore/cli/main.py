@@ -10,6 +10,7 @@ from failcore.cli.validate_cmd import validate_trace
 from failcore.cli.trace_cmd import trace_ingest, trace_query, trace_stats
 from failcore.cli.replay_cmd import replay_trace, replay_diff
 from failcore.cli.list_cmd import list_runs
+from failcore.cli.report_cmd import generate_report
 from failcore.infra.storage import SQLiteStore, TraceIngestor
 from failcore.infra.storage import SQLiteStore, TraceIngestor
 from pathlib import Path
@@ -359,6 +360,11 @@ def main():
     show_p.add_argument("--step", help="Show specific step detail")
     show_p.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
 
+    # report - generate HTML execution report
+    report_p = sub.add_parser("report", help="Generate HTML execution report")
+    report_p.add_argument("--trace", help="Path to trace.jsonl file (default: last run)")
+    report_p.add_argument("--html", action="store_true", default=True, help="Generate HTML format (default)")
+
     # trace - trace management commands
     trace_p = sub.add_parser("trace", help="Trace management (ingest, query, stats)")
     trace_sub = trace_p.add_subparsers(dest="trace_command")
@@ -407,6 +413,8 @@ def main():
         return list_runs(args)
     elif args.command == "show":
         return show_trace(args)
+    elif args.command == "report":
+        return generate_report(args)
     elif args.command == "sample":
         run_sample(args)
     elif args.command == "trace":
