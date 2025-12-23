@@ -80,23 +80,59 @@ def _build_replay_run_view(
         step_view = _build_step_view(idx, step_info, mode)
         step_views.append(step_view)
     
-    # Get stats
-    stats = replayer.get_stats()
+    # Calculate stats from step_views
+    # In report mode, we analyze steps without executing replay_step()
+    # so we need to compute stats from the step views themselves
+    total_steps = len(step_views)
+    
+    # Count by historical status
+    blocked = sum(1 for s in step_views if s.historical_status == "BLOCKED")
+    ok_steps = sum(1 for s in step_views if s.historical_status == "OK")
+    failed = sum(1 for s in step_views if s.historical_status == "FAIL")
+    
+    # Count by note type (issues found during analysis)
+    # Count steps with issues, not total number of notes (avoid double-counting)
+    policy_diffs = sum(1 for s in step_views 
+                      if any(n.type == "POLICY_DENIED" for n in s.notes))
+    output_diffs = sum(1 for s in step_views 
+                      if any(n.type == "OUTPUT_MISMATCH" for n in s.notes))
+    
+    # In report mode: analyze historical execution without actual replay
+    # In mock mode: use actual replay statistics
+    if mode == ReplayMode.REPORT:
+        # Report mode: show historical execution statistics
+        # - hits: steps that executed successfully (OK status)
+        # - misses: steps that failed or were blocked
+        # - diffs: steps with any issues (avoid double-counting steps with multiple issues)
+        hits = ok_steps
+        misses = blocked + failed
+        # Count unique steps with any type of issue
+        diffs = sum(1 for s in step_views if len(s.notes) > 0)
+    else:
+        # Mock mode: use actual replay decisions
+        hits = sum(1 for s in step_views if s.replay_decision == ReplayDecision.HIT)
+        misses = sum(1 for s in step_views if s.replay_decision == ReplayDecision.MISS)
+        diffs = sum(1 for s in step_views if s.replay_decision == ReplayDecision.DIFF)
+    
+    # Calculate rates
+    hit_rate = f"{hits / total_steps * 100:.1f}%" if total_steps > 0 else "0%"
+    miss_rate = f"{misses / total_steps * 100:.1f}%" if total_steps > 0 else "0%"
+    diff_rate = f"{diffs / total_steps * 100:.1f}%" if total_steps > 0 else "0%"
     
     # Build summary
     summary = ReplayRunSummary(
-        total_steps=stats['total_steps'],
-        hits=stats['hits'],
-        misses=stats['misses'],
-        diffs=stats['diffs'],
-        policy_diffs=stats.get('policy_diffs', 0),
-        output_diffs=stats.get('output_diffs', 0),
-        blocked=sum(1 for s in step_views if s.historical_status == "BLOCKED"),
-        ok=sum(1 for s in step_views if s.historical_status == "OK"),
-        failed=sum(1 for s in step_views if s.historical_status == "FAIL"),
-        hit_rate=stats.get('hit_rate', '0%'),
-        miss_rate=stats.get('miss_rate', '0%'),
-        diff_rate=stats.get('diff_rate', '0%'),
+        total_steps=total_steps,
+        hits=hits,
+        misses=misses,
+        diffs=diffs,
+        policy_diffs=policy_diffs,
+        output_diffs=output_diffs,
+        blocked=blocked,
+        ok=ok_steps,
+        failed=failed,
+        hit_rate=hit_rate,
+        miss_rate=miss_rate,
+        diff_rate=diff_rate,
     )
     
     # Build meta

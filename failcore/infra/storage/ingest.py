@@ -35,14 +35,28 @@ class TraceIngestor:
         Returns:
             Statistics: {"events": count, "steps": count, "errors": count, "skipped": bool}
         """
+        from pathlib import Path
+        
         stats = {"events": 0, "steps": 0, "errors": 0, "incomplete": 0, "skipped": False}
+        
+        # Convert trace_path to relative path for storage
+        # Use POSIX format (forward slashes) for cross-platform compatibility
+        trace_path_obj = Path(trace_path)
+        if trace_path_obj.is_absolute():
+            try:
+                trace_path_rel = trace_path_obj.relative_to(Path.cwd()).as_posix()
+            except ValueError:
+                # If not relative to cwd, use as-is but convert to POSIX
+                trace_path_rel = Path(trace_path).as_posix()
+        else:
+            trace_path_rel = Path(trace_path).as_posix()
         
         run_metadata = {
             "run_id": None,
             "created_at": None,
             "workspace": None,
             "sandbox_root": None,
-            "trace_path": trace_path,
+            "trace_path": trace_path_rel,  # Store relative path
             "first_event_ts": None,
             "last_event_ts": None,
             "total_events": 0,
@@ -84,8 +98,33 @@ class TraceIngestor:
                     if not run_metadata["created_at"]:
                         run = event.get("run", {})
                         run_metadata["created_at"] = run.get("created_at")
-                        run_metadata["workspace"] = run.get("workspace")
-                        run_metadata["sandbox_root"] = run.get("sandbox_root")
+                        
+                        # Convert workspace and sandbox_root to relative paths
+                        # Use POSIX format (forward slashes) for cross-platform compatibility
+                        workspace = run.get("workspace")
+                        if workspace:
+                            workspace_path = Path(workspace)
+                            if workspace_path.is_absolute():
+                                try:
+                                    workspace = workspace_path.relative_to(Path.cwd()).as_posix()
+                                except ValueError:
+                                    workspace = Path(workspace).as_posix()
+                            else:
+                                workspace = Path(workspace).as_posix()
+                        run_metadata["workspace"] = workspace
+                        
+                        sandbox_root = run.get("sandbox_root")
+                        if sandbox_root:
+                            sandbox_path = Path(sandbox_root)
+                            if sandbox_path.is_absolute():
+                                try:
+                                    sandbox_root = sandbox_path.relative_to(Path.cwd()).as_posix()
+                                except ValueError:
+                                    sandbox_root = Path(sandbox_root).as_posix()
+                            else:
+                                sandbox_root = Path(sandbox_root).as_posix()
+                        run_metadata["sandbox_root"] = sandbox_root
+                        
                         run_metadata["first_event_ts"] = event.get("ts")
                     
                     # Update last event timestamp

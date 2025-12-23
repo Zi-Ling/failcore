@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "failcore"
-version = "0.1.0a2"
+version = "0.1.0"
 description = "A minimal execution runtime and tracing toolkit for agent plans."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -14,7 +14,7 @@ authors = [
 ]
 keywords = ["agent", "runtime", "execution", "tracing", "debugging", "forensics"]
 classifiers = [
-  "Development Status :: 3 - Alpha",
+  "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",
   "Topic :: Software Development :: Debuggers",
   "Topic :: Software Development :: Libraries",
@@ -24,7 +24,7 @@ classifiers = [
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
-  "License :: OSI Approved :: MIT License",
+  "License :: OSI Approved :: Apache Software License",
 ]
 
 # Keep core runtime dependencies minimal for TestPyPI
@@ -33,7 +33,7 @@ dependencies = []
 [project.optional-dependencies]
 # Optional integration layer (only needed if you import langchain types/adapters)
 langchain = [
-  "langchain-core>=0.3.0,<1.0.0",
+  "langchain-core>=0.3.0,<2.0.0",
 ]
 # Dev-only tooling
 dev = [
@@ -70,6 +70,5 @@ exclude = [
   "**/*.pyc",
 ]
 
-# Optional: keep your local dev mirror config (does not affect pip installs)
-[[tool.uv.index]]
-url = "https://mirrors.aliyun.com/pypi/simple"
+
+

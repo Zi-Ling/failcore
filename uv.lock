@@ -282,7 +282,7 @@ wheels = [
 
 [[package]]
 name = "failcore"
-version = "0.1.0a1"
+version = "0.1.0"
 source = { editable = "." }
 
 [package.optional-dependencies]
@@ -299,7 +299,7 @@ langchain = [
 [package.metadata]
 requires-dist = [
     { name = "build", marker = "extra == 'dev'", specifier = ">=1.2.2" },
-    { name = "langchain-core", marker = "extra == 'langchain'", specifier = ">=0.3.0,<1.0.0" },
+    { name = "langchain-core", marker = "extra == 'langchain'", specifier = ">=0.3.0,<2.0.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.2" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6.0" },
     { name = "twine", marker = "extra == 'dev'", specifier = ">=5.1.1" },

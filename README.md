@@ -6,7 +6,7 @@ FailCore is a **minimal execution tracing and failure analysis toolkit** for LLM
 
 It doesn't care how agents "think" — it cares about: **what was executed, why it failed, and can we replay it.**
 
-> ⚠️ **Alpha Stage** - APIs may change | [TestPyPI](https://test.pypi.org/project/failcore/)
+> ⚠️ **Beta (0.1.x)** — core CLI & trace format are stable; minor APIs may change.
 
 ---
 
@@ -19,41 +19,53 @@ It doesn't care how agents "think" — it cares about: **what was executed, why 
 - ❌ Can't replay execution for root cause analysis
 
 **FailCore Solution:**
-- ✅ **Auto-tracing** - Every tool call logged to `.jsonl` trace
-- ✅ **Policy enforcement** - Agents can't escape sandbox boundaries
-- ✅ **Contract validation** - Auto-detect output type drift (TEXT vs JSON)
-- ✅ **Blackbox replay** - Audit execution without re-running LLM
+- ✅ **Auto-tracing** — Every tool call logged to `.jsonl` trace
+- ✅ **Policy enforcement** — Agents can't escape sandbox boundaries
+- ✅ **Contract validation** — Auto-detect output type drift (TEXT vs JSON)
+- ✅ **Blackbox replay** — Audit execution without re-running LLM
 
 ---
 
 ## Quick Start
 
-### Install
+### Install (PyPI)
 
 ```bash
-pip install -i https://test.pypi.org/simple \
-  --extra-index-url https://pypi.org/simple \
-  failcore==0.1.0a1
+pip install failcore
 ```
 
-### 3 Lines of Code
+> Pre-releases (TestPyPI):
+> ```bash
+> pip install -i https://test.pypi.org/simple >   --extra-index-url https://pypi.org/simple >   failcore
+> ```
+
+### Try the Demo (Recommended)
+
+```bash
+failcore sample
+failcore show
+```
+
+### Minimal API
 
 ```python
 from failcore import Session
 
-with Session(trace="trace.jsonl") as session:
+with Session() as session:
     session.register("divide", lambda a, b: a / b)
-    result = session.call("divide", a=6, b=0)  # Auto-captures failure
-    
-print(result.status)  # "error"
-print(result.error.message)  # "division by zero"
+    r = session.call("divide", a=6, b=0)
+
+print(r.status.value)
+print(r.error.message if r.error else None)
 ```
 
 ### View Execution Records
 
 ```bash
-failcore show --last              # View last run
-failcore replay run trace.jsonl  # Replay execution
+failcore list
+failcore show                 # last run
+failcore replay run <trace>    # report/mock
+failcore replay diff <trace>
 ```
 
 ---
@@ -64,58 +76,53 @@ failcore replay run trace.jsonl  # Replay execution
 
 ```python
 from failcore import Session, presets
+import os
 
-session = Session(
-    policy=presets.read_only()  # Deny write operations
-)
-
-session.register("delete_file", os.remove)
-result = session.call("delete_file", path="/etc/passwd")
-# ❌ Blocked by policy - never executes
+with Session(policy=presets.read_only()) as session:
+    session.register("delete_cache", os.remove)
+    result = session.call("delete_cache", path="/tmp/cache.db")
+    # ❌ Blocked by policy — never executes
 ```
 
 ### 2. Contract Validation (Output Drift Detection)
 
 ```python
-@session.tool
-def fetch_user() -> dict:  # Expected: dict
-    return "Here is the data: {name: 'Alice'}"  # ❌ LLM returned text
+from failcore import Session
 
-result = session.call("fetch_user")
-# Auto-detected: result.output.kind == "TEXT" (expected JSON)
+with Session() as session:
+    @session.tool
+    def fetch_user() -> dict:  # Expected: dict
+        return "Here is the data: {name: 'Alice'}"  # ❌ Returned text
+
+    r = session.call("fetch_user")
+    # Auto-detected: r.output.kind == "TEXT" (expected JSON)
 ```
 
 ### 3. Trace Replay (Forensic Analysis)
 
 ```bash
-# Offline audit - no LLM re-run needed
-failcore replay run trace.jsonl --mode report
+# Offline audit — no LLM re-run needed
+failcore replay run <trace> --mode report
 
-# Compare expected vs actual outputs
-failcore replay diff trace.jsonl
+# Compare historical vs current rules/outputs
+failcore replay diff <trace>
 ```
 
 ---
 
-## LangChain Integration
+## LangChain Integration (Optional)
+
+Install with LangChain support:
+
+```bash
+pip install "failcore[langchain]"
+```
 
 ```python
 from failcore.adapters.langchain import create_langchain_toolkit
 
-# Connect existing LangChain tools to FailCore tracing
 toolkit = create_langchain_toolkit(session)
-agent = create_react_agent(llm, toolkit, prompt)
-# All agent tool calls auto-logged to trace.jsonl
-```
-
----
-
-## Try the Demo
-
-Run the full three-act demonstration (Policy/Contract/Replay):
-
-```bash
-failcore sample
+# All agent tool calls auto-logged to trace
 ```
 
 ---
@@ -123,9 +130,9 @@ failcore sample
 ## Who Is This For?
 
 - 🔧 Building production-grade agent systems
-- 🐛 Need to debug complex multi-step execution chains
-- 🔒 Need to control agent permission boundaries
-- 📊 Need offline failure root cause analysis
+- 🐛 Debugging complex multi-step execution chains
+- 🔒 Enforcing agent permission boundaries
+- 📊 Offline failure root cause analysis
 
 ---
 
