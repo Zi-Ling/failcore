@@ -58,21 +58,52 @@ class ValidationResult:
     Validation result with enhanced traceability.
     
     Now includes validator metadata for better debugging and aggregation.
+    Severity determines the validation outcome:
+    - "ok": Validation passed
+    - "warn": Drift detected but non-critical (step continues)
+    - "block": Critical violation (step blocked)
+    
+    The 'valid' field is derived from severity to avoid conflicts.
     """
-    valid: bool
     message: str = ""
     details: Dict[str, Any] = field(default_factory=dict)
+    severity: Literal["ok", "warn", "block"] = "ok"
     
-    # Enhanced metadata (Suggestion #2)
+    # Enhanced metadata
     validator: Optional[str] = None  # Validator name
     vtype: Optional[ValidationType] = None  # Validation type
     tool: Optional[str] = None  # Tool name
     code: Optional[str] = None  # Machine-readable error code
     
+    @property
+    def valid(self) -> bool:
+        """
+        Derived from severity to avoid conflicts.
+        Only severity="block" is considered invalid.
+        """
+        return self.severity != "block"
+    
     @classmethod
     def success(cls, message: str = "Validation passed", **kwargs) -> ValidationResult:
-        """Create success result"""
-        return cls(valid=True, message=message, **kwargs)
+        """Create success result (severity="ok")"""
+        return cls(message=message, severity="ok", **kwargs)
+    
+    @classmethod
+    def warning(
+        cls,
+        message: str,
+        details: Optional[Dict[str, Any]] = None,
+        code: Optional[str] = None,
+        **kwargs
+    ) -> ValidationResult:
+        """Create warning result (severity="warn", non-blocking)"""
+        return cls(
+            message=message,
+            severity="warn",
+            details=details or {},
+            code=code,
+            **kwargs
+        )
     
     @classmethod
     def failure(
@@ -82,10 +113,10 @@ class ValidationResult:
         code: Optional[str] = None,
         **kwargs
     ) -> ValidationResult:
-        """Create failure result"""
+        """Create failure result (severity="block", blocking)"""
         return cls(
-            valid=False, 
-            message=message, 
+            message=message,
+            severity="block",
             details=details or {},
             code=code,
             **kwargs
@@ -167,7 +198,7 @@ class PreconditionValidator:
                 msg = self.message or f"Precondition '{self.name}' not satisfied"
                 return ValidationResult.failure(
                     msg,
-                    {"condition": self.name},
+                    details={"condition": self.name},
                     code=self.code or "PRECONDITION_FAILED",
                     validator=self.name,
                     vtype=ValidationType.PRECONDITION,
@@ -229,7 +260,7 @@ class PostconditionValidator:
                 msg = self.message or f"Postcondition '{self.name}' not satisfied"
                 return ValidationResult.failure(
                     msg,
-                    {"condition": self.name},
+                    details={"condition": self.name},
                     code=self.code or "POSTCONDITION_FAILED",
                     validator=self.name,
                     vtype=ValidationType.POSTCONDITION,
@@ -319,31 +350,61 @@ class ValidatorRegistry:
         """
         Get precondition validators (exact + prefix matches).
         
-        Suggestion #8: Support prefix matching.
+        Priority order:
+        1. Exact match first
+        2. Longest prefix match next
+        3. Shorter prefix matches
+        
+        All matched validators are returned (stacked).
         """
         validators = []
         
-        # Exact match
+        # 1. Exact match first
         if tool_name in self._validators:
             validators.extend(self._validators[tool_name].pre)
         
-        # Prefix matches
+        # 2. Prefix matches (sorted by length DESC - longest first)
+        prefix_matches = []
         for prefix, tool_validators in self._prefix_validators.items():
             if tool_name.startswith(prefix + ".") or tool_name == prefix:
-                validators.extend(tool_validators.pre)
+                prefix_matches.append((len(prefix), prefix, tool_validators))
+        
+        # Sort by prefix length descending (longest prefix first)
+        prefix_matches.sort(reverse=True, key=lambda x: x[0])
+        
+        for _, _, tool_validators in prefix_matches:
+            validators.extend(tool_validators.pre)
         
         return validators
     
     def get_postconditions(self, tool_name: str) -> List[Validator]:
-        """Get postcondition validators (exact + prefix matches)"""
+        """
+        Get postcondition validators (exact + prefix matches).
+        
+        Priority order:
+        1. Exact match first
+        2. Longest prefix match next
+        3. Shorter prefix matches
+        
+        All matched validators are returned (stacked).
+        """
         validators = []
         
+        # 1. Exact match first
         if tool_name in self._validators:
             validators.extend(self._validators[tool_name].post)
         
+        # 2. Prefix matches (sorted by length DESC - longest first)
+        prefix_matches = []
         for prefix, tool_validators in self._prefix_validators.items():
             if tool_name.startswith(prefix + ".") or tool_name == prefix:
-                validators.extend(tool_validators.post)
+                prefix_matches.append((len(prefix), prefix, tool_validators))
+        
+        # Sort by prefix length descending (longest prefix first)
+        prefix_matches.sort(reverse=True, key=lambda x: x[0])
+        
+        for _, _, tool_validators in prefix_matches:
+            validators.extend(tool_validators.post)
         
         return validators
     
@@ -351,7 +412,7 @@ class ValidatorRegistry:
         self, 
         tool_name: str, 
         context: Dict[str, Any],
-        mode: ValidationMode = "fail_fast"  # Suggestion #3
+        mode: ValidationMode = "fail_fast"
     ) -> List[ValidationResult]:
         """
         Validate all preconditions.
@@ -359,10 +420,13 @@ class ValidatorRegistry:
         Args:
             tool_name: Tool name
             context: Validation context
-            mode: "fail_fast" stops at first failure, "all" collects all results
+            mode: Validation mode
+                - "fail_fast": Stop at first BLOCK (severity="block")
+                              WARN (severity="warn") does NOT stop
+                - "all": Collect all results (WARN + BLOCK)
         
         Returns:
-            List of validation results
+            List of validation results ordered by execution
         """
         validators = self.get_preconditions(tool_name)
         results = []
@@ -371,8 +435,8 @@ class ValidatorRegistry:
             result = v.validate(context)
             results.append(result)
             
-            # Suggestion #3: Fail-fast mode
-            if mode == "fail_fast" and not result.valid:
+            # fail_fast only stops on BLOCK, not WARN
+            if mode == "fail_fast" and result.severity == "block":
                 break
         
         return results
@@ -383,7 +447,20 @@ class ValidatorRegistry:
         context: Dict[str, Any],
         mode: ValidationMode = "fail_fast"
     ) -> List[ValidationResult]:
-        """Validate all postconditions"""
+        """
+        Validate all postconditions.
+        
+        Args:
+            tool_name: Tool name
+            context: Validation context
+            mode: Validation mode
+                - "fail_fast": Stop at first BLOCK (severity="block")
+                              WARN (severity="warn") does NOT stop
+                - "all": Collect all results (WARN + BLOCK)
+        
+        Returns:
+            List of validation results ordered by execution
+        """
         validators = self.get_postconditions(tool_name)
         results = []
         
@@ -391,7 +468,8 @@ class ValidatorRegistry:
             result = v.validate(context)
             results.append(result)
             
-            if mode == "fail_fast" and not result.valid:
+            # fail_fast only stops on BLOCK, not WARN
+            if mode == "fail_fast" and result.severity == "block":
                 break
         
         return results
