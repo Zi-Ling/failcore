@@ -37,12 +37,18 @@
             "STEP_START", "STEP_END",
             "FINGERPRINT_COMPUTED",
             "REPLAY_HIT", "REPLAY_MISS",
+            "CONTRACT_DRIFT",
             "VALIDATION_FAILED",
             "POLICY_DENIED",
             "OUTPUT_NORMALIZED",
             "ARTIFACT_WRITTEN",
             "SIDE_EFFECT_APPLIED"
           ]
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["ok", "warn", "block"],
+          "description": "Severity level for validation/policy events (ok=passed, warn=contract drift, block=hard failure)"
         },
         "step": {
           "type": "object",
@@ -56,7 +62,62 @@
           }
         },
         "data": { "type": "object" }
-      }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "type": { "enum": ["STEP_START", "STEP_END"] },
+            "step": {
+              "required": ["id", "tool"]
+            }
+          }
+        },
+        {
+          "properties": {
+            "type": { "enum": ["CONTRACT_DRIFT"] },
+            "severity": { "enum": ["warn", "block"] },
+            "data": {
+              "required": ["contract"],
+              "properties": {
+                "contract": {
+                  "type": "object",
+                  "required": ["drift_type"]
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "type": { "enum": ["POLICY_DENIED"] },
+            "severity": { "const": "block" },
+            "data": {
+              "required": ["policy"],
+              "properties": {
+                "policy": {
+                  "type": "object",
+                  "required": ["rule_id"]
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "type": {
+              "enum": [
+                "RUN_START", "RUN_END",
+                "FINGERPRINT_COMPUTED",
+                "REPLAY_HIT", "REPLAY_MISS",
+                "VALIDATION_FAILED",
+                "OUTPUT_NORMALIZED",
+                "ARTIFACT_WRITTEN",
+                "SIDE_EFFECT_APPLIED"
+              ]
+            }
+          }
+        }
+      ]
     },
     "run": {
       "type": "object",
@@ -98,7 +159,8 @@
       "properties": {
         "payload_mode": {
           "type": "string",
-          "enum": ["none", "summary", "full", "ref"]
+          "enum": ["none", "summary", "full", "ref"],
+          "description": "Payload visibility mode: none=no data, summary=metadata only, full=complete payload, ref=external reference"
         }
       }
     }

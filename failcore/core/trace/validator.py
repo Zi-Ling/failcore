@@ -1,6 +1,6 @@
 # failcore/core/trace/validator.py
 """
-Trace validator for v0.1.1 specification
+Trace validator with multi-version support (v0.1.1+)
 """
 
 from __future__ import annotations
@@ -29,10 +29,10 @@ class ValidationError:
 
 class TraceValidator:
     """
-    Validator for FailCore trace files following v0.1.1 spec
+    Validator for FailCore trace files with multi-version support
     
     Validates:
-    - Schema version
+    - Schema version (auto-detected from event)
     - Required fields
     - Field types and enums
     - Timestamp format
@@ -40,15 +40,28 @@ class TraceValidator:
     - STEP_START/END pairing
     - Attempt validity
     - depends_on references
+    
+    Version Support:
+    - Write: v0.1.2 only (current)
+    - Read: v0.1.1 (legacy), v0.1.2 (current)
     """
     
-    SCHEMA_VERSION = "failcore.trace.v0.1.1"
+    # Schema version whitelist mapping (security: prevent path traversal)
+    SCHEMA_MAP = {
+        "failcore.trace.v0.1.1": "failcore.trace.v0.1.1.schema.json",
+        "failcore.trace.v0.1.2": "failcore.trace.v0.1.2.schema.json",
+    }
+    
+    # Current write version
+    CURRENT_SCHEMA_VERSION = "failcore.trace.v0.1.2"
+    
     VALID_LEVELS = {"DEBUG", "INFO", "WARN", "ERROR"}
     VALID_EVENT_TYPES = {
         "RUN_START", "RUN_END",
         "STEP_START", "STEP_END",
         "FINGERPRINT_COMPUTED",
         "REPLAY_HIT", "REPLAY_MISS",
+        "CONTRACT_DRIFT",  # v0.1.2+
         "VALIDATION_FAILED",
         "POLICY_DENIED",
         "OUTPUT_NORMALIZED",
@@ -64,6 +77,7 @@ class TraceValidator:
         self.step_starts: Dict[Tuple[str, str], int] = {}  # (run_id, step_id) -> line
         self.step_ends: Dict[Tuple[str, str], int] = {}
         self.all_step_ids: Dict[str, set] = {}  # run_id -> set of step_ids
+        self.detected_versions: Dict[str, str] = {}  # run_id -> detected schema version
     
     def validate_file(self, path: str) -> Tuple[bool, List[ValidationError]]:
         """
@@ -121,14 +135,29 @@ class TraceValidator:
                 ))
                 return
         
-        # Validate schema version
-        if event["schema"] != self.SCHEMA_VERSION:
+        # Validate schema version with whitelist mapping (security: prevent path traversal)
+        schema_version = event.get("schema", "")
+        run_spec_version = event.get("run", {}).get("version", {}).get("spec", "")
+        
+        # Check against whitelist
+        if schema_version not in self.SCHEMA_MAP:
+            version_info = f"schema='{schema_version}'"
+            if run_spec_version:
+                version_info += f", run.version.spec='{run_spec_version}'"
+            
+            supported_versions = ", ".join(self.SCHEMA_MAP.keys())
             self.errors.append(ValidationError(
                 line=line,
-                code="INVALID_SCHEMA",
-                message=f"Invalid schema version: {event['schema']}",
-                suggestion=f"Use schema version: {self.SCHEMA_VERSION}"
+                code="UNKNOWN_SCHEMA",
+                message=f"Unknown schema version ({version_info})",
+                suggestion=f"Supported versions: {supported_versions}"
             ))
+            return
+        
+        # Store detected version for this run
+        run_id = event.get("run", {}).get("run_id", "unknown")
+        if run_id not in self.detected_versions:
+            self.detected_versions[run_id] = schema_version
         
         # Validate seq monotonicity
         run_id = event.get("run", {}).get("run_id", "unknown")

@@ -20,8 +20,8 @@ Usage:
         return x * 2
     
     session = Session(validator=presets.fs_safe())
-    spec = langchain_tool_to_spec(my_tool)
-    session.invoker.register_spec(spec)
+    schemas = langchain_tool_to_spec(my_tool)
+    session.invoker.register_spec(schemas)
     result = session.invoker.invoke("my_tool", x=5)
 """
 

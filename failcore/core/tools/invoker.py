@@ -96,8 +96,8 @@ class ToolInvoker:
             spec: Tool specification
         
         Example:
-            >>> spec = ToolSpec(name="divide", fn=lambda a, b: a / b)
-            >>> invoker.register_spec(spec)
+            >>> schemas = ToolSpec(name="divide", fn=lambda a, b: a / b)
+            >>> invoker.register_spec(schemas)
         """
         self._executor.tools.register(spec.name, spec.fn)
     

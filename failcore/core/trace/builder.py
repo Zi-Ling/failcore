@@ -1,6 +1,6 @@
 # failcore/core/trace/builder.py
 """
-Helper functions to build trace events following v0.1.1 spec
+Helper functions to build trace events following v0.1.2 schemas
 """
 
 from __future__ import annotations
@@ -25,8 +25,8 @@ from .events import (
 )
 
 # Version constants
-SCHEMA_VERSION = "failcore.trace.v0.1.1"
-FAILCORE_VERSION = "0.1.0a1"
+SCHEMA_VERSION = "failcore.trace.v0.1.2"
+FAILCORE_VERSION = "0.1.0"
 
 
 def _get_host_info() -> Dict[str, Any]:
@@ -76,7 +76,7 @@ def build_run_context(
     
     ctx["version"] = {
         "failcore": FAILCORE_VERSION,
-        "spec": "0.1.1",
+        "schemas": "0.1.1",
     }
     
     return ctx
@@ -110,6 +110,7 @@ def build_run_start_event(
         level=LogLevel.INFO,
         event={
             "type": EventType.RUN_START.value,
+            "severity": "ok",  # v0.1.2: lifecycle event
             "data": {},
         },
         run=run_ctx,
@@ -152,6 +153,9 @@ def build_step_start_event(
         "attempt": attempt,
         "depends_on": depends_on or [],
         "fingerprint": fingerprint,
+        "provenance": {
+            "source": "user",  # Default: user-initiated (could be planner/cache/etc in future)
+        }
     }
     
     # Build payload
@@ -170,6 +174,7 @@ def build_step_start_event(
         level=LogLevel.INFO,
         event={
             "type": EventType.STEP_START.value,
+            "severity": "ok",  # v0.1.2: severity for all events
             "step": step_info,
             "data": {"payload": payload},
         },
@@ -196,6 +201,7 @@ def build_policy_denied_event(
         level=LogLevel.WARN,
         event={
             "type": EventType.POLICY_DENIED.value,
+            "severity": "block",  # v0.1.2: policy denial always blocks
             "step": {"id": step_id, "tool": tool, "attempt": attempt},
             "data": {
                 "policy": {
@@ -206,6 +212,7 @@ def build_policy_denied_event(
                     "reason": reason,
                     "action_taken": "halt",
                     "matched_rules": [rule_id],
+                    "category": "SECURITY",  # v0.1.2: required category
                 }
             },
         },
@@ -233,6 +240,7 @@ def build_output_normalized_event(
         level=LogLevel.WARN if decision == "mismatch" else LogLevel.INFO,
         event={
             "type": EventType.OUTPUT_NORMALIZED.value,
+            "severity": "warn" if decision == "mismatch" else "ok",  # v0.1.2: warn on mismatch
             "step": {"id": step_id, "tool": tool, "attempt": attempt},
             "data": {
                 "normalize": {
@@ -286,6 +294,14 @@ def build_step_end_event(
             }
         }
     
+    # v0.1.2: Determine severity based on status
+    if status == StepStatus.OK:
+        severity = "ok"
+    elif status == StepStatus.BLOCKED:
+        severity = "block"
+    else:  # FAIL, SKIPPED, etc.
+        severity = "block" if error else "warn"
+    
     return TraceEvent(
         schema=SCHEMA_VERSION,
         seq=seq,
@@ -293,6 +309,7 @@ def build_step_end_event(
         level=LogLevel.INFO if status == StepStatus.OK else LogLevel.ERROR,
         event={
             "type": EventType.STEP_END.value,
+            "severity": severity,  # v0.1.2: required severity
             "step": {"id": step_id, "tool": tool, "attempt": attempt},
             "data": event_data,
         },
@@ -313,6 +330,7 @@ def build_run_end_event(
         level=LogLevel.INFO,
         event={
             "type": EventType.RUN_END.value,
+            "severity": "ok",  # v0.1.2: lifecycle event
             "data": {"summary": summary},
         },
         run={"run_id": run_context["run_id"], "created_at": run_context["created_at"]},
@@ -340,6 +358,7 @@ def build_replay_hit_event(
         level=LogLevel.INFO,
         event={
             "type": EventType.REPLAY_STEP_HIT.value,
+            "severity": "ok",  # v0.1.2: replay events are informational
             "step": {"id": step_id, "tool": tool, "attempt": attempt},
             "data": {
                 "replay": {
@@ -374,6 +393,7 @@ def build_replay_miss_event(
         level=LogLevel.WARN,
         event={
             "type": EventType.REPLAY_STEP_MISS.value,
+            "severity": "warn",  # v0.1.2: miss is a warning (may need attention)
             "step": {"id": step_id, "tool": tool, "attempt": attempt},
             "data": {
                 "replay": {
@@ -407,6 +427,7 @@ def build_replay_policy_diff_event(
         level=LogLevel.WARN,
         event={
             "type": EventType.REPLAY_POLICY_DIFF.value,
+            "severity": "warn",  # v0.1.2: policy difference is a warning
             "step": {"id": step_id, "tool": tool, "attempt": attempt},
             "data": {
                 "replay": {
@@ -444,6 +465,7 @@ def build_replay_output_diff_event(
         level=LogLevel.WARN,
         event={
             "type": EventType.REPLAY_OUTPUT_DIFF.value,
+            "severity": "warn",  # v0.1.2: output difference is a warning
             "step": {"id": step_id, "tool": tool, "attempt": attempt},
             "data": {
                 "replay": {
@@ -477,6 +499,7 @@ def build_replay_injected_event(
         level=LogLevel.DEBUG,
         event={
             "type": EventType.REPLAY_INJECTED.value,
+            "severity": "ok",  # v0.1.2: injection is informational
             "step": {"id": step_id, "tool": tool, "attempt": attempt},
             "data": {
                 "replay": {
