@@ -111,7 +111,7 @@ def file_path_precondition(
     )
 
 
-def fs_safe() -> ValidatorRegistry:
+def fs_safe(strict: bool = False, sandbox_root: str = None) -> ValidatorRegistry:
     """
     File system safety validator preset
     
@@ -120,6 +120,11 @@ def fs_safe() -> ValidatorRegistry:
     - Write operations: path/content not empty, allows overwrite (0.1.0a2)
     - Create operations: file must not already exist
     - Directory operations: directory must exist
+    
+    v0.1.2+ SECURITY ENHANCEMENTS:
+    - strict=True: Enables path traversal defense (../ attack prevention)
+    - strict=True: Enforces sandbox boundary (symlink resolution)
+    - strict=True: Prevents directory escape attempts
     
     0.1.0a2 IMPROVEMENTS:
     - Write operations now use must_exist="any" (allows both new and existing files)
@@ -134,13 +139,22 @@ def fs_safe() -> ValidatorRegistry:
     
     Suggestion #2: Uses prefix patterns for auto-matching new tools.
     
+    Args:
+        strict: Enable strict security mode (path traversal defense, sandbox enforcement)
+        sandbox_root: Sandbox root directory (uses cwd if None, only relevant when strict=True)
+    
     Returns:
         ValidatorRegistry: Configured validator registry
     
     Example:
         >>> from failcore import Session, presets
+        >>> # Development: basic checks
         >>> session = Session(validator=presets.fs_safe())
+        >>> 
+        >>> # Production: strict security
+        >>> session = Session(validator=presets.fs_safe(strict=True))
     """
+    import os
     registry = ValidatorRegistry()
     
     # Suggestion #2: Use prefix patterns instead of hardcoded tool names
@@ -216,18 +230,51 @@ def fs_safe() -> ValidatorRegistry:
         dir_exists_precondition("path")
     )
     
+    # Strict mode: Add security checks (v0.1.2+)
+    if strict:
+        from ..core.validate.validators.security import path_traversal_precondition
+        
+        # Determine sandbox root
+        if sandbox_root is None:
+            sandbox_root = os.getcwd()
+        
+        # File operation tools that need path traversal checks
+        file_ops_tools = [
+            ("file.read", True),    # (tool, is_prefix)
+            ("file.write", True),
+            ("file.create", True),
+            ("file.delete", True),
+            ("read_file", False),
+            ("write_file", False),
+            ("create_file", False),
+            ("delete_file", False),
+        ]
+        
+        traversal_checker = path_traversal_precondition(
+            "path", "relative_path", "file_path", "filename", "output_path", "dst",
+            sandbox_root=sandbox_root
+        )
+        
+        for tool, is_prefix in file_ops_tools:
+            registry.register_precondition(tool, traversal_checker, is_prefix=is_prefix)
+    
     return registry
 
 
-def net_safe() -> ValidatorRegistry:
+def net_safe(
+    strict: bool = False,
+    allowed_domains: List[str] = None,
+    block_internal: bool = True
+) -> ValidatorRegistry:
     """
     Network safety validator preset
     
     Network validations:
     - All HTTP requests: URL must not be empty
     - POST/PUT/PATCH: body/data must not be empty (Suggestion #4)
-    - Timeout checks (future)
-    - Domain whitelist (future)
+    - v0.1.3+: Protocol whitelist (http/https only)
+    - v0.1.3+: SSRF prevention (block internal IPs)
+    - v0.1.3+: Domain whitelist (optional)
     
     KNOWN LIMITATIONS:
     - Suggestion #10: POST with query params (POST ?a=b) may be incorrectly rejected
@@ -235,11 +282,23 @@ def net_safe() -> ValidatorRegistry:
     - Suggestion #9: Empty binary data (b"") may be incorrectly flagged as missing.
       "not empty" currently uses truthy check, not None vs empty distinction.
     
+    Args:
+        strict: Enable strict security mode (protocol + SSRF checks)
+        allowed_domains: Domain whitelist (e.g., ["api.github.com", "*.openai.com"])
+        block_internal: Block access to internal/private IPs (default: True)
+    
     Returns:
         ValidatorRegistry: Configured validator registry
     
     Example:
+        >>> # Development: basic checks
         >>> session = Session(validator=presets.net_safe())
+        >>> 
+        >>> # Production: strict security + domain whitelist
+        >>> session = Session(validator=presets.net_safe(
+        ...     strict=True,
+        ...     allowed_domains=["api.github.com", "*.openai.com"]
+        ... ))
     """
     registry = ValidatorRegistry()
     
@@ -285,8 +344,253 @@ def net_safe() -> ValidatorRegistry:
     for tool in ["http_post", "http_put", "http_patch"]:
         registry.register_precondition(tool, body_validator)
     
+    # Strict mode: Add security checks (v0.1.3+)
+    if strict:
+        from ..core.validate.validators.network import (
+            url_safe_precondition,
+            internal_ip_block_precondition,
+            domain_whitelist_precondition,
+        )
+        
+        http_tools = [
+            ("http", True),  # (tool, is_prefix)
+            ("http_get", False),
+            ("http_post", False),
+            ("http_put", False),
+            ("http_patch", False),
+            ("http_delete", False),
+            ("fetch", False),
+            ("fetch_url", False),
+        ]
+        
+        # Protocol whitelist (http/https only)
+        url_checker = url_safe_precondition("url")
+        for tool, is_prefix in http_tools:
+            registry.register_precondition(tool, url_checker, is_prefix=is_prefix)
+        
+        # SSRF prevention (block internal IPs)
+        if block_internal:
+            internal_blocker = internal_ip_block_precondition("url")
+            for tool, is_prefix in http_tools:
+                registry.register_precondition(tool, internal_blocker, is_prefix=is_prefix)
+        
+        # Domain whitelist (optional)
+        if allowed_domains:
+            domain_checker = domain_whitelist_precondition("url", allowed_domains=allowed_domains)
+            for tool, is_prefix in http_tools:
+                registry.register_precondition(tool, domain_checker, is_prefix=is_prefix)
+    
     return registry
 
 
-__all__ = ["fs_safe", "net_safe", "file_path_precondition"]
+def fs_safe_sandbox(sandbox_root: str = None) -> ValidatorRegistry:
+    """
+    Deprecated: Use fs_safe(strict=True) instead
+    
+    This function is maintained for backward compatibility with v0.1.2.
+    New code should use fs_safe(strict=True, sandbox_root=...) instead.
+    
+    Args:
+        sandbox_root: Sandbox root directory (uses cwd if None)
+    
+    Returns:
+        ValidatorRegistry: Configured validator registry with strict security
+    
+    Example (deprecated):
+        >>> session = Session(validator=presets.fs_safe_sandbox("/app/workspace"))
+    
+    Example (recommended):
+        >>> session = Session(validator=presets.fs_safe(strict=True, sandbox_root="/app/workspace"))
+    """
+    import warnings
+    warnings.warn(
+        "fs_safe_sandbox() is deprecated, use fs_safe(strict=True) instead",
+        DeprecationWarning,
+        stacklevel=2
+    )
+    return fs_safe(strict=True, sandbox_root=sandbox_root)
+
+
+def resource_limited(
+    max_file_mb: int = 10,
+    max_payload_mb: int = 1,
+    max_collection_items: int = 1000
+) -> ValidatorRegistry:
+    """
+    Resource quota validator preset
+    
+    Prevents resource exhaustion attacks:
+    - File size limits (for read operations)
+    - Payload size limits (for write operations)
+    - Collection size limits (for batch operations)
+    
+    v0.1.3+ NEW PRESET
+    
+    Args:
+        max_file_mb: Maximum file size in MB (default: 10MB)
+        max_payload_mb: Maximum payload size in MB (default: 1MB)
+        max_collection_items: Maximum collection size (default: 1000 items)
+    
+    Returns:
+        ValidatorRegistry: Configured validator registry
+    
+    Example:
+        >>> # Limit file reads to 5MB, writes to 500KB
+        >>> session = Session(validator=presets.resource_limited(
+        ...     max_file_mb=5,
+        ...     max_payload_mb=0.5,
+        ...     max_collection_items=500
+        ... ))
+    """
+    from ..core.validate.validators.resource import (
+        max_file_size_precondition,
+        max_payload_size_precondition,
+        max_collection_size_precondition,
+    )
+    
+    registry = ValidatorRegistry()
+    
+    # File size limits for read operations
+    file_size_checker = max_file_size_precondition(
+        path_param="path",
+        max_bytes=max_file_mb * 1024 * 1024
+    )
+    
+    read_tools = [
+        ("file.read", True),  # (tool, is_prefix)
+        ("read_file", False),
+    ]
+    
+    for tool, is_prefix in read_tools:
+        registry.register_precondition(tool, file_size_checker, is_prefix=is_prefix)
+    
+    # Payload size limits for write operations
+    payload_size_checker = max_payload_size_precondition(
+        param_name="content",
+        max_bytes=max_payload_mb * 1024 * 1024
+    )
+    
+    write_tools = [
+        ("file.write", True),
+        ("write_file", False),
+    ]
+    
+    for tool, is_prefix in write_tools:
+        registry.register_precondition(tool, payload_size_checker, is_prefix=is_prefix)
+    
+    # Collection size limits
+    collection_size_checker = max_collection_size_precondition(
+        param_name="items",
+        max_items=max_collection_items
+    )
+    
+    batch_tools = [
+        ("batch", True),
+        ("bulk", True),
+        ("process_items", False),
+    ]
+    
+    for tool, is_prefix in batch_tools:
+        registry.register_precondition(tool, collection_size_checker, is_prefix=is_prefix)
+    
+    return registry
+
+
+def combined_safe(
+    strict: bool = True,
+    sandbox_root: str = None,
+    allowed_domains: List[str] = None,
+    max_file_mb: int = 10,
+    max_payload_mb: int = 1
+) -> ValidatorRegistry:
+    """
+    Combined safety preset (file system + network + resource limits)
+    
+    Combines all safety presets into one comprehensive configuration:
+    - File system safety (with optional strict mode)
+    - Network safety (with optional domain whitelist)
+    - Resource limits (file size, payload size, collection size)
+    
+    v0.1.3+ NEW PRESET - Recommended for production use
+    
+    Args:
+        strict: Enable strict security mode (path traversal, SSRF prevention)
+        sandbox_root: Sandbox root directory (uses cwd if None)
+        allowed_domains: Domain whitelist for HTTP requests
+        max_file_mb: Maximum file size in MB
+        max_payload_mb: Maximum payload size in MB
+    
+    Returns:
+        ValidatorRegistry: Configured validator registry
+    
+    Example:
+        >>> # Production-ready configuration
+        >>> session = Session(validator=presets.combined_safe(
+        ...     strict=True,
+        ...     sandbox_root="/app/workspace",
+        ...     allowed_domains=["api.github.com", "*.openai.com"],
+        ...     max_file_mb=5,
+        ...     max_payload_mb=1
+        ... ))
+    """
+    registry = ValidatorRegistry()
+    
+    # Merge all presets
+    fs_registry = fs_safe(strict=strict, sandbox_root=sandbox_root)
+    net_registry = net_safe(strict=strict, allowed_domains=allowed_domains, block_internal=True)
+    resource_registry = resource_limited(
+        max_file_mb=max_file_mb,
+        max_payload_mb=max_payload_mb,
+        max_collection_items=1000
+    )
+    
+    # Merge exact match validators
+    for tool_name, tool_validators in fs_registry._validators.items():
+        for validator in tool_validators.pre:
+            registry.register_precondition(tool_name, validator, is_prefix=False)
+        for validator in tool_validators.post:
+            registry.register_postcondition(tool_name, validator, is_prefix=False)
+    
+    for tool_name, tool_validators in net_registry._validators.items():
+        for validator in tool_validators.pre:
+            registry.register_precondition(tool_name, validator, is_prefix=False)
+        for validator in tool_validators.post:
+            registry.register_postcondition(tool_name, validator, is_prefix=False)
+    
+    for tool_name, tool_validators in resource_registry._validators.items():
+        for validator in tool_validators.pre:
+            registry.register_precondition(tool_name, validator, is_prefix=False)
+        for validator in tool_validators.post:
+            registry.register_postcondition(tool_name, validator, is_prefix=False)
+    
+    # Merge prefix validators
+    for prefix, tool_validators in fs_registry._prefix_validators.items():
+        for validator in tool_validators.pre:
+            registry.register_precondition(prefix, validator, is_prefix=True)
+        for validator in tool_validators.post:
+            registry.register_postcondition(prefix, validator, is_prefix=True)
+    
+    for prefix, tool_validators in net_registry._prefix_validators.items():
+        for validator in tool_validators.pre:
+            registry.register_precondition(prefix, validator, is_prefix=True)
+        for validator in tool_validators.post:
+            registry.register_postcondition(prefix, validator, is_prefix=True)
+    
+    for prefix, tool_validators in resource_registry._prefix_validators.items():
+        for validator in tool_validators.pre:
+            registry.register_precondition(prefix, validator, is_prefix=True)
+        for validator in tool_validators.post:
+            registry.register_postcondition(prefix, validator, is_prefix=True)
+    
+    return registry
+
+
+__all__ = [
+    "fs_safe", 
+    "net_safe", 
+    "file_path_precondition",
+    "fs_safe_sandbox",  # Deprecated, kept for compatibility
+    "resource_limited",  # v0.1.3+
+    "combined_safe",  # v0.1.3+
+]
 

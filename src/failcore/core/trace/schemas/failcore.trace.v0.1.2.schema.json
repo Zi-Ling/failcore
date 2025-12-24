@@ -1,0 +1,476 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://failcore.dev/trace/v0.1.2.schema.json",
+    "title": "FailCore Trace Event v0.1.2",
+    "description": "Trace event schema for FailCore execution traces with provenance tracking, resource usage, deterministic replay fingerprinting, and enhanced contract validation",
+    "type": "object",
+    "required": ["schema", "seq", "ts", "level", "event", "run"],
+    "properties": {
+      "schema": {
+        "type": "string",
+        "const": "failcore.trace.v0.1.2",
+        "description": "Schema version identifier"
+      },
+      "seq": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Monotonic sequence number within run"
+      },
+      "ts": {
+        "type": "string",
+        "format": "date-time",
+        "description": "ISO8601 timestamp with timezone (recommend microsecond precision for concurrent tool call ordering)"
+      },
+      "level": {
+        "type": "string",
+        "enum": ["DEBUG", "INFO", "WARN", "ERROR"],
+        "description": "Log level for observability (not enforcement severity)"
+      },
+      "event": {
+        "type": "object",
+        "required": ["type"],
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "RUN_START",
+              "RUN_END",
+              "STEP_START",
+              "STEP_END",
+              "FINGERPRINT_COMPUTED",
+              "REPLAY_HIT",
+              "REPLAY_MISS",
+              "CONTRACT_DRIFT",
+              "VALIDATION_FAILED",
+              "POLICY_DENIED",
+              "OUTPUT_NORMALIZED",
+              "ARTIFACT_WRITTEN",
+              "SIDE_EFFECT_APPLIED"
+            ]
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["ok", "warn", "block"],
+            "description": "Enforcement severity (ok=passed, warn=soft violation/drift, block=hard failure/termination)"
+          },
+          "step": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": { "type": "string" },
+              "tool": { "type": "string" },
+              "attempt": { "type": "integer", "minimum": 1 },
+              "depends_on": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Step IDs this step depends on"
+              },
+              "fingerprint": {
+                "type": "object",
+                "description": "Replay matching fingerprint (critical for deterministic replay)",
+                "additionalProperties": false,
+                "required": ["hash"],
+                "properties": {
+                  "hash": {
+                    "type": "string",
+                    "pattern": "^(sha256|md5):[a-f0-9]+$",
+                    "description": "Fingerprint hash for replay matching"
+                  },
+                  "version": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Fingerprint algorithm version"
+                  },
+                  "components": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Components included in fingerprint (e.g., ['tool', 'params', 'env'])"
+                  },
+                  "contract_hash": {
+                    "type": "string",
+                    "pattern": "^(sha256|md5):[a-f0-9]+$",
+                    "description": "Optional contract hash to include contract in fingerprint"
+                  }
+                }
+              },
+              "contract": { "type": "object" },
+              "meta": {
+                "type": "object",
+                "description": "Reserved for future step-level extensions (e.g., tags, annotations)"
+              },
+              "provenance": {
+                "type": "object",
+                "description": "Source tracking: where did this step come from?",
+                "additionalProperties": false,
+                "properties": {
+                  "source": {
+                    "type": "string",
+                    "enum": ["user", "memory", "planner", "repair", "cache", "retry", "fallback"],
+                    "description": "Origin type of this step"
+                  },
+                  "ref": {
+                    "type": "string",
+                    "description": "Reference to source location (strongly recommended for non-user sources). Examples: 'msg:7#char120-210', 'trace:seq12', 'plan:s3'"
+                  },
+                  "hash": {
+                    "type": "string",
+                    "pattern": "^(sha256|md5):[a-f0-9]+$",
+                    "description": "Optional hash of source content for integrity verification"
+                  }
+                },
+                "required": ["source"]
+              },
+              "usage": {
+                "type": "object",
+                "description": "Resource consumption for this step",
+                "additionalProperties": false,
+                "properties": {
+                  "input_tokens": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Tokens consumed for input (if LLM-based tool)"
+                  },
+                  "output_tokens": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Tokens generated for output (if LLM-based tool)"
+                  },
+                  "tool_ms": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Execution time in milliseconds"
+                  },
+                  "billing": {
+                    "type": "object",
+                    "description": "Optional cost estimation (provider-specific, unstable)",
+                    "additionalProperties": false,
+                    "properties": {
+                      "currency": {
+                        "type": "string",
+                        "pattern": "^[A-Z]{3}$",
+                        "description": "ISO 4217 currency code (e.g., USD, CNY)"
+                      },
+                      "estimated_cost": {
+                        "type": "number",
+                        "minimum": 0,
+                        "description": "Estimated cost in specified currency"
+                      },
+                      "pricing_ref": {
+                        "type": "string",
+                        "description": "Pricing model reference (e.g., 'openai:gpt-4.1-mini:2025-10')"
+                      }
+                    },
+                    "required": ["currency", "estimated_cost"]
+                  }
+                }
+              }
+            }
+          },
+          "data": {
+            "type": "object",
+            "description": "Event-specific payload (structure depends on event.type)"
+          }
+        },
+        "oneOf": [
+          {
+            "description": "STEP_START and STEP_END must have step identity",
+            "required": ["type", "step"],
+            "properties": {
+              "type": { "enum": ["STEP_START", "STEP_END"] },
+              "step": { "required": ["id", "tool"] }
+            }
+          },
+          {
+            "description": "FINGERPRINT_COMPUTED must carry step.fingerprint (queryable ground truth for replay tooling)",
+            "required": ["type", "step"],
+            "properties": {
+              "type": { "enum": ["FINGERPRINT_COMPUTED"] },
+              "step": { "required": ["id", "tool", "fingerprint"] }
+            }
+          },
+          {
+            "description": "REPLAY_HIT and REPLAY_MISS must carry replay metadata for cost/benefit analysis",
+            "required": ["type", "data"],
+            "properties": {
+              "type": { "enum": ["REPLAY_HIT", "REPLAY_MISS"] },
+              "data": {
+                "required": ["replay"],
+                "properties": {
+                  "replay": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["hit_key", "cache_source"],
+                    "properties": {
+                      "hit_key": {
+                        "type": "string",
+                        "description": "Replay cache key (typically fingerprint hash or derived cache key)"
+                      },
+                      "cache_source": {
+                        "type": "string",
+                        "enum": ["memory", "disk", "remote", "other"],
+                        "description": "Where the replay result was retrieved from"
+                      },
+                      "saved_tokens": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "description": "Optional: estimated tokens saved by replay"
+                      },
+                      "saved_ms": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "description": "Optional: estimated milliseconds saved by replay"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "description": "CONTRACT_DRIFT must specify drift details",
+            "required": ["type", "severity", "data"],
+            "properties": {
+              "type": { "enum": ["CONTRACT_DRIFT"] },
+              "severity": { "enum": ["warn", "block"] },
+              "data": {
+                "required": ["contract"],
+                "properties": {
+                  "contract": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["drift_type"],
+                    "properties": {
+                      "drift_type": {
+                        "type": "string",
+                        "description": "Type of drift detected (e.g., 'kind_mismatch', 'schema_violation')"
+                      },
+                      "expected_kind": {
+                        "type": "string",
+                        "description": "Expected output kind from contract"
+                      },
+                      "observed_kind": {
+                        "type": "string",
+                        "description": "Actual output kind observed"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "description": "OUTPUT_NORMALIZED must specify normalization details",
+            "required": ["type", "severity", "data"],
+            "properties": {
+              "type": { "enum": ["OUTPUT_NORMALIZED"] },
+              "severity": { "enum": ["warn", "block"] },
+              "data": {
+                "required": ["normalization"],
+                "properties": {
+                  "normalization": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["from_kind", "to_kind", "reason"],
+                    "properties": {
+                      "from_kind": {
+                        "type": "string",
+                        "description": "Original output kind (e.g., 'json', 'text')"
+                      },
+                      "to_kind": {
+                        "type": "string",
+                        "description": "Normalized output kind"
+                      },
+                      "reason": {
+                        "type": "string",
+                        "description": "Reason for normalization (e.g., 'json_parse_failed', 'schema_coercion')"
+                      },
+                      "policy": {
+                        "type": "string",
+                        "description": "Policy that determined severity (e.g., 'block_on_kind_downgrade')"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "description": "VALIDATION_FAILED must specify validation error details",
+            "required": ["type", "severity", "data"],
+            "properties": {
+              "type": { "enum": ["VALIDATION_FAILED"] },
+              "severity": { "enum": ["warn", "block"] },
+              "data": {
+                "required": ["validation_error"],
+                "properties": {
+                  "validation_error": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["kind", "message"],
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": ["schema_violation", "parse_error", "missing_required", "unexpected_field", "type_mismatch"],
+                        "description": "Type of validation error"
+                      },
+                      "message": {
+                        "type": "string",
+                        "description": "Human-readable error message"
+                      },
+                      "path": {
+                        "type": "string",
+                        "description": "JSON pointer or dotted path to error location (e.g., '/params/user_id' or 'step.params.user_id')"
+                      },
+                      "details": {
+                        "type": "object",
+                        "description": "Optional additional error context"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "description": "POLICY_DENIED must specify denial reason and category",
+            "required": ["type", "severity", "data"],
+            "properties": {
+              "type": { "enum": ["POLICY_DENIED"] },
+              "severity": { "const": "block" },
+              "data": {
+                "required": ["policy"],
+                "properties": {
+                  "policy": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["rule_id", "category"],
+                    "properties": {
+                      "rule_id": {
+                        "type": "string",
+                        "description": "Policy rule that denied execution"
+                      },
+                      "category": {
+                        "type": "string",
+                        "enum": ["SECURITY", "COMPLIANCE", "BUDGET", "RATE_LIMIT", "CAPABILITY", "OTHER"],
+                        "description": "Machine-readable policy violation category (use OTHER + category_detail for custom categories)"
+                      },
+                      "category_detail": {
+                        "type": "string",
+                        "description": "Detailed category when category=OTHER (e.g., 'PRIVACY', 'DATA_EXFIL')"
+                      },
+                      "reason": {
+                        "type": "string",
+                        "description": "Human-readable denial reason"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "data": {
+                      "properties": {
+                        "policy": {
+                          "properties": {
+                            "category": { "const": "OTHER" }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "data": {
+                      "properties": {
+                        "policy": {
+                          "required": ["category_detail"]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "description": "Other event types (minimal constraints). ARTIFACT_WRITTEN/SIDE_EFFECT_APPLIED payloads should live in event.data (recommend: data.artifact={kind,ref,hash}).",
+            "required": ["type"],
+            "properties": {
+              "type": {
+                "enum": [
+                  "RUN_START",
+                  "RUN_END",
+                  "ARTIFACT_WRITTEN",
+                  "SIDE_EFFECT_APPLIED"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "run": {
+        "type": "object",
+        "required": ["run_id", "created_at", "version"],
+        "additionalProperties": false,
+        "properties": {
+          "run_id": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "workspace": { "type": "string" },
+          "sandbox_root": { "type": "string" },
+          "cwd": { "type": "string" },
+          "tags": { "type": "object" },
+          "flags": { "type": "object" },
+          "version": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["spec"],
+            "properties": {
+              "failcore": {
+                "type": "string",
+                "description": "FailCore package version"
+              },
+              "spec": {
+                "type": "string",
+                "pattern": "^v\\d+\\.\\d+\\.\\d+$",
+                "description": "Trace spec version (e.g., 'v0.1.2')"
+              }
+            }
+          }
+        }
+      },
+      "host": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "os": { "type": "string" },
+          "python": { "type": "string" },
+          "pid": { "type": "integer" }
+        }
+      },
+      "actor": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "type": { "type": "string" },
+          "name": { "type": "string" }
+        }
+      },
+      "security": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "payload_mode": {
+            "type": "string",
+            "enum": ["none", "summary", "full", "ref", "masked"],
+            "description": "Payload visibility mode: none=no data, summary=metadata only, full=complete payload, ref=external reference, masked=sensitive data redacted (recommended default in production)"
+          }
+        }
+      }
+    }
+  }
+  

@@ -32,8 +32,8 @@ def map_langchain_tool(tool: Any) -> ToolSpec:
         >>> @tool
         ... def my_tool(x: int) -> int:
         ...     return x * 2
-        >>> spec = langchain_tool_to_spec(my_tool)
-        >>> print(spec.name, spec.fn)
+        >>> schemas = langchain_tool_to_spec(my_tool)
+        >>> print(schemas.name, schemas.fn)
     """
     if not _LANGCHAIN_AVAILABLE:
         raise ImportError(
@@ -49,7 +49,7 @@ def map_langchain_tool(tool: Any) -> ToolSpec:
             description=tool.description or "",
             schema=None,
             policy_tags=[],
-            metadata={"source": "langchain", "type": "tool_decorator"}
+            extras={"source": "langchain", "type": "tool_decorator"}
         )
     
     # Handle BaseTool instances
@@ -60,7 +60,7 @@ def map_langchain_tool(tool: Any) -> ToolSpec:
             description=tool.description or "",
             schema=None,
             policy_tags=[],
-            metadata={"source": "langchain", "type": "BaseTool"}
+            extras={"source": "langchain", "type": "BaseTool"}
         )
     
     # Fallback: treat as callable
@@ -71,7 +71,7 @@ def map_langchain_tool(tool: Any) -> ToolSpec:
         description=tool.__doc__ or "",
         schema=None,
         policy_tags=[],
-        metadata={"source": "langchain", "type": "callable"}
+        extras={"source": "langchain", "type": "callable"}
     )
 
 

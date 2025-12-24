@@ -80,7 +80,7 @@ class ExecutorConfig:
 class Executor:
     """
     v0.1.1 executor with structured trace events:
-      - record structured events (v0.1.1 spec)
+      - record structured events (v0.1.1 schemas)
       - fail-fast validation
       - policy gate
       - tools dispatch
@@ -158,7 +158,7 @@ class Executor:
                 if not result.valid:
                     return self._fail(
                         step, ctx, run_ctx, attempt, started_at, t0,
-                        "PRECONDITION_FAILED",
+                        result.code or "PRECONDITION_FAILED",  # Use specific code from validator
                         result.message,
                         ExecutionPhase.VALIDATE,
                     )
@@ -202,9 +202,12 @@ class Executor:
             finished_at, duration_ms = self._finish_times(t0)
             
             # Record OUTPUT_NORMALIZED if type differs from expected
-            # For now, we just detect TEXT vs JSON
+            # Only emit if we have a contract that specifies expected_kind
             warnings = []
-            if isinstance(out, str) and not output.kind == OutputKind.JSON:
+            expected_kind = getattr(step, 'contract_output_kind', None) if hasattr(step, 'contract_output_kind') else None
+            
+            # Only record mismatch if we have an expectation
+            if expected_kind and expected_kind != output.kind.value:
                 if hasattr(self.recorder, 'next_seq'):
                     seq = self.recorder.next_seq()
                     self._record(
@@ -214,9 +217,9 @@ class Executor:
                             step_id=step.id,
                             tool=step.tool,
                             attempt=attempt,
-                            expected_kind="json",
+                            expected_kind=expected_kind,
                             observed_kind=output.kind.value,
-                            reason="Output is text, not valid JSON",
+                            reason=f"Output kind mismatch: expected {expected_kind}, got {output.kind.value}",
                         )
                     )
                     warnings.append("OUTPUT_KIND_MISMATCH")
@@ -440,8 +443,13 @@ class Executor:
     ) -> StepResult:
         finished_at, duration_ms = self._finish_times(t0)
         
-        # Determine status
-        status = TraceStepStatus.BLOCKED if error_code == "POLICY_DENY" else TraceStepStatus.FAIL
+        # Determine status based on phase (v0.1.2 semantic)
+        if phase in (ExecutionPhase.VALIDATE, ExecutionPhase.POLICY):
+            trace_status = TraceStepStatus.BLOCKED
+            result_status = StepStatus.BLOCKED
+        else:
+            trace_status = TraceStepStatus.FAIL
+            result_status = StepStatus.FAIL
 
         # Record STEP_END
         if hasattr(self.recorder, 'next_seq'):
@@ -453,7 +461,7 @@ class Executor:
                     step_id=step.id,
                     tool=step.tool,
                     attempt=attempt,
-                    status=status,
+                    status=trace_status,  # Use semantic status
                     phase=phase,
                     duration_ms=duration_ms,
                     error={
@@ -467,7 +475,7 @@ class Executor:
         return StepResult(
             step_id=step.id,
             tool=step.tool,
-            status=StepStatus.FAIL,
+            status=result_status,  # Use semantic status
             started_at=started_at,
             finished_at=finished_at,
             duration_ms=duration_ms,

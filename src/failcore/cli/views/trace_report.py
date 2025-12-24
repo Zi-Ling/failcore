@@ -11,7 +11,7 @@ from pathlib import Path
 
 @dataclass
 class ReportStepView:
-    """Single step in report"""
+    """Single step in report (v0.1.2 enhanced)"""
     step_id: str
     tool: str
     status: str
@@ -34,6 +34,14 @@ class ReportStepView:
     normalize_reason: Optional[str] = None
     # Warnings list
     warnings: List[str] = field(default_factory=list)
+    # v0.1.2: Tool metadata
+    risk_level: Optional[str] = None
+    side_effect: Optional[str] = None
+    default_policy: Optional[str] = None
+    # v0.1.2: Semantic fields
+    severity: Optional[str] = None  # INFO, WARN, ERROR, CRITICAL
+    provenance: Optional[str] = None  # LIVE, REPLAY_HIT, REPLAY_MISS, INJECTED
+    phase: Optional[str] = None  # validate, policy, execute, commit
 
 
 @dataclass
@@ -170,14 +178,22 @@ def build_report_view_from_trace(trace_path: Path) -> TraceReportView:
                 step_events[step_id] = []
             step_events[step_id].append(event)
     
-    # Analyze each step
+    # Analyze each step (v0.1.2: use semantic status from trace)
     steps = []
     total_duration_ms = 0
     status_counts = {"OK": 0, "BLOCKED": 0, "FAIL": 0}
     replay_reused = 0
     failures = []
     warnings_list = []
-    unsafe_blocked = 0
+    
+    # Security threat codes (v0.1.2)
+    SECURITY_THREAT_CODES = {
+        "PATH_TRAVERSAL", "SANDBOX_VIOLATION", 
+        "SSRF_BLOCKED", "DOMAIN_NOT_ALLOWED", "PORT_NOT_ALLOWED", "UNSAFE_PROTOCOL",
+        "POLICY_DENIED", "POLICY_BLOCKED",
+    }
+    
+    threats_blocked = 0
     policy_details = []
     
     for step_id, evts in step_events.items():
@@ -187,24 +203,27 @@ def build_report_view_from_trace(trace_path: Path) -> TraceReportView:
         if step_view.duration_ms:
             total_duration_ms += step_view.duration_ms
         
-        status = step_view.status
-        if status in status_counts:
-            status_counts[status] += 1
+        # Use status directly from trace (now semantic)
+        if step_view.status in status_counts:
+            status_counts[step_view.status] += 1
         
         if step_view.replay_reused:
             replay_reused += 1
         
+        # Count security threats (only specific error codes)
+        if step_view.status == "BLOCKED" and step_view.error_code in SECURITY_THREAT_CODES:
+            threats_blocked += 1
+        
         # Collect failures (BLOCKED or FAIL)
-        if status in ["BLOCKED", "FAIL"]:
+        if step_view.status in ["BLOCKED", "FAIL"]:
             failures.append(step_view)
         
         # Collect warnings (OK but has warnings like OUTPUT_KIND_MISMATCH)
-        if status == "OK" and (step_view.warnings or step_view.has_output_normalized):
+        if step_view.status == "OK" and (step_view.warnings or step_view.has_output_normalized):
             warnings_list.append(step_view)
         
         # Collect policy blocks with details
         if step_view.has_policy_denied:
-            unsafe_blocked += 1
             if step_view.rule_id and step_view.policy_reason:
                 policy_details.append({
                     "rule_id": step_view.rule_id,
@@ -212,11 +231,29 @@ def build_report_view_from_trace(trace_path: Path) -> TraceReportView:
                     "policy_id": step_view.policy_id,
                 })
     
-    # Determine overall status (Priority: BLOCKED > FAIL > OK)
+    # Determine overall status based on severity and phase
+    # Priority: security blocks > validation failures > execution failures > OK
     overall_status = "OK"
-    if status_counts.get("BLOCKED", 0) > 0:
+    has_security_block = False
+    has_validation_fail = False
+    has_execution_fail = False
+    
+    for step in steps:
+        # Check if this is a security block (validate phase + high severity)
+        if step.phase == "validate" and step.severity in ("ERROR", "CRITICAL"):
+            has_security_block = True
+        elif step.phase == "policy" and step.status in ["BLOCKED", "FAIL"]:
+            has_security_block = True
+        elif step.phase == "validate" and step.status in ["BLOCKED", "FAIL"]:
+            has_validation_fail = True
+        elif step.phase == "execute" and step.status in ["FAIL"]:
+            has_execution_fail = True
+    
+    if has_security_block:
         overall_status = "BLOCKED"
-    elif status_counts.get("FAIL", 0) > 0:
+    elif has_validation_fail:
+        overall_status = "BLOCKED"
+    elif has_execution_fail:
         overall_status = "FAIL"
     
     # Build view
@@ -237,7 +274,7 @@ def build_report_view_from_trace(trace_path: Path) -> TraceReportView:
     )
     
     value_metrics = ReportValueMetrics(
-        unsafe_actions_blocked=unsafe_blocked,
+        unsafe_actions_blocked=threats_blocked,  # Only count security threats
         side_effects_occurred=status_counts["OK"],
         trace_recorded=True,
     )
@@ -254,7 +291,7 @@ def build_report_view_from_trace(trace_path: Path) -> TraceReportView:
 
 
 def _analyze_step(step_id: str, events: List[Dict[str, Any]]) -> ReportStepView:
-    """Analyze single step from its events"""
+    """Analyze single step from its events (v0.1.2 enhanced)"""
     
     start_evt = None
     end_evt = None
@@ -277,16 +314,38 @@ def _analyze_step(step_id: str, events: List[Dict[str, Any]]) -> ReportStepView:
     # Extract basic info from STEP_START
     tool = ""
     params = {}
+    risk_level = None
+    side_effect = None
+    default_policy = None
+    provenance = None
+    
     if start_evt:
         step = start_evt.get("step", {})
         tool = step.get("tool", "")
+        
+        # v0.1.2: Extract tool metadata
+        metadata = step.get("metadata", {})
+        risk_level = metadata.get("risk_level")
+        side_effect = metadata.get("side_effect")
+        default_policy = metadata.get("default_policy")
+        
+        # v0.1.2: Extract provenance (normalize to enum string)
+        provenance_raw = step.get("provenance")
+        if isinstance(provenance_raw, dict):
+            # Handle dict format like {'source': 'user'}
+            provenance = provenance_raw.get("source", "LIVE").upper()
+        elif isinstance(provenance_raw, str):
+            provenance = provenance_raw.upper()
+        else:
+            provenance = "LIVE"
+        
         # Extract params from data.payload.input.summary
         data = start_evt.get("data", {})
         payload = data.get("payload", {})
         input_data = payload.get("input", {})
         params = input_data.get("summary", {})
     
-    # Extract result from STEP_END
+    # Extract result from STEP_END (v0.1.2 enhanced)
     status = "UNKNOWN"
     duration_ms = 0
     error_code = ""
@@ -294,14 +353,23 @@ def _analyze_step(step_id: str, events: List[Dict[str, Any]]) -> ReportStepView:
     output_value = None
     output_kind = None
     warnings = []
+    severity = None
+    phase = None
     
     if end_evt:
+        # v0.1.2: Extract severity from event level
+        severity = end_evt.get("severity")
+        
         data = end_evt.get("data", {})
         result = data.get("result", {})
         
         status = result.get("status", "UNKNOWN")
         duration_ms = result.get("duration_ms", 0)
         warnings = result.get("warnings", [])
+        
+        # v0.1.2: Extract severity and phase from result
+        severity = result.get("severity") or severity
+        phase = result.get("phase")
         
         # Extract error info
         error = result.get("error", {})
@@ -366,5 +434,13 @@ def _analyze_step(step_id: str, events: List[Dict[str, Any]]) -> ReportStepView:
         observed_kind=observed_kind,
         normalize_reason=normalize_reason,
         warnings=warnings,
+        # v0.1.2: Tool metadata
+        risk_level=risk_level,
+        side_effect=side_effect,
+        default_policy=default_policy,
+        # v0.1.2: Semantic fields
+        severity=severity,
+        provenance=provenance,
+        phase=phase,
     )
 

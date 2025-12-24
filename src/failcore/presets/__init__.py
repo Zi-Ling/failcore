@@ -10,7 +10,13 @@ This package provides ready-to-use presets for:
 All presets are framework-agnostic and reusable.
 """
 
-from .validators import fs_safe, net_safe
+from .validators import (
+    fs_safe,
+    net_safe,
+    fs_safe_sandbox,
+    resource_limited,
+    combined_safe,
+)
 from .policies import (
     read_only,
     safe_write,
@@ -24,6 +30,9 @@ __all__ = [
     # Validators
     "fs_safe",
     "net_safe",
+    "fs_safe_sandbox",  # Deprecated, use fs_safe(strict=True)
+    "resource_limited",  # v0.1.3+
+    "combined_safe",  # v0.1.3+
     
     # Policies
     "read_only",
@@ -35,4 +44,7 @@ __all__ = [
     # Tools
     "demo_tools",
 ]
+
+
+
 

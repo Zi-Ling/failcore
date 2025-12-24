@@ -32,6 +32,7 @@ class StepStatus(str, Enum):
     RUNNING = "running"
     OK = "ok"
     FAIL = "fail"
+    BLOCKED = "blocked"  # v0.1.2: security/policy prevention
     SKIPPED = "skipped"  # reserved (v0.1 typically won't use)
 
 

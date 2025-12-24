@@ -18,7 +18,7 @@ class SQLiteStore:
     2. steps - aggregated step lifecycle (query-optimized)
     """
     
-    SCHEMA_VERSION = "0.1.1"
+    SCHEMA_VERSION = "0.1.2"
     
     def __init__(self, db_path: str):
         self.db_path = db_path

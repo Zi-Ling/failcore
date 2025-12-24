@@ -17,7 +17,7 @@ def utc_now_iso() -> str:
 
 # Event Types
 class EventType(str, Enum):
-    """Trace event types following v0.1.1 spec"""
+    """Trace event types following v0.1.1 schemas"""
     # Run lifecycle
     RUN_START = "RUN_START"
     RUN_END = "RUN_END"
@@ -60,13 +60,119 @@ class StepStatus(str, Enum):
 
 
 class ExecutionPhase(str, Enum):
-    """Execution phases"""
+    """
+    Execution phases (standardized)
+    
+    These phases represent the canonical execution pipeline:
+    - VALIDATE: Pre-execution validation (type check, preconditions)
+    - POLICY: Policy decision (allow/deny/warn)
+    - EXECUTE: Actual tool execution
+    - COMMIT: Post-execution commit (side effects, artifacts)
+    - REPLAY: Replay mode execution
+    - NORMALIZE: Output normalization
+    """
     VALIDATE = "validate"
     POLICY = "policy"
     EXECUTE = "execute"
     COMMIT = "commit"
     REPLAY = "replay"
     NORMALIZE = "normalize"
+
+
+class EventSeverity(str, Enum):
+    """
+    Event severity level (REQUIRED for all events)
+    
+    - INFO: Informational event (normal operation)
+    - WARN: Warning (potential issue, but operation continues)
+    - ERROR: Error (operation failed or blocked)
+    - CRITICAL: Critical error (system integrity issue)
+    """
+    INFO = "INFO"
+    WARN = "WARN"
+    ERROR = "ERROR"
+    CRITICAL = "CRITICAL"
+
+
+class StepProvenance(str, Enum):
+    """
+    Step provenance (REQUIRED for all steps)
+    
+    Tracks where the step execution came from:
+    - LIVE: Fresh execution
+    - REPLAY_HIT: Replayed from historical trace (fingerprint match)
+    - REPLAY_MISS: Fingerprint miss, executed live
+    - INJECTED: Manually injected step
+    - MOCK: Mocked execution
+    """
+    LIVE = "LIVE"
+    REPLAY_HIT = "REPLAY_HIT"
+    REPLAY_MISS = "REPLAY_MISS"
+    INJECTED = "INJECTED"
+    MOCK = "MOCK"
+
+
+class ErrorCode(str, Enum):
+    """
+    Standardized error codes 
+    
+    File system errors:
+    - FILE_NOT_FOUND: File does not exist
+    - PATH_TRAVERSAL: Path escapes sandbox boundary
+    - PATH_INVALID: Invalid path format
+    - PERMISSION_DENIED: Permission denied
+    
+    Network errors:
+    - SSRF_BLOCKED: SSRF attack blocked
+    - DOMAIN_NOT_ALLOWED: Domain not in allowlist
+    - PORT_NOT_ALLOWED: Port not allowed
+    - UNSAFE_PROTOCOL: Unsafe protocol
+    
+    Validation errors:
+    - PARAM_TYPE_MISMATCH: Parameter type mismatch
+    - PARAM_MISSING: Required parameter missing
+    - PARAM_INVALID: Invalid parameter value
+    - CONTRACT_VIOLATION: Output contract violation
+    - CONTRACT_DRIFT: Output contract drift
+    
+    Policy errors:
+    - POLICY_DENIED: Policy denied execution
+    - POLICY_BLOCKED: Policy blocked execution
+    
+    Execution errors:
+    - EXECUTION_FAILED: Tool execution failed
+    - EXECUTION_TIMEOUT: Execution timeout
+    """
+    # File system
+    FILE_NOT_FOUND = "FILE_NOT_FOUND"
+    PATH_TRAVERSAL = "PATH_TRAVERSAL"  # ../escape attempts
+    SANDBOX_VIOLATION = "SANDBOX_VIOLATION"  # Absolute path outside sandbox
+    PATH_INVALID = "PATH_INVALID"
+    PERMISSION_DENIED = "PERMISSION_DENIED"
+    
+    # Network
+    SSRF_BLOCKED = "SSRF_BLOCKED"
+    DOMAIN_NOT_ALLOWED = "DOMAIN_NOT_ALLOWED"
+    PORT_NOT_ALLOWED = "PORT_NOT_ALLOWED"
+    UNSAFE_PROTOCOL = "UNSAFE_PROTOCOL"
+    
+    # Validation
+    PARAM_TYPE_MISMATCH = "PARAM_TYPE_MISMATCH"
+    PARAM_MISSING = "PARAM_MISSING"
+    PARAM_INVALID = "PARAM_INVALID"
+    CONTRACT_VIOLATION = "CONTRACT_VIOLATION"
+    CONTRACT_DRIFT = "CONTRACT_DRIFT"
+    
+    # Policy
+    POLICY_DENIED = "POLICY_DENIED"
+    POLICY_BLOCKED = "POLICY_BLOCKED"
+    
+    # Execution
+    EXECUTION_FAILED = "EXECUTION_FAILED"
+    EXECUTION_TIMEOUT = "EXECUTION_TIMEOUT"
+    
+    # Generic
+    UNKNOWN_ERROR = "UNKNOWN_ERROR"
 
 
 # Data models
@@ -85,13 +191,17 @@ class RunContext:
 
 @dataclass
 class StepInfo:
-    """Step information"""
+    """
+    Step information (enhanced with required fields)
+    """
     id: str
     tool: str
+    provenance: StepProvenance  # REQUIRED: step provenance
     attempt: int = 1
     depends_on: List[str] = field(default_factory=list)
     fingerprint: Optional[Dict[str, Any]] = None
     contract: Optional[Dict[str, Any]] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)  # Tool metadata
 
 
 @dataclass
@@ -107,34 +217,45 @@ class PayloadInfo:
 
 @dataclass
 class ResultInfo:
-    """Step execution result"""
+    """
+    Step execution result (enhanced with required fields)
+    """
     status: StepStatus
-    phase: ExecutionPhase
+    phase: ExecutionPhase  # REQUIRED: execution phase
     duration_ms: int
-    error: Optional[Dict[str, Any]] = None
+    severity: EventSeverity  # REQUIRED: event severity
+    error: Optional[Dict[str, Any]] = None  # Must include 'code' if present
     warnings: List[str] = field(default_factory=list)
 
 
 @dataclass
 class PolicyInfo:
-    """Policy decision information"""
+    """
+    Policy decision information (enhanced with severity)
+    """
     policy_id: str
     rule_id: str
     rule_name: str
-    decision: str  # allow | deny
+    decision: str  # allow | deny | warn
     reason: str
-    action_taken: str  # continue | halt
+    action_taken: str  # continue | halt | warn
+    severity: EventSeverity  # REQUIRED
+    code: Optional[str] = None  # ErrorCode if denied
     matched_rules: List[str] = field(default_factory=list)
 
 
 @dataclass
 class ValidationInfo:
-    """Validation check information"""
-    kind: str  # precondition | schema | invariant
+    """
+    Validation check information (enhanced with error codes)
+    """
+    kind: str  # precondition | schema | invariant | postcondition
     check_id: str
-    decision: str  # pass | deny
+    decision: str  # pass | deny | warn
     reason: str
+    code: Optional[str] = None  # ErrorCode if failed
     field: Optional[str] = None
+    severity: EventSeverity = EventSeverity.INFO  # REQUIRED
 
 
 @dataclass

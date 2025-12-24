@@ -10,9 +10,13 @@ from datetime import datetime
 from ..core.step import Step, RunContext, StepResult, generate_step_id, generate_run_id
 from ..core.executor.executor import Executor, ExecutorConfig
 from ..core.tools.registry import ToolRegistry
+from ..core.tools.spec import ToolSpec
+from ..core.tools.metadata import ToolMetadata
 from ..core.tools.invoker import ToolInvoker
 from ..core.trace.recorder import JsonlTraceRecorder, NullTraceRecorder, TraceRecorder
 from ..core.validate.validator import ValidatorRegistry
+from ..core.validate.rules import ValidationRuleSet
+from ..core.validate.presets import ValidationPreset
 from ..core.policy.policy import Policy
 
 
@@ -83,8 +87,19 @@ class Session:
         # Generate run_id first (needed for auto trace path)
         self._run_id = run_id or generate_run_id()
         
-        # Tool registry
-        self._tools = ToolRegistry()
+        # Sandbox validation (v0.1.2: enforce explicit sandbox for security)
+        if sandbox is None:
+            # Default to .failcore/sandbox for safety
+            sandbox = ".failcore/sandbox"
+            Path(sandbox).mkdir(parents=True, exist_ok=True)
+        
+        # Tool registry with sandbox support
+        self._tools = ToolRegistry(sandbox_root=sandbox)
+        
+        # Validator registry (create if not provided)
+        if validator is None:
+            validator = ValidatorRegistry()
+        self._validator = validator
         
         # Store auto_ingest flag
         self._auto_ingest = auto_ingest
@@ -118,7 +133,7 @@ class Session:
         self._executor = Executor(
             tools=self._tools,
             recorder=self._recorder,
-            validator=validator,
+            validator=self._validator,
             policy=policy,
             config=ExecutorConfig()
         )
@@ -153,18 +168,86 @@ class Session:
         from .watch import set_watch_session
         set_watch_session(self)
     
-    def register(self, name: str, fn: Callable[..., Any]) -> None:
+    def register(
+        self,
+        name: str,
+        fn: Callable[..., Any],
+        metadata: Optional[ToolMetadata] = None,
+        description: str = "",
+        auto_assemble: bool = True,
+    ) -> None:
         """
-        Register a tool
+        Register a tool with optional metadata
         
         Args:
             name: Tool name
             fn: Tool function (callable)
+            metadata: Optional tool metadata (risk, side effect, policy)
+            description: Optional tool description
+            auto_assemble: Auto-assemble validation rules from metadata
         
         Example:
+            >>> # Simple registration
             >>> session.register("divide", lambda a, b: a / b)
+            
+            >>> # With metadata
+            >>> from failcore.core.tools.metadata import ToolMetadata, RiskLevel, SideEffect, DefaultPolicy
+            >>> session.register(
+            ...     "write_file",
+            ...     write_file_fn,
+            ...     metadata=ToolMetadata(
+            ...         risk_level=RiskLevel.HIGH,
+            ...         side_effect=SideEffect.WRITE,
+            ...         default_policy=DefaultPolicy.BLOCK,
+            ...     )
+            ... )
         """
-        self._tools.register(name, fn)
+        if metadata is not None:
+            # Register with full metadata support
+            spec = ToolSpec(
+                name=name,
+                fn=fn,
+                description=description,
+                tool_metadata=metadata,
+            )
+            self._tools.register_tool(spec, auto_assemble=auto_assemble)
+            
+            # Sync validators to ValidatorRegistry for execution
+            preconditions = self._tools.get_preconditions(name)
+            postconditions = self._tools.get_postconditions(name)
+            for precond in preconditions:
+                self._validator.register_precondition(name, precond)
+            for postcond in postconditions:
+                self._validator.register_postcondition(name, postcond)
+        else:
+            # Simple registration (backward compatible)
+            self._tools.register(name, fn)
+    
+    def bind_rules(self, tool_name: str, rules: ValidationRuleSet) -> None:
+        """
+        Bind validation rules to a tool
+        
+        Args:
+            tool_name: Tool name
+            rules: ValidationRuleSet with preconditions/postconditions
+        
+        Example:
+            >>> from failcore.core.validate.rules import RuleAssembler
+            >>> assembler = RuleAssembler(sandbox_root="/workspace")
+            >>> rules = assembler.assemble(...)
+            >>> session.bind_rules("write_file", rules)
+        """
+        # Register in ToolRegistry (for tracking)
+        for precond in rules.preconditions:
+            self._tools.register_precondition(tool_name, precond)
+        for postcond in rules.postconditions:
+            self._tools.register_postcondition(tool_name, postcond)
+        
+        # Also register in ValidatorRegistry (for execution)
+        for precond in rules.preconditions:
+            self._validator.register_precondition(tool_name, precond)
+        for postcond in rules.postconditions:
+            self._validator.register_postcondition(tool_name, postcond)
     
     def tool(self, fn: Callable[..., Any]) -> Callable[..., Any]:
         """

@@ -106,9 +106,9 @@ def run_sample(args):
 
 
 def _register_sample_tools(session, sandbox):
-    """Register tools for sample demonstration"""
+    """Register tools for sample demonstration with metadata"""
+    from failcore.core.tools.metadata import ToolMetadata, RiskLevel, SideEffect, DefaultPolicy
     
-    @session.tool
     def cleanup_temp(path: str) -> str:
         """Clean up temporary files (demonstrates policy check)"""
         abs_path = Path(path).absolute()
@@ -118,7 +118,6 @@ def _register_sample_tools(session, sandbox):
                 return f"Deleted: {path}"
         return f"Not found: {path}"
     
-    @session.tool
     def fetch_user_data(user_id: str) -> str:
         """
         Fetch user data (demonstrates schema mismatch).
@@ -130,7 +129,6 @@ def _register_sample_tools(session, sandbox):
         # This is what buggy LLM outputs (common in tool-calling scenarios):
         return f"Here is the user data you requested: {{success: true, user_id: {user_id}, name: 'Alice'}}"
     
-    @session.tool
     def read_config(path: str) -> dict:
         """Read config file (not used in demo, for completeness)"""
         full_path = sandbox / path
@@ -138,6 +136,40 @@ def _register_sample_tools(session, sandbox):
             with open(full_path) as f:
                 return json.load(f)
         return {"error": "File not found"}
+    
+    # Register with metadata for v0.1.2 trace schema
+    session.register(
+        "cleanup_temp",
+        cleanup_temp,
+        metadata=ToolMetadata(
+            risk_level=RiskLevel.HIGH,
+            side_effect=SideEffect.WRITE,
+            default_policy=DefaultPolicy.BLOCK,
+        ),
+        description="Clean up temporary files (demonstrates policy check)"
+    )
+    
+    session.register(
+        "fetch_user_data",
+        fetch_user_data,
+        metadata=ToolMetadata(
+            risk_level=RiskLevel.MEDIUM,
+            side_effect=SideEffect.NETWORK,
+            default_policy=DefaultPolicy.WARN,
+        ),
+        description="Fetch user data (demonstrates schema mismatch)"
+    )
+    
+    session.register(
+        "read_config",
+        read_config,
+        metadata=ToolMetadata(
+            risk_level=RiskLevel.LOW,
+            side_effect=SideEffect.READ,
+            default_policy=DefaultPolicy.ALLOW,
+        ),
+        description="Read config file"
+    )
 
 
 def _act1_policy_denied(session, sandbox):
@@ -259,37 +291,78 @@ def _act3_replay(trace_path):
             if line.strip():
                 events.append(json.loads(line))
     
-    # Extract key events
+    # Extract key events (v0.1.2 schema)
     print("[TIMELINE]")
     
     step_events = {}
     for event in events:
-        step_id = event.get('step_id')
+        evt = event.get('event', {})
+        step = evt.get('step', {})
+        step_id = step.get('id')
         if step_id:
             if step_id not in step_events:
                 step_events[step_id] = []
             step_events[step_id].append(event)
     
     for idx, (step_id, evts) in enumerate(step_events.items(), 1):
-        start_evt = next((e for e in evts if e.get('type') == 'step_start'), None)
-        fail_evt = next((e for e in evts if e.get('type') == 'step_fail'), None)
-        ok_evt = next((e for e in evts if e.get('type') == 'step_ok'), None)
+        # v0.1.2: events have nested structure
+        start_evt = next((e for e in evts if e.get('event', {}).get('type') == 'STEP_START'), None)
+        end_evt = next((e for e in evts if e.get('event', {}).get('type') == 'STEP_END'), None)
         
         if start_evt:
-            print(f"\n  [{idx}] Step: {step_id}")
-            print(f"      Tool: {start_evt.get('tool')}")
-            print(f"      Params: {start_evt.get('params_summary', {})}")
+            evt = start_evt.get('event', {})
+            step = evt.get('step', {})
+            data = evt.get('data', {})
             
-            if fail_evt:
-                print(f"      Result: BLOCKED")
-                print(f"      Error: {fail_evt.get('error_code')}")
-                print(f"      Reason: {fail_evt.get('error_message', '')[:60]}...")
-                meta = fail_evt.get('meta', {})
-                if meta.get('phase'):
-                    print(f"      Phase: {meta['phase']}")
-            elif ok_evt:
-                print(f"      Result: OK")
-                print(f"      Duration: {ok_evt.get('duration_ms')}ms")
+            # Extract tool metadata if present
+            tool_name = step.get('tool', 'unknown')
+            metadata = step.get('metadata', {})
+            
+            print(f"\n  [{idx}] Step: {step_id}")
+            print(f"      Tool: {tool_name}")
+            
+            # Show metadata (v0.1.2 enhancement)
+            if metadata:
+                risk = metadata.get('risk_level', 'N/A')
+                side_effect = metadata.get('side_effect', 'N/A')
+                print(f"      Metadata: risk={risk}, side_effect={side_effect}")
+            
+            # Extract params from payload
+            payload = data.get('payload', {})
+            input_data = payload.get('input', {})
+            params_summary = input_data.get('summary', {})
+            print(f"      Params: {params_summary}")
+            
+            if end_evt:
+                evt_data = end_evt.get('event', {})
+                data = evt_data.get('data', {})
+                result = data.get('result', {})
+                
+                status = result.get('status', 'UNKNOWN')
+                severity = evt_data.get('severity', 'INFO')
+                
+                if status in ['FAIL', 'BLOCKED']:
+                    print(f"      Result: {status}")
+                    print(f"      Severity: {severity}")
+                    
+                    error = result.get('error', {})
+                    error_code = error.get('code', 'UNKNOWN')
+                    error_msg = error.get('message', '')
+                    
+                    print(f"      Error Code: {error_code}")
+                    print(f"      Reason: {error_msg[:60]}...")
+                    
+                    phase = result.get('phase', 'unknown')
+                    print(f"      Phase: {phase}")
+                    
+                    # Show provenance if present
+                    provenance = step.get('provenance', 'LIVE')
+                    if provenance != 'LIVE':
+                        print(f"      Provenance: {provenance}")
+                else:
+                    print(f"      Result: {status}")
+                    duration = result.get('duration_ms', 0)
+                    print(f"      Duration: {duration}ms")
     
     # Summary
     failed_count = len([e for e in events if e.get('type') == 'step_fail'])
@@ -344,7 +417,7 @@ def main():
     )
 
     # validate - validate trace file
-    validate_p = sub.add_parser("validate", help="Validate trace file against v0.1.1 spec")
+    validate_p = sub.add_parser("validate", help="Validate trace file against v0.1.1 schemas")
     validate_p.add_argument("trace", help="Path to trace file")
 
     # list - list recent runs
