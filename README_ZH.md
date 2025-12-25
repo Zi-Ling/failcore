@@ -24,12 +24,27 @@ FailCore 位于 **Agent 技术栈最底层的执行安全层（Execution Safety 
 
 ---
 
+## ▶️ 执行阶段安全拦截（实时演示）
+
+FailCore 在 **工具调用（tool invocation）阶段** 强制执行安全策略，  
+在任何网络或文件系统副作用发生之前完成拦截。
+
+<p align="center">
+  <img src="./assets/gif/2025_12_25_demo.gif" width="820" />
+</p>
+
+> 演示内容：  
+> Agent 试图访问云元数据与内网地址（SSRF），  
+> FailCore 在执行前阻断请求，并生成完整执行轨迹（trace）。
+
+---
+
 ## 📸 实际效果（取证级执行报告）
 
 FailCore 会为 **每一次 Agent 运行自动生成取证级 HTML 报告**。  
 （下图展示：LLM 生成了路径穿越攻击，而 FailCore 在执行前将其拦截）
 
-![FailCore Forensic Report](/docs/images/report_screenshot.png)
+![FailCore Forensic Report](/assets/images/report_screenshot.png)
 
 > **BLOCKED（红色）** 状态表示：  
 > Agent 试图执行未授权操作，但在 *验证层* 即被 FailCore 成功拦截。
