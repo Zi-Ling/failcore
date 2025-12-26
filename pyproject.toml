@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "failcore"
-version = "0.1.0"
+version = "0.1.2"
 description = "A minimal execution runtime and tracing toolkit for agent plans."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -35,6 +35,13 @@ dependencies = []
 langchain = [
   "langchain-core>=0.3.0,<2.0.0",
 ]
+
+otel = [
+  "opentelemetry-api>=1.22.0",
+  "opentelemetry-sdk>=1.22.0",
+  "opentelemetry-exporter-otlp>=1.22.0",
+]
+
 # Dev-only tooling
 dev = [
   "pytest>=9.0.2",
