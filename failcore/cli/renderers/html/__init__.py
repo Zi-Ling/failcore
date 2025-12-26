@@ -11,12 +11,14 @@ This module is refactored into multiple components:
 """
 
 from ...views.trace_report import TraceReportView
+from ...views.forensic_report import ForensicReportView
 from .utils import format_timestamp, get_status_color
 from .sections import (
-    render_summary_section,
+    render_trace_summary_section,
     render_security_impact_section,
     render_timeline_section,
-    render_forensic_section
+    render_forensic_section,
+    render_forensic_audit_section
 )
 from .layout import render_html_document
 
@@ -48,7 +50,7 @@ class HtmlRenderer:
         sandbox_root = view.meta.workspace or ".failcore/sandbox"
         
         # Render main sections
-        summary_html = render_summary_section(view, overall_status_color)
+        summary_html = render_trace_summary_section(view, overall_status_color)
         security_impact_html = render_security_impact_section(view, policy_impact_detail)
         timeline_html = render_timeline_section(view.steps)
         forensic_html = render_forensic_section(view.failures, view.warnings, sandbox_root)
@@ -64,6 +66,42 @@ class HtmlRenderer:
         # Generate complete HTML document
         return render_html_document(
             view=view,
+            created_at_display=created_at_display,
+            content_html=content_html,
+        )
+
+    def render_forensic_report(self, view: ForensicReportView) -> str:
+        """Render ForensicReportView as HTML"""
+        # Note: Reusing render_html_document requires adapting the view or updating layout.
+        # For now, we'll adapt the ForensicReportView to something layout understands or extend layout.
+        # Since layout expects TraceReportView for header/footer, we need a slight adaptation.
+        
+        # Create a mock TraceReportView for layout compatibility
+        # In a full refactor, layout should accept a generic meta interface.
+        from ...views.trace_report import ReportMeta
+        
+        meta_adapter = ReportMeta(
+            run_id=view.meta.run_id,
+            created_at=view.meta.generated_at,
+            workspace=view.meta.report_id, # abusing field for display
+            trace_path=view.meta.trace_path,
+            overall_status="AUDIT", # Special status for audit report
+        )
+        
+        # For layout compatibility (it accesses view.meta attributes directly)
+        class ViewAdapter:
+            def __init__(self, meta):
+                self.meta = meta
+        
+        view_adapter = ViewAdapter(meta_adapter)
+        
+        created_at_display = format_timestamp(view.meta.generated_at)
+        
+        # Render the specific forensic content
+        content_html = render_forensic_audit_section(view)
+        
+        return render_html_document(
+            view=view_adapter, # type: ignore
             created_at_display=created_at_display,
             content_html=content_html,
         )

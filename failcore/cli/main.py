@@ -11,7 +11,7 @@ from failcore.cli.trace_cmd import trace_ingest, trace_query, trace_stats
 from failcore.cli.replay_cmd import replay_trace, replay_diff
 from failcore.cli.list_cmd import list_runs
 from failcore.cli.report_cmd import generate_report
-from failcore.infra.storage import SQLiteStore, TraceIngestor
+from failcore.cli.forensic_cmd import generate_forensic
 from failcore.infra.storage import SQLiteStore, TraceIngestor
 from pathlib import Path
 
@@ -438,6 +438,14 @@ def main():
     report_p.add_argument("--trace", help="Path to trace.jsonl file (default: last run)")
     report_p.add_argument("--html", action="store_true", default=True, help="Generate HTML format (default)")
 
+    # forensic - generate forensic audit report (audit.json)
+    forensic_p = sub.add_parser("forensic", help="Generate forensic audit report (audit.json)")
+    forensic_p.add_argument("--trace", help="Path to trace.jsonl file (default: last run)")
+    forensic_p.add_argument("--out", help="Output path for audit.json (default: <trace_stem>_audit.json)")
+    forensic_p.add_argument("--pretty", action="store_true", help="Pretty JSON output (indent=2)")
+    forensic_p.add_argument("--html", action="store_true", help="Generate HTML report instead of JSON")
+
+
     # trace - trace management commands
     trace_p = sub.add_parser("trace", help="Trace management (ingest, query, stats)")
     trace_sub = trace_p.add_subparsers(dest="trace_command")
@@ -488,6 +496,8 @@ def main():
         return show_trace(args)
     elif args.command == "report":
         return generate_report(args)
+    elif args.command == "forensic":
+        return generate_forensic(args)
     elif args.command == "sample":
         run_sample(args)
     elif args.command == "trace":

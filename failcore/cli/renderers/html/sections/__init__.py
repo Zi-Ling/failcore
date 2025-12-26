@@ -1,16 +1,30 @@
 # failcore/cli/renderers/html/sections/__init__.py
 """
-Section renderers for HTML reports
+HTML Report Section Renderers
 """
 
-from .summary import render_summary_section, render_security_impact_section
-from .timeline import render_timeline_section
-from .forensic import render_forensic_section
+from .common import render_card, render_section_container
+from .trace_report import (
+    render_trace_summary_section,
+    render_security_impact_section,
+    render_timeline_section
+)
+from .forensic_report import (
+    render_forensic_section,
+    render_forensic_audit_section
+)
 
 __all__ = [
-    'render_summary_section',
+    # Common
+    'render_card',
+    'render_section_container',
+    
+    # Trace Report
+    'render_trace_summary_section',
     'render_security_impact_section',
     'render_timeline_section',
+    
+    # Forensic Report
     'render_forensic_section',
+    'render_forensic_audit_section',
 ]
-
