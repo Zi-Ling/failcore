@@ -19,6 +19,40 @@ def _get_risk_level_semantic(score: int) -> str:
         return "Minimal"
 
 
+def _calculate_observed_risk(findings) -> tuple[str, int]:
+    """
+    Calculate Observed Risk Level based on incident severity.
+    Returns (semantic_level, numeric_score)
+    
+    Observed Risk = risk level before FailCore enforcement
+    """
+    if not findings:
+        return ("Minimal", 5)
+    
+    # Count by severity
+    sev_counts = {"CRIT": 0, "HIGH": 0, "MED": 0, "LOW": 0}
+    for f in findings:
+        sev = f.severity.split()[0].upper()
+        if "CRIT" in sev:
+            sev_counts["CRIT"] += 1
+        elif "HIGH" in sev:
+            sev_counts["HIGH"] += 1
+        elif "MED" in sev or "MEDIUM" in sev:
+            sev_counts["MED"] += 1
+        else:
+            sev_counts["LOW"] += 1
+    
+    # Calculate observed risk score
+    if sev_counts["CRIT"] > 0:
+        return ("High", 75)
+    elif sev_counts["HIGH"] > 0:
+        return ("Medium", 55)
+    elif sev_counts["MED"] > 0:
+        return ("Low", 15)  # Medium incidents observed = Low observed risk
+    else:
+        return ("Minimal", 5)
+
+
 def render_audit_section(view: AuditReportView) -> str:
     """
     Render Audit report as a formal legal document with pagination.
@@ -69,6 +103,23 @@ def render_audit_section(view: AuditReportView) -> str:
     conclusion_line = exec_lines[0] + "." if exec_lines else view.executive_summary
     rest_summary = ". ".join(exec_lines[1:]) if len(exec_lines) > 1 else ""
     
+    # Calculate Observed vs Residual Risk
+    observed_level, observed_score = _calculate_observed_risk(view.findings)
+    residual_score = view.summary.risk_score or 2
+    residual_level = _get_risk_level_semantic(residual_score)
+    
+    # Risk model explanation
+    has_medium = any("MEDIUM" in f.severity.upper() or "MED" in f.severity.upper() for f in view.findings)
+    risk_explanation = ""
+    if has_medium:
+        risk_explanation = f"""
+                    <p style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid #ddd; font-style: italic; color: #555;">
+                        A medium-severity execution incident was observed during the session. 
+                        However, due to successful runtime enforcement and absence of side effects, 
+                        the residual system risk after mitigation remains minimal.
+                    </p>
+        """
+    
     section1_summary = f"""
         <section class="sheet">
             <div class="section-content">
@@ -78,63 +129,64 @@ def render_audit_section(view: AuditReportView) -> str:
                     <div style="font-weight: 700; margin-bottom: 0.5rem;">Conclusion:</div>
                     <p>{conclusion_line}</p>
                     <p style="margin-top: 0.5rem;">{rest_summary}</p>
-                    <p style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid #ddd; font-style: italic; color: #555;">
-                        Although medium-severity incidents were detected, the overall risk remains low due to successful runtime interception and absence of side effects.
-                    </p>
+                    {risk_explanation}
                 </div>
                 
                 <div class="risk-overview-grid">
                     <div class="risk-metric">
-                        <div class="metric-label">Overall Risk</div>
-                        <div class="metric-value" style="font-size: 1.5rem;">{_get_risk_level_semantic(view.summary.risk_score or 0)}</div>
-                        <div style="font-size: 1rem; color: #666; margin-top: 0.25rem;">({view.summary.risk_score or 0}/100)</div>
+                        <div class="metric-label">Observed Risk Level</div>
+                        <div class="metric-value" style="font-size: 1.5rem;">{observed_level}</div>
+                        <div style="font-size: 0.85rem; color: #666; margin-top: 0.25rem;">({observed_score}/100)</div>
                     </div>
                     <div class="risk-metric">
-                        <div class="metric-label">Total Incidents</div>
+                        <div class="metric-label">Residual Risk</div>
+                        <div class="metric-value" style="font-size: 1.5rem;">{residual_level}</div>
+                        <div style="font-size: 0.85rem; color: #666; margin-top: 0.25rem;">({residual_score}/100)</div>
+                    </div>
+                    <div class="risk-metric">
+                        <div class="metric-label">Observed Incidents</div>
                         <div class="metric-value">{view.summary.findings_total}</div>
                     </div>
                     <div class="risk-metric">
-                        <div class="metric-label">Policy Blocks</div>
+                        <div class="metric-label">Enforcement Blocks</div>
                         <div class="metric-value">{view.value_metrics.policy_denied_findings}</div>
-                    </div>
-                    <div class="risk-metric">
-                        <div class="metric-label">Tool Calls</div>
-                        <div class="metric-value">{view.summary.tool_calls}</div>
                     </div>
                 </div>
                 
-                <h3 style="margin-top: 2rem; margin-bottom: 1rem;">Risk Overview</h3>
+                <h3 style="margin-top: 2rem; margin-bottom: 1rem;">Risk Assessment Model</h3>
                 <p style="font-size: 0.85rem; color: #666; margin-bottom: 1rem; font-style: italic; border-left: 3px solid #999; padding-left: 1rem;">
-                    Risk score reflects relative execution risk within the observed session and is not a system-wide security rating.
+                    <strong>Observed Risk</strong> reflects the severity of incidents detected during execution. 
+                    <strong>Residual Risk</strong> represents the remaining risk after FailCore runtime enforcement and mitigation controls are applied.
                 </p>
                 <table class="risk-breakdown-table">
                         <thead>
                             <tr>
-                                <th>Severity</th>
-                                <th>Count</th>
-                                <th>Percentage</th>
+                                <th>Metric</th>
+                                <th>Value</th>
                             </tr>
                         </thead>
                         <tbody>
-    """
-    
-    # Generate severity breakdown
-    total_findings = view.summary.findings_total or 1  # avoid division by zero
-    for sev in ["CRIT", "HIGH", "MED", "LOW"]:
-        count = view.summary.findings_by_severity.get(sev, 0)
-        pct = (count / total_findings * 100) if total_findings > 0 else 0
-        sev_display = {"CRIT": "CRITICAL", "HIGH": "HIGH", "MED": "MEDIUM", "LOW": "LOW"}.get(sev, sev)
-        section1_summary += f"""
                             <tr>
-                                <td>{sev_display}</td>
-                                <td>{count}</td>
-                                <td>{pct:.1f}%</td>
+                                <td><strong>Observed Incidents</strong></td>
+                                <td>{view.summary.findings_total} incident(s) detected</td>
                             </tr>
-        """
+                            <tr>
+                                <td><strong>Observed Risk Level</strong></td>
+                                <td>{observed_level} ({observed_score}/100)</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Residual Risk Score</strong></td>
+                                <td>{residual_level} ({residual_score}/100)</td>
+                            </tr>
+    """
     
     section1_summary += """
                         </tbody>
                     </table>
+                    
+                    <p style="margin-top: 1rem; font-size: 0.85rem; color: #555;">
+                        For detailed incident breakdown by severity, refer to Part III: Incident Analysis.
+                    </p>
             </div>
         </section>
     """
