@@ -1,4 +1,4 @@
-# /failcore/adapters/langchain/__init__.py
+# /failcore/adapters/langchain/base.py
 """
 LangChain Adapter - Thin translation layer
 

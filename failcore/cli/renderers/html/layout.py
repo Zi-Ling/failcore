@@ -14,14 +14,14 @@ def render_html_document(
 ) -> str:
     """Render complete HTML document structure"""
     
-    # Detect if this is an audit report
+    # Detect if this is an Audit report
     is_audit = view.meta.overall_status == "AUDIT"
     
     if is_audit:
         # Audit report: page header/footer instead of banner header
         page_header = f"""
             <div class="page-header">
-                <div>FailCore Forensic Audit</div>
+                <div>FailCore Audit</div>
                 <div>Report ID: {view.meta.run_id}</div>
             </div>
         """
@@ -54,7 +54,7 @@ def render_html_document(
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FailCore {'Forensic Audit' if is_audit else 'Execution Report'} - {view.meta.run_id}</title>
+    <title>FailCore {'Audit' if is_audit else 'Execution Report'} - {view.meta.run_id}</title>
     <style>
 {get_css()}
     </style>
@@ -77,11 +77,11 @@ def _render_header(view: TraceReportView, created_at_display: str) -> str:
     header_class = "header"
     status_badge = ""
     
-    # Check if this is an audit report (using the status flag we set in renderer)
+    # Check if this is an Audit report (using the status flag we set in renderer)
     if view.meta.overall_status == "AUDIT":
-        title = "FailCore Forensic Audit"
-        header_class = "header header-audit"
-        status_badge = '<div class="audit-badge">OFFICIAL RECORD</div>'
+        title = "FailCore Audit"
+        header_class = "header header-Audit"
+        status_badge = '<div class="Audit-badge">OFFICIAL RECORD</div>'
         
     return f"""
         <div class="{header_class}">

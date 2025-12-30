@@ -1,4 +1,4 @@
-# failcore/cli/renderers/__init__.py
+# failcore/cli/renderers/base.py
 """
 Renderers for FailCore Views
 

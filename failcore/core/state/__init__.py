@@ -1,4 +1,4 @@
-# failcore/core/state/__init__.py
+# failcore/core/state/base.py
 
 from .state import AgentState
 __all__ = [

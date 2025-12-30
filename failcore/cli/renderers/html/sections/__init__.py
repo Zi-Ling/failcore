@@ -1,4 +1,4 @@
-# failcore/cli/renderers/html/sections/__init__.py
+# failcore/cli/renderers/html/sections/base.py
 """
 HTML Report Section Renderers
 """
@@ -9,9 +9,8 @@ from .trace_report import (
     render_security_impact_section,
     render_timeline_section
 )
-from .forensic_report import (
-    render_forensic_section,
-    render_forensic_audit_section
+from .audit_report import (
+    render_audit_section
 )
 
 __all__ = [
@@ -24,7 +23,6 @@ __all__ = [
     'render_security_impact_section',
     'render_timeline_section',
     
-    # Forensic Report
-    'render_forensic_section',
-    'render_forensic_audit_section',
+    # Audit Report
+    'render_audit_section'
 ]

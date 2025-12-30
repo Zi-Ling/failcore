@@ -1,4 +1,4 @@
-# failcore/core/step/__init__.py
+# failcore/core/step/base.py
 """
 Core step types for Failcore.
 

@@ -414,62 +414,16 @@
         ]
       },
       "run": {
-        "type": "object",
-        "required": ["run_id", "created_at", "version"],
-        "additionalProperties": false,
-        "properties": {
-          "run_id": { "type": "string" },
-          "created_at": { "type": "string", "format": "date-time" },
-          "workspace": { "type": "string" },
-          "sandbox_root": { "type": "string" },
-          "cwd": { "type": "string" },
-          "tags": { "type": "object" },
-          "flags": { "type": "object" },
-          "version": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["spec"],
-            "properties": {
-              "failcore": {
-                "type": "string",
-                "description": "FailCore package version"
-              },
-              "spec": {
-                "type": "string",
-                "pattern": "^v\\d+\\.\\d+\\.\\d+$",
-                "description": "Trace spec version (e.g., 'v0.1.2')"
-              }
-            }
-          }
-        }
+        "$ref": "https://failcore.dev/schemas/common/base.v1.schema.json#/definitions/Run"
       },
       "host": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "os": { "type": "string" },
-          "python": { "type": "string" },
-          "pid": { "type": "integer" }
-        }
+        "$ref": "https://failcore.dev/schemas/common/base.v1.schema.json#/definitions/Host"
       },
       "actor": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "type": { "type": "string" },
-          "name": { "type": "string" }
-        }
+        "$ref": "https://failcore.dev/schemas/common/base.v1.schema.json#/definitions/Actor"
       },
       "security": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "payload_mode": {
-            "type": "string",
-            "enum": ["none", "summary", "full", "ref", "masked"],
-            "description": "Payload visibility mode: none=no data, summary=metadata only, full=complete payload, ref=external reference, masked=sensitive data redacted (recommended default in production)"
-          }
-        }
+        "$ref": "https://failcore.dev/schemas/common/base.v1.schema.json#/definitions/Security"
       }
     }
   }

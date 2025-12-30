@@ -1,0 +1,91 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://failcore.dev/schemas/common/base.v1.schema.json",
+  "title": "FailCore Common Base Definitions v1",
+  "description": "Shared schema definitions for FailCore trace and audit reports. Provides stable type definitions for Run, Host, Actor, Security, and common primitives.",
+  "definitions": {
+    "Run": {
+      "type": "object",
+      "required": ["run_id", "created_at", "version"],
+      "additionalProperties": false,
+      "properties": {
+        "run_id": { "$ref": "#/definitions/IdLike" },
+        "created_at": { "$ref": "#/definitions/ISODateTime" },
+        "workspace": { "type": "string" },
+        "sandbox_root": { "type": "string", "description": "Sandbox root directory (trace-specific)" },
+        "cwd": { "type": "string" },
+        "trace_path": { "type": "string", "description": "Primary trace file path (audit-specific)" },
+        "trace_sha256": { "$ref": "#/definitions/Sha256Digest", "description": "Hash of source trace (audit-specific)" },
+        "tags": { "type": "object" },
+        "flags": { "type": "object" },
+        "version": { "$ref": "#/definitions/Version" }
+      }
+    },
+
+    "Host": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "os": { "type": "string" },
+        "python": { "type": "string" },
+        "pid": { "type": "integer" }
+      }
+    },
+
+    "Actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string" },
+        "name": { "type": "string" }
+      }
+    },
+
+    "Security": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "payload_mode": {
+          "type": "string",
+          "enum": ["none", "summary", "full", "ref", "masked"],
+          "description": "Payload visibility mode: none=no data, summary=metadata only, full=complete payload, ref=external reference, masked=sensitive data redacted"
+        }
+      }
+    },
+
+    "Version": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["spec"],
+      "properties": {
+        "failcore": {
+          "type": "string",
+          "description": "FailCore package version"
+        },
+        "spec": {
+          "type": "string",
+          "pattern": "^v\\d+\\.\\d+\\.\\d+$",
+          "description": "Schema spec version (e.g., 'v0.1.2')"
+        }
+      }
+    },
+
+    "ISODateTime": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO8601 timestamp with timezone"
+    },
+
+    "Sha256Digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$",
+      "description": "SHA-256 digest in format 'sha256:<hex>'"
+    },
+
+    "IdLike": {
+      "type": "string",
+      "description": "Generic identifier string (run_id, report_id, etc.)"
+    }
+  }
+}
+

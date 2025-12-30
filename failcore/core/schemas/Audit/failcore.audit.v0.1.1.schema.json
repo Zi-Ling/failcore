@@ -1,0 +1,432 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://failcore.dev/audit/v0.1.1.schema.json",
+  "title": "FailCore Audit Report Event v0.1.1",
+  "description": "Audit report event schema for FailCore audits. Designed for document-grade reports: executive summary, findings, compliance mapping, audit timeline, appendices, and attestation.",
+  "type": "object",
+  "required": ["schema", "seq", "ts", "level", "event", "run"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "type": "string",
+      "const": "failcore.audit.v0.1.1",
+      "description": "Schema version identifier"
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Monotonic sequence number within report stream (jsonl ordering)"
+    },
+    "ts": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO8601 timestamp with timezone"
+    },
+    "level": {
+      "type": "string",
+      "enum": ["DEBUG", "INFO", "WARN", "ERROR"],
+      "description": "Log level for report generation/assembly (not incident severity)"
+    },
+
+    "event": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "REPORT_START",
+            "SUMMARY",
+            "FINDING",
+            "COMPLIANCE_MAPPING",
+            "TIMELINE_ITEM",
+            "APPENDIX_ITEM",
+            "ATTESTATION",
+            "REPORT_END"
+          ],
+          "description": "Audit report event type"
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["ok", "info", "warn", "high"],
+          "description": "Report-level emphasis indicator (not enforcement severity). Use FINDING.severity for incident severity."
+        },
+        "report": {
+          "type": "object",
+          "description": "Report identity (recommended on REPORT_START and REPORT_END)",
+          "additionalProperties": false,
+          "properties": {
+            "report_id": { "type": "string", "description": "Stable report identifier (e.g., 'FC-2025-12-27-0001')" },
+            "title": { "type": "string", "description": "Human-facing report title" },
+            "classification": {
+              "type": "string",
+              "enum": ["PUBLIC", "INTERNAL", "CONFIDENTIAL", "RESTRICTED"],
+              "description": "Document classification"
+            },
+            "schema_spec": {
+              "type": "string",
+              "pattern": "^v\\d+\\.\\d+\\.\\d+$",
+              "description": "Audit report spec version (e.g., 'v0.1.1')"
+            },
+            "generated_at": { "type": "string", "format": "date-time" },
+            "page_hint": {
+              "type": "object",
+              "description": "Optional pagination hints for renderers (HTML/PDF).",
+              "additionalProperties": false,
+              "properties": {
+                "page": { "type": "integer", "minimum": 1 },
+                "pages": { "type": "integer", "minimum": 1 }
+              }
+            }
+          }
+        },
+
+        "data": {
+          "type": "object",
+          "description": "Event-specific payload (structure depends on event.type)"
+        }
+      },
+
+      "oneOf": [
+        {
+          "description": "REPORT_START carries report metadata",
+          "required": ["type", "report"],
+          "properties": {
+            "type": { "const": "REPORT_START" },
+            "report": { "required": ["report_id", "classification", "schema_spec", "generated_at"] }
+          }
+        },
+        {
+          "description": "SUMMARY provides executive summary and headline metrics",
+          "required": ["type", "data"],
+          "properties": {
+            "type": { "const": "SUMMARY" },
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["summary"],
+              "properties": {
+                "summary": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["overall_risk_score", "overall_severity", "notes", "counts"],
+                  "properties": {
+                    "overall_risk_score": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 100,
+                      "description": "Overall risk score (0-100) using internal scoring"
+                    },
+                    "overall_severity": {
+                      "type": "string",
+                      "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"],
+                      "description": "Overall severity grade"
+                    },
+                    "notes": {
+                      "type": "array",
+                      "items": { "type": "string" },
+                      "minItems": 1,
+                      "description": "Natural-language executive summary notes"
+                    },
+                    "counts": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["tool_calls", "findings", "blocked", "failed"],
+                      "properties": {
+                        "tool_calls": { "type": "integer", "minimum": 0 },
+                        "findings": { "type": "integer", "minimum": 0 },
+                        "blocked": { "type": "integer", "minimum": 0, "description": "Count of blocked events (policy denial / hard prevention)" },
+                        "failed": { "type": "integer", "minimum": 0, "description": "Count of execution failures (non-policy failures)" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "description": "FINDING represents an incident/finding entry",
+          "required": ["type", "data"],
+          "properties": {
+            "type": { "const": "FINDING" },
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["finding"],
+              "properties": {
+                "finding": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["incident_no", "severity", "category", "title", "determination", "triggered_by"],
+                  "properties": {
+                    "incident_no": {
+                      "type": "string",
+                      "description": "Human-facing incident number (e.g., 'FC-INC-2025-001')"
+                    },
+                    "severity": {
+                      "type": "string",
+                      "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"],
+                      "description": "Incident severity"
+                    },
+                    "category": {
+                      "type": "string",
+                      "enum": ["POLICY_DENIAL", "EXECUTION_ANOMALY", "CONTRACT_DRIFT", "VALIDATION_FAILURE", "SIDE_EFFECT", "OTHER"],
+                      "description": "Incident category"
+                    },
+                    "title": { "type": "string", "description": "Finding title (document-grade language)" },
+                    "determination": { "type": "string", "description": "Natural-language determination statement" },
+                    "impact": { "type": "string", "description": "Optional impact assessment for non-technical stakeholders" },
+                    "recommendation": { "type": "string", "description": "Optional remediation recommendation" },
+
+                    "triggered_by": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["source_type"],
+                      "properties": {
+                        "source_type": {
+                          "type": "string",
+                          "enum": ["tool_call", "policy", "validator", "replay", "system", "other"],
+                          "description": "Primary trigger source type"
+                        },
+                        "tool_name": { "type": "string", "description": "Tool name if source_type=tool_call" },
+                        "event_seq": { "type": "integer", "minimum": 1, "description": "Trace/report sequence number that triggered the finding" },
+                        "ref": { "type": "string", "description": "Optional reference locator (e.g., 'trace:seq12', 'step:s0003')" }
+                      }
+                    },
+
+                    "evidence_refs": {
+                      "type": "array",
+                      "items": { "type": "string" },
+                      "description": "References to appendices (e.g., ['APP-A-1'])"
+                    },
+
+                    "counterfactual": {
+                      "type": "object",
+                      "description": "Optional counterfactual execution summary (replay/simulation)",
+                      "additionalProperties": false,
+                      "required": ["mode", "statement"],
+                      "properties": {
+                        "mode": {
+                          "type": "string",
+                          "enum": ["replay_observed", "simulate", "sandbox_exec"],
+                          "description": "Counterfactual method"
+                        },
+                        "statement": { "type": "string", "description": "Human-readable counterfactual statement" },
+                        "confidence": {
+                          "type": "string",
+                          "enum": ["DETERMINISTIC", "HEURISTIC", "MANUAL"],
+                          "description": "Confidence level for counterfactual statement"
+                        }
+                      }
+                    }
+                  },
+
+                  "allOf": [
+                    {
+                      "if": {
+                        "properties": { "category": { "const": "POLICY_DENIAL" } }
+                      },
+                      "then": {
+                        "properties": {
+                          "triggered_by": {
+                            "properties": { "source_type": { "enum": ["policy", "tool_call"] } }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "description": "COMPLIANCE_MAPPING provides standards mapping for one incident",
+          "required": ["type", "data"],
+          "properties": {
+            "type": { "const": "COMPLIANCE_MAPPING" },
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["mapping"],
+              "properties": {
+                "mapping": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["incident_no", "mappings"],
+                  "properties": {
+                    "incident_no": { "type": "string" },
+                    "mappings": {
+                      "type": "array",
+                      "minItems": 1,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["framework", "control_id", "status", "confidence"],
+                        "properties": {
+                          "framework": {
+                            "type": "string",
+                            "enum": ["OWASP_AGENTIC_TOP10", "OWASP_AI_TOP10", "MITRE_ATTACK", "SOC2", "ISO27001", "CUSTOM"],
+                            "description": "Standards framework"
+                          },
+                          "control_id": { "type": "string", "description": "Control identifier (e.g., ASI02, T1059, CC6.1)" },
+                          "title": { "type": "string", "description": "Optional mapping title" },
+                          "status": {
+                            "type": "string",
+                            "enum": ["VERIFIED", "MONITORED", "N_A"],
+                            "description": "Mapping status"
+                          },
+                          "confidence": {
+                            "type": "string",
+                            "enum": ["DETERMINISTIC", "HEURISTIC", "MANUAL"],
+                            "description": "Confidence of mapping"
+                          },
+                          "rule_id": { "type": "string", "description": "Optional mapping rule id (for explainability)" },
+                          "note": { "type": "string", "description": "Optional human-readable note" }
+                        }
+                      }
+                    },
+                    "cvss": {
+                      "type": "object",
+                      "description": "Optional internal CVSS-like score",
+                      "additionalProperties": false,
+                      "required": ["score", "vector"],
+                      "properties": {
+                        "score": { "type": "number", "minimum": 0, "maximum": 10 },
+                        "vector": { "type": "string", "description": "Use 'INTERNAL' or an internal vector string" },
+                        "note": { "type": "string" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "description": "TIMELINE_ITEM represents one audit timeline entry (text-first)",
+          "required": ["type", "data"],
+          "properties": {
+            "type": { "const": "TIMELINE_ITEM" },
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["timeline"],
+              "properties": {
+                "timeline": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["stage", "message"],
+                  "properties": {
+                    "ts": { "type": "string", "format": "date-time", "description": "Optional timestamp override for ordering" },
+                    "stage": {
+                      "type": "string",
+                      "enum": ["INTENT", "MODEL_DECISION", "TOOL_SELECTED", "TOOL_EXECUTION", "POLICY", "OUTCOME", "REPLAY", "OTHER"],
+                      "description": "Timeline stage"
+                    },
+                    "message": { "type": "string", "description": "Human-readable timeline line" },
+                    "ref": { "type": "string", "description": "Optional reference to trace/run/step (e.g., 'trace:seq12')" },
+                    "incident_no": { "type": "string", "description": "Optional incident association" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "description": "APPENDIX_ITEM defines a technical appendix entry and reference id",
+          "required": ["type", "data"],
+          "properties": {
+            "type": { "const": "APPENDIX_ITEM" },
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["appendix"],
+              "properties": {
+                "appendix": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["appendix_id", "title", "source"],
+                  "properties": {
+                    "appendix_id": { "type": "string", "description": "Appendix reference id (e.g., 'APP-A-1')" },
+                    "title": { "type": "string" },
+                    "source": { "type": "string", "description": "Evidence source (e.g., 'trace.jsonl')" },
+                    "sha256": {
+                      "type": "string",
+                      "pattern": "^sha256:[a-f0-9]{64}$",
+                      "description": "Optional sha256 of appendix payload"
+                    },
+                    "range": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "from_seq": { "type": "integer", "minimum": 1 },
+                        "to_seq": { "type": "integer", "minimum": 1 }
+                      }
+                    },
+                    "note": { "type": "string", "description": "Optional evidence statement" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "description": "ATTESTATION defines sealing/signature placeholders",
+          "required": ["type", "data"],
+          "properties": {
+            "type": { "const": "ATTESTATION" },
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["attestation"],
+              "properties": {
+                "attestation": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["statement", "report_sha256"],
+                  "properties": {
+                    "statement": { "type": "string", "description": "Attestation statement" },
+                    "report_sha256": {
+                      "type": "string",
+                      "pattern": "^sha256:[a-f0-9]{64}$",
+                      "description": "Digest of canonical report.json or assembled report stream"
+                    },
+                    "signature": { "type": "string", "description": "Optional signature blob (future)" },
+                    "key_id": { "type": "string", "description": "Optional key identifier (future)" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "description": "REPORT_END closes the report stream",
+          "required": ["type", "report"],
+          "properties": {
+            "type": { "const": "REPORT_END" },
+            "report": { "required": ["report_id"] }
+          }
+        }
+      ]
+    },
+
+    "run": {
+      "$ref": "https://failcore.dev/schemas/common/base.v1.schema.json#/definitions/Run"
+    },
+
+    "host": {
+      "$ref": "https://failcore.dev/schemas/common/base.v1.schema.json#/definitions/Host"
+    },
+
+    "actor": {
+      "$ref": "https://failcore.dev/schemas/common/base.v1.schema.json#/definitions/Actor"
+    },
+
+    "security": {
+      "$ref": "https://failcore.dev/schemas/common/base.v1.schema.json#/definitions/Security"
+    }
+  }
+}

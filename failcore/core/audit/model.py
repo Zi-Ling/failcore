@@ -1,4 +1,4 @@
-# failcore/core/forensics/model.py
+# failcore/core/Audit/model.py
 from __future__ import annotations
 
 from dataclasses import dataclass, field, asdict
@@ -12,7 +12,7 @@ import socket
 import uuid
 
 
-FORENSIC_SCHEMA_V0_1_0 = "failcore.forensic.v0.1.0"
+AUDIT_SCHEMA_V0_1_0 = "failcore.Audit.v0.1.0"
 
 # JSON-safe primitive types (keep v0.1 simple and serializable)
 JsonPrimitive = Union[str, int, float, bool, None]
@@ -20,7 +20,7 @@ JsonMeta = Dict[str, JsonPrimitive]
 
 
 def utc_now_iso() -> str:
-    # Forensic: always explicit UTC with Z suffix; avoid microsecond noise.
+    # Audit: always explicit UTC with Z suffix; avoid microsecond noise.
     return (
         datetime.now(timezone.utc)
         .replace(microsecond=0)
@@ -57,7 +57,7 @@ def new_run_id(prefix: str = "run") -> str:
     """
     Generate a run_id that is:
     - unique enough for single-host runs
-    - readable in forensic bundles
+    - readable in Audit bundles
     """
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     host = sanitize_hostname(socket.gethostname() or "host")
@@ -210,7 +210,7 @@ class Summary:
 @dataclass(frozen=True)
 class EnvironmentMeta:
     """
-    Minimal environment metadata for forensic context.
+    Minimal environment metadata for Audit context.
     Keep it non-sensitive and stable.
     """
     failcore_version: Optional[str] = None
@@ -220,8 +220,8 @@ class EnvironmentMeta:
 
 
 @dataclass(frozen=True)
-class ForensicReport:
-    schema: str = FORENSIC_SCHEMA_V0_1_0
+class AuditReport:
+    schema: str = AUDIT_SCHEMA_V0_1_0
     report_id: str = field(default_factory=new_report_id)
     generated_at: str = field(default_factory=utc_now_iso)
 
@@ -244,12 +244,12 @@ class ForensicReport:
         run_id: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
         **kwargs: Any,
-    ) -> "ForensicReport":
+    ) -> "AuditReport":
         """
         Factory constructor to ensure run_id consistency and metadata normalization.
 
         Usage:
-          report = ForensicReport.new(run_id=trace_run_id, metadata={"service": "demo"})
+          report = AuditReport.new(run_id=trace_run_id, metadata={"service": "demo"})
         """
         rid = run_id or new_run_id()
         meta = normalize_metadata(metadata or {})

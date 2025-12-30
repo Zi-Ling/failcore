@@ -1,4 +1,4 @@
-# failcore/core/errors/__init__.py
+# failcore/core/errors/base.py
 """
 Core error types for Failcore.
 

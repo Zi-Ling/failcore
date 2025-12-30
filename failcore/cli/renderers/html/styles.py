@@ -1,36 +1,29 @@
 # failcore/cli/renderers/html/styles.py
 """
-CSS for Forensic Audit Report - Legal Document Style
+CSS for Audit Report - Unified Screen + Print Style
+One stylesheet for both screen preview and print output.
 """
 
 def get_css() -> str:
-    """Get CSS styles for forensic audit report (A4 Document)"""
+    """
+    Get CSS styles for Audit report.
+    One stylesheet for both screen preview and print output - WYSIWYG.
+    """
     return """
-        /* Print-First Design */
-        @media print {
-            body {
-                background: white;
-                padding: 0;
-            }
-            .container {
-                box-shadow: none;
-                border: none;
-                max-width: 100%;
-                page-break-after: always;
-            }
-            .page-header, .page-footer {
-                position: fixed;
-            }
-            .page-header { top: 0; }
-            .page-footer { bottom: 0; }
-            .section {
-                page-break-inside: avoid;
-            }
-            .no-print {
-                display: none !important;
-            }
+        /* ==========================================
+           CSS Variables
+           ========================================== */
+        :root {
+            --a4-w: 210mm;
+            --a4-h: 297mm;
+            --page-gap: 20px;
+            --page-pad: 20mm;
+            --print-margin: 16mm;
         }
-
+        
+        /* ==========================================
+           SCREEN: Simulated PDF viewer
+           ========================================== */
         * {
             margin: 0;
             padding: 0;
@@ -38,76 +31,148 @@ def get_css() -> str:
         }
         
         body {
+            margin: 0;
+            background: #f0f2f5;
             font-family: Georgia, "Times New Roman", serif;
             line-height: 1.6;
             color: #1a1a1a;
-            background: #e5e7eb;
-            padding: 2rem;
         }
         
-        /* A4 Paper Container */
-        .container {
-            max-width: 210mm;
-            min-height: 297mm;
-            margin: 0 auto;
-            background: white;
-            box-shadow: 0 0 20px rgba(0,0,0,0.1);
-            position: relative;
-            padding: 3cm 2.5cm 3cm 2.5cm; /* A4 margins */
-        }
-        
-        /* OFFICIAL RECORD Watermark */
-        .container::before {
-            content: "OFFICIAL RECORD";
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%) rotate(-45deg);
-            font-size: 5rem;
-            font-weight: 700;
-            color: rgba(0, 0, 0, 0.02);
-            letter-spacing: 0.5rem;
-            pointer-events: none;
-            z-index: 0;
-            font-family: serif;
-        }
-        
-        /* Page Header */
-        .page-header {
-            position: absolute;
-            top: 1cm;
-            left: 2.5cm;
-            right: 2.5cm;
-            padding-bottom: 0.5cm;
-            border-bottom: 2px solid #000;
-            font-size: 0.7rem;
+        .mode-preview {
+            padding: 40px 0;
             display: flex;
-            justify-content: space-between;
-            font-family: "Courier New", monospace;
-        }
-        
-        /* Page Footer */
-        .page-footer {
-            position: absolute;
-            bottom: 1cm;
-            left: 2.5cm;
-            right: 2.5cm;
-            padding-top: 0.5cm;
-            border-top: 1px solid #ccc;
-            font-size: 0.65rem;
-            color: #666;
-            display: flex;
-            justify-content: space-between;
+            flex-direction: column;
             align-items: center;
+            gap: var(--page-gap);
         }
+        
+        /* Section "paper container" (section container, not page container, allows variable length) */
+        .mode-preview .sheet {
+            width: var(--a4-w);
+            min-height: var(--a4-h);
+            background: #fff;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.10);
+            box-sizing: border-box;
+            position: relative;
+        }
+        
+        /* Content padding: screen uses padding; print delegates page margins to @page */
+        .mode-preview .section-content {
+            padding: var(--page-pad);
+            box-sizing: border-box;
+        }
+        
+        /* Screen only: section end marker with page counter */
+        .mode-preview .sheet::after {
+            content: "FAILCORE REPORT | SECTION " counter(sheet-counter) " | END";
+            position: absolute;
+            right: var(--page-pad);
+            bottom: 10px;
+            font-size: 10px;
+            color: #c9cdd4;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+        
+        /* Sheet counter */
+        .mode-preview {
+            counter-reset: sheet-counter;
+        }
+        
+        .mode-preview .sheet {
+            counter-increment: sheet-counter;
+        }
+        
+        /* ==========================================
+           Atomic blocks prevent splitting (also used in print)
+           ========================================== */
+        .step,
+        .incident-card,
+        .appendix-entry {
+            break-inside: avoid;
+            page-break-inside: avoid;
+            margin-bottom: 16px;
+        }
+        
+        /* Code/JSON does not break page layout */
+        pre, code, .evidence-block, .code-block {
+            white-space: pre-wrap !important;
+            word-break: break-all !important;
+            overflow-wrap: anywhere !important;
+        }
+        
+        /* ==========================================
+           PRINT: Actual audit delivery format
+           ========================================== */
+        @media print {
+            @page {
+                size: A4;
+                margin: var(--print-margin);
+                @bottom-center {
+                    content: "FailCore Verified – Hash-based Integrity | Page " counter(page) " of " counter(pages);
+                    font-size: 9pt;
+                    color: #666;
+                }
+            }
+            
+            body {
+                background: #fff;
+            }
+            
+            .mode-preview {
+                padding: 0;
+                gap: 0;
+                display: block !important;  /* Disable flex to avoid pagination rule failure */
+            }
+            
+            .sheet {
+                width: auto;
+                min-height: auto;
+                box-shadow: none;
+                display: block !important;
+            }
+            
+            /* In print, no screen padding needed, page margins delegated to @page */
+            .section-content {
+                padding: 0;
+            }
+            
+            /* Section pagination anchor: start new page from "section start" */
+            .sheet {
+                break-before: page;
+                page-break-before: always;
+            }
+            .sheet:first-child {
+                break-before: auto;
+                page-break-before: auto;
+            }
+            
+            /* Screen section end marker not printed */
+            .mode-preview .sheet::after {
+                content: none;
+            }
+            
+            /* Prevent parent container layout from swallowing break-inside */
+            .timeline, .incident-list, .appendix {
+                display: block !important;
+            }
+            
+            /* Force each Incident to start on a new page */
+            .incident-card {
+                break-before: page;
+                page-break-before: always;
+            }
+        }
+        
+        /* ==========================================
+           Common component styles (Screen + Print)
+           ========================================== */
         
         /* Document Header */
         .doc-header {
-            margin-bottom: 3rem;
+            margin-bottom: 2rem;
             border-bottom: 4px double #000;
             padding-bottom: 1.5rem;
-            position: relative;
-            z-index: 1;
         }
         
         .doc-title {
@@ -150,26 +215,16 @@ def get_css() -> str:
             color: #333;
         }
         
-        /* Section Numbering */
-        .section {
-            margin-bottom: 2.5rem;
-            position: relative;
-            z-index: 1;
-        }
-        
+        /* Section Title */
         .section-title {
-            font-size: 1.1rem;
+            font-size: 1.3rem;
             font-weight: 700;
-            margin-bottom: 1rem;
-            padding-bottom: 0.5rem;
-            border-bottom: 1px solid #000;
+            margin-bottom: 1.5rem;
+            padding-bottom: 0.75rem;
+            border-bottom: 2px solid #000;
             font-family: Georgia, serif;
-        }
-        
-        .section-content {
-            font-size: 0.95rem;
-            line-height: 1.7;
-            text-align: justify;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
         }
         
         /* Executive Summary Box */
@@ -178,6 +233,63 @@ def get_css() -> str:
             background: #f9f9f9;
             border-left: 4px solid #000;
             margin-bottom: 1.5rem;
+        }
+        
+        /* Risk Overview Grid */
+        .risk-overview-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1.5rem;
+            margin: 1.5rem 0;
+        }
+        
+        .risk-metric {
+            text-align: center;
+            padding: 1rem;
+            border: 1px solid #ddd;
+            background: #fafafa;
+        }
+        
+        .metric-label {
+            font-size: 0.75rem;
+            color: #666;
+            text-transform: uppercase;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+            letter-spacing: 0.05em;
+        }
+        
+        .metric-value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #000;
+        }
+        
+        /* Risk Breakdown Table */
+        .risk-breakdown-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0;
+            font-size: 0.9rem;
+        }
+        
+        .risk-breakdown-table th {
+            background: #000;
+            color: white;
+            border: 1px solid #000;
+            padding: 0.5rem;
+            text-align: left;
+            font-weight: 700;
+        }
+        
+        .risk-breakdown-table td {
+            border: 1px solid #ccc;
+            padding: 0.5rem;
+            font-family: "Courier New", monospace;
+        }
+        
+        .risk-breakdown-table tr:nth-child(even) {
+            background: #fafafa;
         }
         
         /* Compliance Table */
@@ -208,84 +320,304 @@ def get_css() -> str:
             background: #fafafa;
         }
         
-        /* Incident Card (NOT Web Card!) */
-        .incident-record {
-            margin-bottom: 2rem;
-            border: 2px solid #000;
-            break-inside: avoid;
+        /* ==========================================
+           Timeline Styles (Vertical)
+           ========================================== */
+        
+        .timeline-container {
+            position: relative;
+            padding-left: 2rem;
+            margin: 2rem 0;
         }
         
-        .incident-header {
-            background: #f5f5f5;
-            padding: 0.75rem 1rem;
-            border-bottom: 1px solid #000;
+        .timeline-step {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+            position: relative;
+        }
+        
+        /* Tighter spacing for paired STEP_START/STEP_END */
+        .timeline-step.outcome-ok + .timeline-step {
+            margin-top: -0.3rem;
+        }
+        
+        /* Three-layer DOM: step-header, step-body, step-footer */
+        .step-header {
             display: flex;
             justify-content: space-between;
-            align-items: baseline;
+            align-items: center;
+            margin-bottom: 0.75rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid #ddd;
         }
         
-        .incident-id {
-            font-weight: 700;
-            font-family: "Courier New", monospace;
-            font-size: 0.9rem;
+        .step-body {
+            /* Main content area */
         }
         
-        .severity-label {
-            font-size: 0.75rem;
+        .step-footer {
+            margin-top: 0.5rem;
+            padding-top: 0.5rem;
+            border-top: 1px solid #e5e7eb;
+            font-size: 0.7rem;
+            color: #999;
+        }
+        
+        .timeline-marker {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            flex-shrink: 0;
+        }
+        
+        .timeline-icon {
+            width: 2rem;
+            height: 2rem;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
             font-weight: 700;
-            padding: 0.2rem 0.6rem;
-            border: 1px solid #000;
+            font-size: 1rem;
+            border: 2px solid;
             background: white;
+            z-index: 2;
+        }
+        
+        .timeline-line {
+            width: 2px;
+            flex-grow: 1;
+            background: #ddd;
+            margin-top: 0.25rem;
+        }
+        
+        /* Outcome-based coloring */
+        .outcome-ok .timeline-icon {
+            border-color: #22c55e;
+            color: #22c55e;
+        }
+        
+        .outcome-denied .timeline-icon {
+            border-color: #ef4444;
+            color: #ef4444;
+            background: #fee;
+        }
+        
+        .outcome-failed .timeline-icon {
+            border-color: #dc2626;
+            color: #dc2626;
+            background: #fee;
+        }
+        
+        .outcome-warning .timeline-icon {
+            border-color: #f59e0b;
+            color: #f59e0b;
+            background: #fffbeb;
+        }
+        
+        .timeline-content {
+            flex-grow: 1;
+            border: 1px solid #e5e7eb;
+            padding: 1rem;
+            background: #fafafa;
+            border-radius: 4px;
+        }
+        
+        .timeline-event-type {
+            font-weight: 700;
+            font-size: 0.95rem;
             text-transform: uppercase;
             letter-spacing: 0.05em;
         }
         
-        .incident-body {
-            padding: 1rem;
-            font-size: 0.9rem;
+        .timeline-action-subtitle {
+            font-size: 0.75rem;
+            color: #777;
+            margin-top: 0.25rem;
+            font-style: italic;
+            font-weight: 400;
+            text-transform: none;
         }
         
-        .incident-field {
-            margin-bottom: 0.75rem;
+        .timeline-action-subtitle {
+            font-size: 0.75rem;
+            color: #666;
+            font-weight: 400;
+            margin-top: 0.25rem;
+            font-style: italic;
         }
         
-        .field-label {
+        .timeline-meta {
+            display: flex;
+            gap: 1rem;
+            font-size: 0.75rem;
+            color: #666;
+        }
+        
+        .timeline-tool {
+            font-weight: 600;
+        }
+        
+        .timeline-ts, .timeline-seq {
+            color: #999;
+        }
+        
+        .timeline-detail {
+            margin-top: 0.75rem;
+        }
+        
+        .detail-label {
             font-weight: 700;
-            display: block;
-            margin-bottom: 0.25rem;
             font-size: 0.8rem;
             text-transform: uppercase;
-            letter-spacing: 0.05em;
+            color: #555;
+            margin-bottom: 0.25rem;
         }
         
-        .field-value {
-            padding-left: 1rem;
+        .detail-value {
+            margin-left: 0.5rem;
             color: #333;
         }
         
-        /* Appendix Reference */
-        .appendix-ref {
-            font-style: italic;
-            color: #666;
-            font-size: 0.85rem;
-            border-left: 2px solid #ccc;
-            padding-left: 1rem;
-            margin: 1rem 0;
+        .finding-alert {
+            background: #fffbeb;
+            border-left: 3px solid #f59e0b;
+            padding: 0.5rem;
+            margin-top: 0.75rem;
         }
         
-        /* Appendix Section */
-        .appendix-section {
-            page-break-before: always;
-            margin-top: 3rem;
-            border-top: 3px double #000;
-            padding-top: 2rem;
+        .finding-alert .detail-label {
+            color: #f59e0b;
         }
         
-        .appendix-title {
+        /* ==========================================
+           Incident Card Styles
+           ========================================== */
+        
+        .incident-card {
+            margin-bottom: 2rem;
+            border: 2px solid #000;
+        }
+        
+        .incident-header {
+            background: #000;
+            color: white;
+            padding: 1rem 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .incident-title {
+            flex-grow: 1;
+        }
+        
+        .incident-title > div:first-child {
             font-size: 1.2rem;
             font-weight: 700;
-            margin-bottom: 1rem;
+            margin-bottom: 0.25rem;
+        }
+        
+        .incident-fingerprint {
+            font-family: "Courier New", monospace;
+            font-size: 0.75rem;
+            opacity: 0.8;
+        }
+        
+        .incident-severity-badge {
+            padding: 0.5rem 1rem;
+            font-weight: 700;
+            font-size: 0.85rem;
             text-transform: uppercase;
+            letter-spacing: 0.1em;
+            border: 2px solid white;
+        }
+        
+        .severity-critical {
+            background: #dc2626;
+        }
+        
+        .severity-high {
+            background: #f59e0b;
+        }
+        
+        .severity-medium {
+            background: #3b82f6;
+        }
+        
+        .severity-low {
+            background: #6b7280;
+        }
+        
+        .incident-body {
+            padding: 1.5rem;
+            background: white;
+        }
+        
+        .incident-section {
+            margin-bottom: 1.5rem;
+        }
+        
+        .incident-section-title {
+            font-weight: 700;
+            font-size: 1rem;
+            margin-bottom: 0.75rem;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 0.5rem;
+        }
+        
+        .incident-section-content {
+            font-size: 0.9rem;
+            line-height: 1.7;
+        }
+        
+        .incident-info-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+        }
+        
+        .incident-info-table td {
+            padding: 0.5rem;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        
+        .info-label {
+            font-weight: 700;
+            width: 180px;
+            color: #555;
+        }
+        
+        .info-value {
+            color: #000;
+        }
+        
+        /* ==========================================
+           Appendix Styles
+           ========================================== */
+        
+        .appendix-title {
+            font-size: 1.3rem;
+            font-weight: 700;
+            margin-bottom: 1.5rem;
+            padding-bottom: 0.75rem;
+            border-bottom: 2px solid #000;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        
+        .appendix-entry {
+            margin-bottom: 2.5rem;
+        }
+        
+        .appendix-entry-title {
+            font-weight: 700;
+            font-size: 0.95rem;
+            margin-bottom: 0.75rem;
+            padding: 0.5rem 1rem;
+            background: #f0f0f0;
+            border-left: 4px solid #000;
         }
         
         .evidence-block {
@@ -294,19 +626,38 @@ def get_css() -> str:
             padding: 1rem;
             font-family: "Courier New", monospace;
             font-size: 0.75rem;
-            overflow-x: auto;
-            white-space: pre-wrap;
-            word-break: break-all;
+            line-height: 1.4;
+            max-width: 100%;
+            /* Allow internal pagination for long JSON */
+            break-inside: auto;
+            page-break-inside: auto;
+        }
+        
+        /* Continuation marker for paginated evidence */
+        .evidence-block::after {
+            content: "";
+            display: block;
+        }
+        
+        @media print {
+            .evidence-block {
+                orphans: 3;
+                widows: 3;
+            }
+        }
+        
+        .code-block {
+            background: #f5f5f5;
+            border: 1px solid #ddd;
+            padding: 0.75rem;
+            font-family: "Courier New", monospace;
+            font-size: 0.7rem;
+            line-height: 1.4;
+            border-radius: 3px;
+            max-width: 100%;
         }
         
         /* Signature Section */
-        .signature-section {
-            margin-top: 4rem;
-            padding-top: 2rem;
-            border-top: 3px double #000;
-            page-break-inside: avoid;
-        }
-        
         .signature-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -327,35 +678,36 @@ def get_css() -> str:
             margin-top: 0.25rem;
         }
         
-        /* Monospace for technical fields */
+        /* ==========================================
+           Utility Classes
+           ========================================== */
+        
         .mono {
             font-family: "Courier New", Courier, monospace;
             font-size: 0.9em;
         }
         
-        /* QR Code Placeholder */
-        .qr-placeholder {
-            width: 80px;
-            height: 80px;
-            border: 2px solid #000;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 0.6rem;
-            font-weight: 700;
+        .text-center {
+            text-align: center;
         }
         
-        /* Utility */
-        .text-center { text-align: center; }
-        .text-right { text-align: right; }
-        .mb-1 { margin-bottom: 1rem; }
-        .mb-2 { margin-bottom: 2rem; }
+        .text-right {
+            text-align: right;
+        }
+        
+        .mb-1 {
+            margin-bottom: 1rem;
+        }
+        
+        .mb-2 {
+            margin-bottom: 2rem;
+        }
     """
 
 
 def get_javascript() -> str:
-    """Minimal JS for audit report"""
+    """Minimal JS for Audit report"""
     return """
-        // No interactive elements in audit reports
+        // No interactive elements in Audit reports
         // All evidence is in Appendix, not togglable
     """

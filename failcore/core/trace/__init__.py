@@ -1,4 +1,4 @@
-# failcore/core/trace/__init__.py
+# failcore/core/trace/base.py
 from .events import (
     TraceEvent,
     EventType,

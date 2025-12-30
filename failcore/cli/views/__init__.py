@@ -1,4 +1,4 @@
-# failcore/cli/views/__init__.py
+# failcore/cli/views/base.py
 """
 View models for FailCore CLI
 

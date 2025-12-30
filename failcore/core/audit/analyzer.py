@@ -1,4 +1,4 @@
-# failcore/core/forensics/analyzer.py
+# failcore/core/Audit/analyzer.py
 from __future__ import annotations
 
 from dataclasses import replace
@@ -6,8 +6,8 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 import uuid
 
-from failcore.core.forensics.model import (
-    ForensicReport,
+from failcore.core.audit.model import (
+    AuditReport,
     Summary,
     Finding,
     TriggeredBy,
@@ -16,7 +16,7 @@ from failcore.core.forensics.model import (
     hash_args_best_effort,
     utc_now_iso,
 )
-from failcore.core.forensics.taxonomy import risks_best_effort, risk_codes
+from failcore.core.audit.taxonomy import risks_best_effort, risk_codes
 
 
 # ----------------------------
@@ -70,7 +70,7 @@ def _safe_str(x: Any, limit: int = 600) -> str:
 
 def _normalize_ts(ts_any: Any) -> str:
     """
-    Normalize timestamps to forensic-safe ISO8601 UTC with 'Z' suffix.
+    Normalize timestamps to Audit-safe ISO8601 UTC with 'Z' suffix.
     """
     if isinstance(ts_any, str):
         s = ts_any.strip()
@@ -388,7 +388,7 @@ def analyze_events(
     events: List[Dict[str, Any]],
     *,
     trace_path: Optional[str] = None,
-) -> ForensicReport:
+) -> AuditReport:
     run_id = _extract_run_id(events) or None
 
     step_start_by_step: Dict[str, Dict[str, Any]] = {}
@@ -476,7 +476,7 @@ def analyze_events(
             reproducible = True
 
         # ======================================================
-        # SPECIAL CASE: POLICY_DENIED (forensic-grade handling)
+        # SPECIAL CASE: POLICY_DENIED (Audit-grade handling)
         # ======================================================
         if "POLICY_DENIED" in etype.upper():
             tool = tool_for_risk or "unknown-tool"
@@ -573,7 +573,7 @@ def analyze_events(
 
     findings.sort(key=lambda f: (_severity_rank(f.severity), f.ts), reverse=True)
 
-    report = ForensicReport.new(
+    report = AuditReport.new(
         run_id=run_id,
         summary=summary,
         findings=findings,

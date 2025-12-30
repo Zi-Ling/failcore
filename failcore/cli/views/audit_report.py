@@ -1,8 +1,8 @@
-# failcore/cli/views/forensic_report.py
+# failcore/cli/views/audit_report.py
 """
-ForensicReportView - View model for forensic (audit) report rendering.
+AuditReportView - View model for Audit (Audit) report rendering.
 
-This module converts core.forensics.model.ForensicReport (dataclass)
+This module converts core.Audit.model.AuditReport (dataclass)
 into a renderer-friendly view model for HTML/Text/JSON presentation.
 
 Design goals:
@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import json
 from datetime import datetime, timezone
 
-from failcore.core.forensics.model import ForensicReport, Finding
+from failcore.core.audit.model import AuditReport, Finding
 
 
 # -----------------------------
@@ -28,7 +28,34 @@ from failcore.core.forensics.model import ForensicReport, Finding
 # -----------------------------
 
 @dataclass
-class ForensicFindingView:
+class TimelineStepView:
+    """Single step in execution timeline (for detailed report body)"""
+    seq: int
+    ts: str
+    step_id: str
+    tool_name: str
+    event_type: str  # STEP_START, STEP_END, POLICY_DENIED, etc.
+    
+    # Input/Output
+    input_data: Optional[Dict[str, Any]] = None
+    output_data: Optional[Dict[str, Any]] = None
+    
+    # Status indicators
+    outcome: str = "ok"  # ok, denied, failed, warning
+    policy_result: Optional[str] = None  # "allowed", "denied"
+    validation_result: Optional[str] = None  # "passed", "failed"
+    
+    # Fingerprint & metadata
+    fingerprint: Optional[str] = None
+    duration_ms: Optional[float] = None
+    
+    # Evidence references
+    has_finding: bool = False
+    finding_refs: List[str] = field(default_factory=list)
+
+
+@dataclass
+class AuditFindingView:
     """Single finding view (display-oriented)"""
     anchor_id: str                     # e.g. "f-<finding_id>"
     finding_id: str
@@ -58,8 +85,8 @@ class ForensicFindingView:
 
 
 @dataclass
-class ForensicSummaryView:
-    """Summary statistics for the forensic report"""
+class AuditSummaryView:
+    """Summary statistics for the Audit report"""
     tool_calls: int = 0
     denied: int = 0
     errors: int = 0
@@ -72,8 +99,8 @@ class ForensicSummaryView:
 
 
 @dataclass
-class ForensicMetaView:
-    """Metadata about this forensic report"""
+class AuditMetaView:
+    """Metadata about this Audit report"""
     schema: str
     report_id: str
     generated_at: str
@@ -83,11 +110,11 @@ class ForensicMetaView:
 
 
 @dataclass
-class ForensicValueMetricsView:
+class AuditValueMetricsView:
     """
     Value/impact metrics (human-facing).
 
-    Note: do not pretend side effects happened; this is for audit signal.
+    Note: do not pretend side effects happened; this is for Audit signal.
     """
     findings_total: int
     critical_or_high: int
@@ -96,14 +123,14 @@ class ForensicValueMetricsView:
 
 
 @dataclass
-class ForensicReportView:
+class AuditReportView:
     """
-    Complete view model for forensic report rendering.
+    Complete view model for Audit report rendering.
     """
-    meta: ForensicMetaView
-    summary: ForensicSummaryView
-    value_metrics: ForensicValueMetricsView
-    findings: List[ForensicFindingView]
+    meta: AuditMetaView
+    summary: AuditSummaryView
+    value_metrics: AuditValueMetricsView
+    findings: List[AuditFindingView]
     
     # v0.1.3 Audit Enhancements
     executive_summary: str = ""
@@ -113,6 +140,9 @@ class ForensicReportView:
         "hash_value": "_______________________", # Placeholder for manual filling or future logic
         "signer": "FailCore Runtime v0.1.2"
     })
+    
+    # v0.1.4 Pagination: Timeline for report body (正文层)
+    timeline: List[TimelineStepView] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -166,6 +196,26 @@ class ForensicReportView:
             "executive_summary": self.executive_summary,
             "compliance_mapping": self.compliance_mapping,
             "signature_placeholder": self.signature_placeholder,
+            # v0.1.4
+            "timeline": [
+                {
+                    "seq": t.seq,
+                    "ts": t.ts,
+                    "step_id": t.step_id,
+                    "tool_name": t.tool_name,
+                    "event_type": t.event_type,
+                    "input_data": t.input_data,
+                    "output_data": t.output_data,
+                    "outcome": t.outcome,
+                    "policy_result": t.policy_result,
+                    "validation_result": t.validation_result,
+                    "fingerprint": t.fingerprint,
+                    "duration_ms": t.duration_ms,
+                    "has_finding": t.has_finding,
+                    "finding_refs": list(t.finding_refs),
+                }
+                for t in self.timeline
+            ],
         }
 
 
@@ -173,22 +223,22 @@ class ForensicReportView:
 # Builders
 # -----------------------------
 
-def build_forensic_view(
-    report: ForensicReport,
+def build_audit_view(
+    report: AuditReport,
     *,
     trace_path: Optional[str] = None,
     trace_events: Optional[List[Dict[str, Any]]] = None,
-) -> ForensicReportView:
+) -> AuditReportView:
     """
-    Convert core ForensicReport -> ForensicReportView.
+    Convert core AuditReport -> AuditReportView.
 
     Args:
-        report: core.forensics.model.ForensicReport
+        report: core.Audit.model.AuditReport
         trace_path: optional trace file path (string) for display
         trace_events: optional parsed trace events (list[dict]) used to enrich tool_name
 
     Returns:
-        ForensicReportView
+        AuditReportView
     """
     # Build enrichment index from trace if provided
     tool_by_step, tool_by_seq = _build_tool_indices(trace_events or [])
@@ -198,7 +248,7 @@ def build_forensic_view(
     if isinstance(getattr(report, "metadata", None), dict):
         trace_schema = report.metadata.get("trace_schema")
 
-    meta = ForensicMetaView(
+    meta = AuditMetaView(
         schema=report.schema,
         report_id=report.report_id,
         generated_at=report.generated_at,
@@ -208,14 +258,14 @@ def build_forensic_view(
     )
 
     # Findings -> view
-    finding_views: List[ForensicFindingView] = []
+    finding_views: List[AuditFindingView] = []
     sev_counts: Dict[str, int] = {"CRIT": 0, "HIGH": 0, "MED": 0, "LOW": 0}
 
     policy_denied_findings = 0
 
     for f in report.findings:
         sev = _norm_sev(f.severity)
-        # Expand severity name for audit report trust
+        # Expand severity name for Audit report trust
         sev_display = sev
         if sev == "MED": sev_display = "MEDIUM RISK"
         elif sev == "CRIT": sev_display = "CRITICAL RISK"
@@ -232,7 +282,7 @@ def build_forensic_view(
         rule_label = f.rule_name or f.rule_id
 
         finding_views.append(
-            ForensicFindingView(
+            AuditFindingView(
                 anchor_id=f"f-{f.finding_id}",
                 finding_id=f.finding_id,
                 ts=f.ts,
@@ -260,7 +310,7 @@ def build_forensic_view(
     summary_src = report.summary
     top_risks = _top_risk_codes(report.findings, top_k=5)
 
-    summary = ForensicSummaryView(
+    summary = AuditSummaryView(
         tool_calls=getattr(summary_src, "tool_calls", 0) or 0,
         denied=getattr(summary_src, "denied", 0) or 0,
         errors=getattr(summary_src, "errors", 0) or 0,
@@ -273,7 +323,7 @@ def build_forensic_view(
 
     # Value metrics (keep simple and honest)
     crit_or_high = sev_counts.get("CRIT", 0) + sev_counts.get("HIGH", 0)
-    value_metrics = ForensicValueMetricsView(
+    value_metrics = AuditValueMetricsView(
         findings_total=len(report.findings),
         critical_or_high=crit_or_high,
         policy_denied_findings=policy_denied_findings,
@@ -282,6 +332,17 @@ def build_forensic_view(
     
     # Generate Executive Summary (Natural Language)
     risk_score = summary.risk_score or 0
+    
+    # Determine risk level semantic
+    if risk_score >= 70:
+        risk_level = "High"
+    elif risk_score >= 40:
+        risk_level = "Medium"
+    elif risk_score >= 20:
+        risk_level = "Low"
+    else:
+        risk_level = "Minimal"
+    
     exec_summary_lines = []
     exec_summary_lines.append(f"During this execution, FailCore monitored {summary.tool_calls} tool invocations.")
     
@@ -291,11 +352,15 @@ def build_forensic_view(
     if crit_or_high > 0:
         exec_summary_lines.append(f"CRITICAL FINDINGS DETECTED. Immediate review is required for {crit_or_high} high-severity issues.")
     elif summary.findings_total > 0:
-        exec_summary_lines.append(f"Several risks were identified, but no critical policy breaches occurred.")
+        medium_count = sev_counts.get("MED", 0)
+        if medium_count > 0:
+            exec_summary_lines.append(f"Although {medium_count} medium-severity incident(s) were detected, the overall risk remains {risk_level.lower()} due to successful runtime interception and absence of side effects.")
+        else:
+            exec_summary_lines.append(f"Several risks were identified, but no critical policy breaches occurred.")
     else:
         exec_summary_lines.append("No security anomalies or policy violations were detected.")
         
-    exec_summary_lines.append(f"Overall risk is assessed as {risk_score}/100.")
+    exec_summary_lines.append(f"Overall risk is assessed as {risk_level} ({risk_score}/100).")
     executive_summary = " ".join(exec_summary_lines)
     
     # Generate Compliance Mapping (Placeholder/Mock for now, but critical for structure)
@@ -309,35 +374,39 @@ def build_forensic_view(
             "CC6.6 - Boundary Protection (Active)"
         ]
     }
+    
+    # Build Execution Timeline (v0.1.4 Pagination)
+    timeline = _build_execution_timeline(trace_events or [], report.findings)
 
-    return ForensicReportView(
+    return AuditReportView(
         meta=meta,
         summary=summary,
         value_metrics=value_metrics,
         findings=finding_views,
         executive_summary=executive_summary,
         compliance_mapping=compliance_mapping,
+        timeline=timeline,
     )
 
 
-def build_forensic_view_from_trace(
+def build_audit_view_from_trace(
     trace_path: Path,
-) -> ForensicReportView:
+) -> AuditReportView:
     """
     Convenience helper: read trace.jsonl -> analyze -> view.
 
     NOTE:
-    This function assumes you already have core.forensics.analyzer integrated
+    This function assumes you already have core.Audit.analyzer integrated
     somewhere else. If you want to keep cli/views pure, do not call analyzer here.
     For now, we keep it as a utility for CLI.
 
     If you don't want this dependency, delete this function.
     """
-    from failcore.core.forensics.analyzer import analyze_events
+    from failcore.core.audit.analyzer import analyze_events
 
     events = _read_jsonl(trace_path)
     report = analyze_events(events, trace_path=str(trace_path))
-    return build_forensic_view(report, trace_path=str(trace_path), trace_events=events)
+    return build_audit_view(report, trace_path=str(trace_path), trace_events=events)
 
 
 # -----------------------------
@@ -478,3 +547,131 @@ def _infer_tool_name(
                 return tool_by_seq.get(first)
 
     return None
+
+
+def _build_execution_timeline(
+    events: List[Dict[str, Any]],
+    findings: List[Finding],
+) -> List[TimelineStepView]:
+    """
+    Build execution timeline from trace events.
+    
+    This creates a detailed step-by-step view of the execution for the report body.
+    Each STEP_START/END, POLICY_DENIED, VALIDATION_FAILED etc. becomes a timeline entry.
+    """
+    timeline: List[TimelineStepView] = []
+    
+    # Build finding index by seq for cross-referencing
+    finding_by_seq: Dict[int, List[str]] = {}
+    for f in findings:
+        trig = getattr(f, "triggered_by", None)
+        if trig:
+            seq = getattr(trig, "source_event_seq", None)
+            if isinstance(seq, int):
+                if seq not in finding_by_seq:
+                    finding_by_seq[seq] = []
+                finding_by_seq[seq].append(f.finding_id)
+        
+        evref = getattr(f, "evidence", None)
+        if evref:
+            seqs = getattr(evref, "event_seq", None)
+            if isinstance(seqs, list):
+                for s in seqs:
+                    if isinstance(s, int):
+                        if s not in finding_by_seq:
+                            finding_by_seq[s] = []
+                        finding_by_seq[s].append(f.finding_id)
+    
+    # Track step pairs (STEP_START -> STEP_END) for duration calculation
+    step_start_map: Dict[str, Tuple[int, str]] = {}  # step_id -> (seq, ts)
+    
+    for evt in events:
+        if not isinstance(evt, dict):
+            continue
+            
+        seq = evt.get("seq")
+        ts = evt.get("ts", "")
+        body = evt.get("event") or {}
+        if not isinstance(body, dict):
+            continue
+        
+        event_type = body.get("type")
+        if not event_type:
+            continue
+        
+        # Extract step info
+        step = body.get("step") or {}
+        step_id = step.get("id", f"seq-{seq}")
+        tool_name = step.get("tool", "unknown")
+        
+        # Determine outcome
+        severity = body.get("severity", "ok")
+        outcome = "ok"
+        policy_result = None
+        validation_result = None
+        
+        if event_type == "POLICY_DENIED":
+            outcome = "denied"
+            policy_result = "denied"
+        elif event_type == "VALIDATION_FAILED":
+            outcome = "failed"
+            validation_result = "failed"
+        elif severity == "warn":
+            outcome = "warning"
+        elif severity == "block":
+            outcome = "denied"
+        
+        # Extract input/output
+        input_data = None
+        output_data = None
+        data = body.get("data")
+        
+        if event_type == "STEP_START":
+            input_data = step.get("input")
+            step_start_map[step_id] = (seq, ts)
+        elif event_type == "STEP_END":
+            output_data = step.get("output")
+        elif event_type in ("POLICY_DENIED", "VALIDATION_FAILED"):
+            # For denied/failed events, include the data that triggered it
+            input_data = data
+        
+        # Calculate duration if this is STEP_END and we have START
+        duration_ms = None
+        if event_type == "STEP_END" and step_id in step_start_map:
+            start_seq, start_ts = step_start_map[step_id]
+            try:
+                from datetime import datetime
+                start_dt = datetime.fromisoformat(start_ts.replace('Z', '+00:00'))
+                end_dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                duration_ms = (end_dt - start_dt).total_seconds() * 1000
+            except Exception:
+                pass
+        
+        # Extract fingerprint
+        fingerprint_val = None
+        if isinstance(step.get("fingerprint"), dict):
+            fingerprint_val = step["fingerprint"].get("value")
+        
+        # Check if this event has associated findings
+        has_finding = seq in finding_by_seq
+        finding_refs = finding_by_seq.get(seq, [])
+        
+        # Create timeline entry
+        timeline.append(TimelineStepView(
+            seq=seq,
+            ts=ts,
+            step_id=step_id,
+            tool_name=tool_name,
+            event_type=event_type,
+            input_data=input_data,
+            output_data=output_data,
+            outcome=outcome,
+            policy_result=policy_result,
+            validation_result=validation_result,
+            fingerprint=fingerprint_val,
+            duration_ms=duration_ms,
+            has_finding=has_finding,
+            finding_refs=finding_refs,
+        ))
+    
+    return timeline
