@@ -39,15 +39,15 @@ FailCore 在 **工具调用（tool invocation）阶段** 强制执行安全策�
 
 ---
 
-## 📸 实际效果（取证级执行报告）
+## 📸 实际效果（审计报告）
 
-FailCore 会为 **每一次 Agent 运行自动生成取证级 HTML 报告**。  
-（下图展示：LLM 生成了路径穿越攻击，而 FailCore 在执行前将其拦截）
+FailCore 会为 **每一次 Agent 运行自动生成审计（Audit）HTML 报告**。  
 
-![FailCore Forensic Report](/assets/images/report_screenshot.png)
-
-> **BLOCKED（红色）** 状态表示：  
-> Agent 试图执行未授权操作，但在 *验证层* 即被 FailCore 成功拦截。
+```bash
+failcore show
+failcore audit --html > audit.html
+```
+![FailCore Audit Report](/assets/images/audit.jpeg)
 
 ---
 
@@ -97,7 +97,7 @@ def write_file(path: str, content: str):
 # —— 模拟：LLM 试图发起攻击 ——
 result = session.call("write_file", path="../etc/passwd", content="hack")
 
-print(result.status)        # BLOCKED
+print(result.status)        # e.g. BLOCKED
 print(result.error.message) # Path traversal detected
 ```
 
@@ -105,12 +105,18 @@ FailCore 会在 **执行前** 拦截该操作，原始函数 **不会被调用**
 
 ---
 
-### 3. 生成审计报告
+### 3. 生成报告
 
 ```bash
 failcore show
 failcore report --last > report.html
 ```
+（下图展示：LLM 生成了路径穿越攻击，而 FailCore 在执行前将其拦截）
+![FailCore Forensic Report](/assets/images/report_screenshot.png)
+
+> 报告中的执行失败记录表明：  
+> Agent 曾试图执行未授权操作，并在 *执行阶段的验证层* 被 FailCore 拦截，  
+> 相关时间线、事件分析与 Trace 证据已完整保留，便于事后检查与复现。
 
 ---
 
