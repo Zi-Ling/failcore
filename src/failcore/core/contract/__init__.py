@@ -1,4 +1,4 @@
-# failcore/core/contract/__init__.py
+# failcore/core/contract/base.py
 """
 Contract layer - Semantic validation and drift detection
 

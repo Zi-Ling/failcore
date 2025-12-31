@@ -14,22 +14,55 @@ def render_html_document(
 ) -> str:
     """Render complete HTML document structure"""
     
+    # Detect if this is an Audit report
+    is_audit = view.meta.overall_status == "AUDIT"
+    
+    if is_audit:
+        # Audit report: page header/footer instead of banner header
+        page_header = f"""
+            <div class="page-header">
+                <div>FailCore Audit</div>
+                <div>Report ID: {view.meta.run_id}</div>
+            </div>
+        """
+        
+        page_footer = f"""
+            <div class="page-footer">
+                <div>Classification: CONFIDENTIAL</div>
+                <div>Generated: {created_at_display}</div>
+                <div>Page 1 of 1</div>
+            </div>
+        """
+        
+        wrapper_start = f"""<div class="container">
+        {page_header}
+        """
+        wrapper_end = f"""
+        {page_footer}
+    </div>"""
+    else:
+        # Normal execution report: banner header + footer
+        wrapper_start = f"""<div class="container">
+        {_render_header(view, created_at_display)}
+        """
+        wrapper_end = f"""
+        {_render_footer(view)}
+    </div>"""
+    
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FailCore Execution Report - {view.meta.run_id}</title>
+    <title>FailCore {'Audit' if is_audit else 'Execution Report'} - {view.meta.run_id}</title>
     <style>
 {get_css()}
     </style>
 </head>
 <body>
-    <div class="container">
-        {_render_header(view, created_at_display)}
+    {wrapper_start}
         {content_html}
-        {_render_footer(view)}
-    </div>
+    {wrapper_end}
     
     <script>
 {get_javascript()}
@@ -40,25 +73,38 @@ def render_html_document(
 
 def _render_header(view: TraceReportView, created_at_display: str) -> str:
     """Render document header"""
+    title = "FailCore Execution Report"
+    header_class = "header"
+    status_badge = ""
+    
+    # Check if this is an Audit report (using the status flag we set in renderer)
+    if view.meta.overall_status == "AUDIT":
+        title = "FailCore Audit"
+        header_class = "header header-Audit"
+        status_badge = '<div class="Audit-badge">OFFICIAL RECORD</div>'
+        
     return f"""
-        <div class="header">
-            <h1>FailCore Execution Report</h1>
+        <div class="{header_class}">
+            <div style="display: flex; justify-content: space-between; align-items: start;">
+                <h1>{title}</h1>
+                {status_badge}
+            </div>
             <div class="header-info">
                 <div class="header-info-item">
                     <span class="header-info-label">Run ID</span>
-                    <span class="header-info-value">{view.meta.run_id}</span>
+                    <span class="header-info-value monospace">{view.meta.run_id}</span>
                 </div>
                 <div class="header-info-item">
-                    <span class="header-info-label">Created</span>
+                    <span class="header-info-label">Generated</span>
                     <span class="header-info-value">{created_at_display}</span>
                 </div>
                 <div class="header-info-item">
-                    <span class="header-info-label">Sandbox</span>
-                    <span class="header-info-value">{view.meta.workspace or '.failcore/sandbox'}</span>
+                    <span class="header-info-label">Scope</span>
+                    <span class="header-info-value monospace">{view.meta.workspace or '.failcore/sandbox'}</span>
                 </div>
                 <div class="header-info-item">
-                    <span class="header-info-label">Trace</span>
-                    <span class="header-info-value">{view.meta.trace_path or 'N/A'}</span>
+                    <span class="header-info-label">Source Trace</span>
+                    <span class="header-info-value monospace">{view.meta.trace_path or 'N/A'}</span>
                 </div>
             </div>
         </div>

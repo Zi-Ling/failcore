@@ -1,4 +1,4 @@
-# failcore/api/__init__.py
+# failcore/api/base.py
 """
 FailCore User-facing API
 

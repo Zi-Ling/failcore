@@ -1,4 +1,4 @@
-# failcore/core/policy/__init__.py
+# failcore/core/policy/base.py
 """
 策略系统。
 

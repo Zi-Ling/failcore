@@ -1,4 +1,4 @@
-# failcore/__init__.py
+# failcore/base.py
 """
 FailCore - Observable and replayable tool execution engine
 

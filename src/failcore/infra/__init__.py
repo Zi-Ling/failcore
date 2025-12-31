@@ -1,4 +1,4 @@
-# failcore/infra/__init__.py
+# failcore/infra/base.py
 """
 Infrastructure components for FailCore
 

@@ -11,7 +11,7 @@ from failcore.cli.trace_cmd import trace_ingest, trace_query, trace_stats
 from failcore.cli.replay_cmd import replay_trace, replay_diff
 from failcore.cli.list_cmd import list_runs
 from failcore.cli.report_cmd import generate_report
-from failcore.infra.storage import SQLiteStore, TraceIngestor
+from failcore.cli.audit_cmd import generate_audit
 from failcore.infra.storage import SQLiteStore, TraceIngestor
 from pathlib import Path
 
@@ -21,7 +21,7 @@ def run_sample(args):
     Run three-act demonstration of FailCore's core value propositions:
     Act 1: Policy interception (permission boundary)
     Act 2: Contract validation (schema mismatch)
-    Act 3: Blackbox replay (forensic evidence)
+    Act 3: Blackbox replay (audit evidence)
     """
     from failcore import Session
     from failcore.core.step import generate_run_id
@@ -96,7 +96,7 @@ def run_sample(args):
     print(f"  Value Proposition Summary:")
     print(f"  [X] Agent can't escape permissions (Policy)")
     print(f"  [X] Output drift is detectable (Contract)")
-    print(f"  [X] Full forensic replay available (Trace)")
+    print(f"  [X] Full audit replay available (Trace)")
     print(f"\n  Workspace: {run_root_rel}")
     print(f"  Safe to delete after review")
     print(f"{'='*70}\n")
@@ -268,9 +268,9 @@ def _act2_schema_mismatch(session):
 
 
 def _act3_replay(trace_path):
-    """Act 3: Forensic replay from blackbox trace"""
+    """Act 3: Audit replay from blackbox trace"""
     print("\n" + "─"*70)
-    print("  ACT 3: Blackbox Replay - Forensic Evidence Chain")
+    print("  ACT 3: Blackbox Replay - Audit Evidence Chain")
     print("─"*70 + "\n")
     
     # Display relative path
@@ -375,7 +375,7 @@ def _act3_replay(trace_path):
     print(f"  Side Effects: 0 (all blocked actions prevented)")
     print()
     
-    print("[VALUE] FailCore provides offline forensics - replay, attribute, write rules, not \"hope to reproduce\"")
+    print("[VALUE] FailCore provides offline Audit - replay, attribute, write rules, not \"hope to reproduce\"")
 
 
 def _auto_ingest(trace_path: str):
@@ -438,6 +438,14 @@ def main():
     report_p.add_argument("--trace", help="Path to trace.jsonl file (default: last run)")
     report_p.add_argument("--html", action="store_true", default=True, help="Generate HTML format (default)")
 
+    # Audit - generate audit report (audit.json)
+    audit_p = sub.add_parser("audit", help="Generate audit report (audit.json)")
+    audit_p.add_argument("--trace", help="Path to trace.jsonl file (default: last run)")
+    audit_p.add_argument("--out", help="Output path for audit.json (default: <trace_stem>_audit.json)")
+    audit_p.add_argument("--pretty", action="store_true", help="Pretty JSON output (indent=2)")
+    audit_p.add_argument("--html", action="store_true", help="Generate HTML report instead of JSON")
+
+
     # trace - trace management commands
     trace_p = sub.add_parser("trace", help="Trace management (ingest, query, stats)")
     trace_sub = trace_p.add_subparsers(dest="trace_command")
@@ -488,6 +496,8 @@ def main():
         return show_trace(args)
     elif args.command == "report":
         return generate_report(args)
+    elif args.command == "audit":
+        return generate_audit(args)
     elif args.command == "sample":
         run_sample(args)
     elif args.command == "trace":

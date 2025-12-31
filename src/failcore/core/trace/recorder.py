@@ -129,3 +129,35 @@ class JsonlTraceRecorder(TraceRecorder):
             self.close()
         except Exception:
             pass
+
+
+class CompositeTraceRecorder(TraceRecorder):
+    """
+    Fan-out TraceRecorder with a single authoritative primary.
+
+    - The primary recorder is **strict** and authoritative:
+      it defines sequencing (`next_seq`) and must not fail silently.
+    - Additional recorders are **best-effort side channels**:
+      failures are swallowed and must never affect execution.
+
+    This design is intended for observability integrations (e.g. OTel),
+    where trace export must not interfere with the core execution path.
+    """
+
+    def __init__(self, primary: Any, recorders: list[Any]) -> None:
+        self.primary = primary
+        self.recorders = recorders
+
+    def record(self, event: Any) -> None:
+        # primary must be strict
+        self.primary.record(event)
+
+        # others are best-effort
+        for r in self.recorders:
+            try:
+                r.record(event)
+            except Exception:
+                pass
+
+    def next_seq(self) -> int:
+        return self.primary.next_seq()

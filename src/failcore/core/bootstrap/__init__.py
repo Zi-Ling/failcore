@@ -1,4 +1,4 @@
-# failcore/core/bootstrap/__init__.py
+# failcore/core/bootstrap/base.py
 """
 Bootstrap entry points for Failcore.
 

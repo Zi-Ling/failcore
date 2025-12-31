@@ -1,4 +1,4 @@
-# failcore/core/executor/__init__.py
+# failcore/core/executor/base.py
 """
 Executor module - step execution engine
 """
