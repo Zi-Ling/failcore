@@ -89,7 +89,7 @@ print(f"Error: {result.error.message}") # Output: Path traversal detected
 ```bash
 failcore list
 failcore show                 # last run
-failcore report               # generate HTML Audit report
+failcore report               # generate HTML audit report
 failcore replay run <trace>   # replay/mock
 failcore replay diff <trace>
 failcore report <trace>  # generate HTML report
@@ -104,7 +104,7 @@ pip install "failcore[langchain]"
 ```
 
 ```python
-from failcore.adapters.langchain import create_langchain_toolkit
+from failcore.adapters.integrations.langchain import create_langchain_toolkit
 
 toolkit = create_langchain_toolkit(session)
 # All agent tool calls are traced by FailCore

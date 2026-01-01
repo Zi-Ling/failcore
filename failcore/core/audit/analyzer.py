@@ -1,4 +1,4 @@
-# failcore/core/Audit/analyzer.py
+# failcore/core/audit/analyzer.py
 from __future__ import annotations
 
 from dataclasses import replace
@@ -70,7 +70,7 @@ def _safe_str(x: Any, limit: int = 600) -> str:
 
 def _normalize_ts(ts_any: Any) -> str:
     """
-    Normalize timestamps to Audit-safe ISO8601 UTC with 'Z' suffix.
+    Normalize timestamps to audit-safe ISO8601 UTC with 'Z' suffix.
     """
     if isinstance(ts_any, str):
         s = ts_any.strip()
@@ -198,21 +198,33 @@ def _extract_error_blob(evt: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return None
 
 
-def _should_emit_finding(event_type: str, level: str) -> bool:
+def _should_emit_finding(event_type: str, level: str, severity: str = "", status: str = "") -> bool:
     et = (event_type or "").upper()
     lv = (level or "").upper()
+    sev = (severity or "").upper()
+    st = (status or "").upper()
+    
     if "POLICY_DENIED" in et:
         return True
     if "VALIDATION_FAILED" in et:
         return True
     if lv == "ERROR":
         return True
+    # Critical: Also detect BLOCKED events (severity="block" or status="BLOCKED")
+    if sev == "BLOCK" or "BLOCK" in st:
+        return True
     return False
 
 
-def _base_severity_from_event(event_type: str, level: str) -> str:
+def _base_severity_from_event(event_type: str, level: str, severity: str = "", status: str = "") -> str:
     et = (event_type or "").upper()
     lv = (level or "").upper()
+    sev = (severity or "").upper()
+    st = (status or "").upper()
+    
+    # Critical: BLOCKED events are HIGH severity (runtime enforcement)
+    if sev == "BLOCK" or "BLOCK" in st:
+        return "HIGH"
     if "POLICY_DENIED" in et or "DENIED" in et:
         return "HIGH"
     if "VALIDATION_FAILED" in et:
@@ -361,8 +373,21 @@ def _build_titles(
     reason: Optional[str],
     v_reason: Optional[str],
     err_blob: Optional[Dict[str, Any]],
+    severity: str = "",
+    status: str = "",
 ) -> Tuple[str, str]:
     et = etype or "EVENT"
+    sev = (severity or "").upper()
+    st = (status or "").upper()
+    
+    # Critical: Handle BLOCKED events (runtime enforcement)
+    if sev == "BLOCK" or "BLOCK" in st:
+        error_code = err_blob.get("code", "") if err_blob else ""
+        error_msg = err_blob.get("message", "") if err_blob else ""
+        if error_code:
+            return f"Runtime enforcement blocked: {error_code}", (error_msg or "Operation was blocked by FailCore runtime enforcement.")
+        return "Runtime enforcement blocked unsafe execution", (error_msg or "Operation was blocked by FailCore runtime enforcement.")
+    
     if "POLICY_DENIED" in et.upper():
         details = reason or "Policy decision denied the step."
         if rule_name:
@@ -421,6 +446,13 @@ def analyze_events(
             summary = replace(summary, errors=summary.errors + 1)
         if "POLICY_DENIED" in etype.upper():
             summary = replace(summary, denied=summary.denied + 1)
+        
+        # Critical: Also count BLOCKED events as denied
+        severity_val = body.get("severity", "")
+        result_data = body.get("data", {}).get("result", {}) if isinstance(body.get("data"), dict) else {}
+        status_val = result_data.get("status", "") if isinstance(result_data, dict) else ""
+        if (severity_val or "").upper() == "BLOCK" or "BLOCK" in (status_val or "").upper():
+            summary = replace(summary, denied=summary.denied + 1)
 
         # per-step indices
         if step_id:
@@ -435,8 +467,13 @@ def analyze_events(
             if tool_name:
                 last_tool_name_by_step[step_id] = tool_name
 
+        # Extract severity and status for blocked event detection
+        severity = body.get("severity", "")
+        result = body.get("data", {}).get("result", {}) if isinstance(body.get("data"), dict) else {}
+        status = result.get("status", "") if isinstance(result, dict) else ""
+
         # Emit finding?
-        if not _should_emit_finding(etype, level):
+        if not _should_emit_finding(etype, level, severity, status):
             continue
 
         policy_id, rule_id, rule_name, decision, reason = _extract_policy_info(body)
@@ -476,7 +513,7 @@ def analyze_events(
             reproducible = True
 
         # ======================================================
-        # SPECIAL CASE: POLICY_DENIED (Audit-grade handling)
+        # SPECIAL CASE: POLICY_DENIED (audit-grade handling)
         # ======================================================
         if "POLICY_DENIED" in etype.upper():
             tool = tool_for_risk or "unknown-tool"
@@ -537,9 +574,11 @@ def analyze_events(
             reason=reason,
             v_reason=v_reason,
             err_blob=err_blob,
+            severity=severity,
+            status=status,
         )
 
-        base_sev = _base_severity_from_event(etype, level)
+        base_sev = _base_severity_from_event(etype, level, severity, status)
         sev = _upgrade_severity_by_owasp(base_sev, owasp_ids)
 
         findings.append(

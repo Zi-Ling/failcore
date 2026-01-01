@@ -1,4 +1,4 @@
-# failcore/core/Audit/model.py
+# failcore/core/audit/model.py
 from __future__ import annotations
 
 from dataclasses import dataclass, field, asdict
@@ -12,7 +12,7 @@ import socket
 import uuid
 
 
-AUDIT_SCHEMA_V0_1_0 = "failcore.Audit.v0.1.0"
+AUDIT_SCHEMA_V0_1_0 = "failcore.audit.v0.1.0"
 
 # JSON-safe primitive types (keep v0.1 simple and serializable)
 JsonPrimitive = Union[str, int, float, bool, None]
@@ -20,7 +20,7 @@ JsonMeta = Dict[str, JsonPrimitive]
 
 
 def utc_now_iso() -> str:
-    # Audit: always explicit UTC with Z suffix; avoid microsecond noise.
+    # audit: always explicit UTC with Z suffix; avoid microsecond noise.
     return (
         datetime.now(timezone.utc)
         .replace(microsecond=0)
@@ -57,7 +57,7 @@ def new_run_id(prefix: str = "run") -> str:
     """
     Generate a run_id that is:
     - unique enough for single-host runs
-    - readable in Audit bundles
+    - readable in audit bundles
     """
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     host = sanitize_hostname(socket.gethostname() or "host")
@@ -210,7 +210,7 @@ class Summary:
 @dataclass(frozen=True)
 class EnvironmentMeta:
     """
-    Minimal environment metadata for Audit context.
+    Minimal environment metadata for audit context.
     Keep it non-sensitive and stable.
     """
     failcore_version: Optional[str] = None

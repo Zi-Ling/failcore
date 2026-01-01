@@ -37,8 +37,8 @@ REGISTERED_SCHEMAS: List[str] = [
     "trace/failcore.trace.v0.1.1.schema.json",
     "trace/failcore.trace.v0.1.2.schema.json",
     
-    # Audit schemas
-    "Audit/failcore.Audit.v0.1.1.schema.json",
+    # audit schemas
+    "audit/failcore.audit.v0.1.1.schema.json",
 ]
 
 
@@ -265,7 +265,7 @@ def make_validator(schema: Dict[str, Any]):
         
         except Exception as e:
             # If both APIs fail, this is a critical error
-            # FailCore is an Audit tool - we MUST NOT silently degrade $ref support
+            # FailCore is an audit tool - we MUST NOT silently degrade $ref support
             raise RuntimeError(
                 f"Failed to create validator with $ref resolution. "
                 f"jsonschema version may be incompatible. Error: {e}"
@@ -277,7 +277,7 @@ def load_schema(schema_type: str, version: str) -> Dict[str, Any]:
     Load a FailCore schema by type and version.
     
     Args:
-        schema_type: Schema type ("trace", "Audit", "common")
+        schema_type: Schema type ("trace", "audit", "common")
         version: Schema version (e.g., "v0.1.2", "v1")
     
     Returns:
@@ -296,8 +296,8 @@ def load_schema(schema_type: str, version: str) -> Dict[str, Any]:
         relative_path = f"common/failcore.common.base.{version}.schema.json"
     elif schema_type == "trace":
         relative_path = f"trace/failcore.trace.{version}.schema.json"
-    elif schema_type == "Audit":
-        relative_path = f"Audit/failcore.Audit.{version}.schema.json"
+    elif schema_type == "audit":
+        relative_path = f"audit/failcore.audit.{version}.schema.json"
     else:
         raise ValueError(f"Unknown schema type: {schema_type}")
     
@@ -310,7 +310,7 @@ def validate_event(event: Dict[str, Any], schema_type: str, version: str) -> Opt
     
     Args:
         event: Event data to validate
-        schema_type: Schema type ("trace", "Audit")
+        schema_type: Schema type ("trace", "audit")
         version: Schema version (e.g., "v0.1.2")
     
     Returns:

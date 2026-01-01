@@ -8,6 +8,13 @@ from datetime import datetime
 from failcore.infra.storage import SQLiteStore
 
 
+def register_command(subparsers):
+    """Register the 'list' command and its arguments."""
+    list_p = subparsers.add_parser("list", help="List recent runs")
+    list_p.add_argument("--limit", type=int, default=10, help="Number of runs to show (default: 10)")
+    list_p.set_defaults(func=list_runs)
+
+
 def list_runs(args):
     """
     List recent runs from database
