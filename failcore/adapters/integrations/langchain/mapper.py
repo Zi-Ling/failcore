@@ -14,7 +14,7 @@ except ImportError:
     BaseTool = None
     _LANGCHAIN_AVAILABLE = False
 
-from ...core.tools.spec import ToolSpec
+from failcore.core.tools.spec import ToolSpec
 
 
 def map_langchain_tool(tool: Any) -> ToolSpec:

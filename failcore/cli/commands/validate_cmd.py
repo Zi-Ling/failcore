@@ -7,6 +7,13 @@ from pathlib import Path
 from failcore.core.trace.validator import TraceValidator
 
 
+def register_command(subparsers):
+    """Register the 'validate' command and its arguments."""
+    validate_p = subparsers.add_parser("validate", help="Validate trace file against v0.1.1 schemas")
+    validate_p.add_argument("trace", help="Path to trace file")
+    validate_p.set_defaults(func=validate_trace)
+
+
 def validate_trace(args):
     """Validate trace file against v0.1.1 specification"""
     trace_path = args.trace

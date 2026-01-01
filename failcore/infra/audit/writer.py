@@ -1,4 +1,4 @@
-# failcore/infra/Audit/writer.py
+# failcore/infra/audit/writer.py
 from __future__ import annotations
 
 import json
@@ -109,13 +109,13 @@ def write_audit_json(
     str_limit: int = 4096,
 ) -> Dict[str, Any]:
     """
-    Write Audit report to a JSON file.
+    Write audit report to a JSON file.
 
     Args:
       report:
         - AuditReport (dataclass with .to_dict()) OR a plain dict
       out_path:
-        output file path, e.g. "reports/Audit.json"
+        output file path, e.g. "reports/audit.json"
       pretty:
         pretty print (indent=2). Default False for compact output.
       ensure_ascii:
@@ -163,7 +163,7 @@ def dumps_audit_json(
     str_limit: int = 4096,
 ) -> str:
     """
-    Dump Audit Audit report to a JSON string (for tests/debug).
+    Dump audit audit report to a JSON string (for tests/debug).
     """
     if isinstance(report, dict):
         raw = report
@@ -193,9 +193,9 @@ def write_audit_jsonl(
     str_limit: int = 4096,
 ) -> None:
     """
-    Write Audit report to JSONL format (failcore.Audit.v0.1.1 schema).
+    Write audit report to JSONL format (failcore.audit.v0.1.1 schema).
     
-    Each line is a Audit event: REPORT_START, SUMMARY, FINDING, ATTESTATION, REPORT_END.
+    Each line is a audit event: REPORT_START, SUMMARY, FINDING, ATTESTATION, REPORT_END.
     
     Args:
         report: AuditReport instance (or dict with compatible structure)
@@ -243,7 +243,7 @@ def write_audit_jsonl(
         nonlocal seq
         seq += 1
         event_obj = {
-            "schema": "failcore.Audit.v0.1.1",
+            "schema": "failcore.audit.v0.1.1",
             "seq": seq,
             "ts": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "level": level,
@@ -272,7 +272,7 @@ def write_audit_jsonl(
             "REPORT_START",
             report_meta={
                 "report_id": report_id,
-                "title": "FailCore Audit Report",
+                "title": "FailCore audit Report",
                 "classification": "CONFIDENTIAL",
                 "schema_spec": "v0.1.1",
                 "generated_at": created_at,

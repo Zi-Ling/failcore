@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import sys
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -43,6 +45,17 @@ class McpTransportConfig:
     partial_method: str = "partial"
     generic_event_method: str = "event"
 
+    # ===== MCP init tuning (avoid hard-coding) =====
+    # If None, we will use env MCP_PROTOCOL_VERSION or a conservative default.
+    protocol_version: Optional[str] = None
+
+    # If None, defaults to {} for maximum compatibility.
+    client_capabilities: Optional[Dict[str, Any]] = None
+
+    # Override client info name/version if you want
+    client_name: str = "failcore"
+    client_version: Optional[str] = None
+
 
 class McpTransport(BaseTransport):
     """
@@ -61,22 +74,101 @@ class McpTransport(BaseTransport):
     def __init__(self, cfg: McpTransportConfig) -> None:
         self._cfg = cfg
 
-        # Active emitter for the *current* call (set in call(), cleared in finally)
         self._active_emit: Optional[EventEmitter] = None
-
-        # Protect _active_emit changes (defensive; runtime is serialized anyway)
         self._emit_lock = asyncio.Lock()
 
         self._session = McpSession(cfg.session, on_notification=self._on_notification)
 
+        # MCP protocol state
+        self._initialized = False
+        # Prevent concurrent initialize storms if two callers race
+        self._init_lock = asyncio.Lock()
+
     async def shutdown(self) -> None:
         await self._session.shutdown()
 
+    def _resolve_client_version(self) -> str:
+        # Prefer explicit config
+        if self._cfg.client_version:
+            return self._cfg.client_version
+
+        # Try package metadata (safe; if failcore isn't installed as dist, fall back)
+        try:
+            from importlib.metadata import version as pkg_version  # py3.8+
+
+            return pkg_version("failcore")
+        except Exception:
+            pass
+
+        # Fall back to configured server_version, then dev
+        return self._cfg.server_version or "dev"
+
+    def _resolve_protocol_version(self) -> str:
+        # Config > env > conservative default
+        if self._cfg.protocol_version:
+            return self._cfg.protocol_version
+        env_v = os.getenv("MCP_PROTOCOL_VERSION")
+        if env_v:
+            return env_v
+        # Conservative default that worked in your run
+        return "2024-11-05"
+
+    def _resolve_capabilities(self) -> Dict[str, Any]:
+        # Default to {} for maximum compatibility with strict validators
+        if self._cfg.client_capabilities is None:
+            return {}
+        return self._cfg.client_capabilities
+
+    async def _ensure_initialized(self) -> None:
+        """
+        Ensure MCP initialize handshake is completed exactly once.
+
+        Many MCP servers require:
+          1) initialize (request)
+          2) notifications/initialized (notification)
+        before any other operations such as tools/list.
+        """
+        if self._initialized:
+            return
+
+        async with self._init_lock:
+            if self._initialized:
+                return
+
+            await self._session.start()
+
+            init_params = {
+                "protocolVersion": self._resolve_protocol_version(),
+                "capabilities": self._resolve_capabilities(),
+                "clientInfo": {
+                    "name": self._cfg.client_name,
+                    "version": self._resolve_client_version(),
+                },
+            }
+
+            try:
+                _ = await self._session.call("initialize", params=init_params)
+
+                # Best-effort: notify "initialized" (some servers require it, some ignore it)
+                # Notification: MUST NOT include "id" and has no response.
+                try:
+                    await self._session.notify("notifications/initialized", params=None)
+
+                except Exception:
+                    # Do not fail init if server doesn't understand/need it
+                    pass
+
+                self._initialized = True
+
+            except Exception as e:
+                raise McpSessionError(f"MCP initialize failed: {e}") from e
+
     async def list_tools(self, *, ctx: Optional[CallContext] = None) -> list[ToolSpecRef]:
-        await self._session.start()
+        await self._ensure_initialized()
 
         try:
-            res = await self._session.call(self._cfg.list_tools_method, params={})
+            # Important: use params=None so encoder can omit params entirely (more compatible)
+            res = await self._session.call(self._cfg.list_tools_method, params=None)
         except Exception as e:
             raise McpSessionError(f"mcp list_tools failed: {e}") from e
 
@@ -103,9 +195,10 @@ class McpTransport(BaseTransport):
         ctx: CallContext,
         emit: EventEmitter,
     ) -> ToolResult:
-        await self._session.start()
+        await self._ensure_initialized()
 
-        # Set active emitter so notifications can be forwarded during this call
+        print(f"[MCP_TOOL_CALL] tool={tool.name} args_keys={list((args or {}).keys())} run_id={ctx.run_id}", file=sys.stderr)
+
         async with self._emit_lock:
             self._active_emit = emit
 
@@ -124,7 +217,6 @@ class McpTransport(BaseTransport):
                     error={"type": e.__class__.__name__, "message": str(e)},
                 )
 
-            # Fallback: some servers bundle events in final response
             _emit_bundled_events(emit, raw)
 
             ok, content, err = _normalize_call_result(raw)
@@ -142,7 +234,7 @@ class McpTransport(BaseTransport):
             return ToolResult(
                 ok=ok,
                 content=content,
-                raw=raw,  # debug-only boundary; middleware controls persistence
+                raw=raw,
                 error=err,
                 receipts=receipts,
             )
@@ -151,19 +243,7 @@ class McpTransport(BaseTransport):
             async with self._emit_lock:
                 self._active_emit = None
 
-    # =========================================================
-    # Notifications (true streaming)
-    # =========================================================
-
     async def _on_notification(self, msg: dict[str, Any]) -> None:
-        """
-        Handle server->client JSON-RPC notifications (no 'id').
-
-        Expected msg shape (JSON-RPC 2.0):
-          {"jsonrpc":"2.0","method":"progress","params":{...}}
-
-        We map methods to ToolEvent types.
-        """
         method = msg.get("method")
         params = msg.get("params") if isinstance(msg.get("params"), dict) else {}
 
@@ -171,10 +251,8 @@ class McpTransport(BaseTransport):
             emit = self._active_emit
 
         if emit is None:
-            # No active tool call; ignore to avoid cross-call contamination
             return
 
-        # Common fields
         message = None
         data: Any = None
 
@@ -182,7 +260,6 @@ class McpTransport(BaseTransport):
             message = params.get("message") or params.get("text")
             data = params.get("data") if "data" in params else params
 
-        # Map notification method to ToolEventType
         etype = "log"
         if method == self._cfg.progress_method:
             etype = "progress"
@@ -191,17 +268,16 @@ class McpTransport(BaseTransport):
         elif method == self._cfg.partial_method:
             etype = "partial"
         elif method == self._cfg.generic_event_method:
-            # Generic envelope: params may include explicit type
             hinted = params.get("type") if isinstance(params, dict) else None
             if hinted in ("progress", "log", "partial"):
-                etype = hinted  # trust
+                etype = hinted
             else:
                 etype = "log"
 
         emit(
             ToolEvent(
                 seq=0,
-                type=etype,  # runtime will assign seq/correlation
+                type=etype,
                 message=message,
                 data=data,
             )
@@ -213,14 +289,6 @@ class McpTransport(BaseTransport):
 # =========================================================
 
 def _extract_tools_list(res: Any) -> List[Dict[str, Any]]:
-    """
-    Best-effort parsing of MCP list_tools result.
-
-    Common shapes:
-      - {"tools": [ ... ]}
-      - {"result": {"tools": [ ... ]}}
-      - [ ... ]
-    """
     if isinstance(res, dict):
         if "tools" in res and isinstance(res["tools"], list):
             return [t for t in res["tools"] if isinstance(t, dict)]
@@ -234,15 +302,6 @@ def _extract_tools_list(res: Any) -> List[Dict[str, Any]]:
 
 
 def _normalize_call_result(raw: Any) -> tuple[bool, Optional[Any], Optional[Dict[str, Any]]]:
-    """
-    Normalize MCP call_tool result to (ok, content, error) best-effort.
-
-    Common shapes:
-      - {"content": ...}
-      - {"result": ...}
-      - {"isError": true, "error": {...}}
-      - {"error": {...}} (wrapped)
-    """
     if raw is None:
         return False, None, {"type": "MCPEmptyResult", "message": "empty result"}
 
@@ -270,13 +329,6 @@ def _normalize_call_result(raw: Any) -> tuple[bool, Optional[Any], Optional[Dict
 
 
 def _extract_receipts(raw: Any) -> List[Receipt]:
-    """
-    Extract structured receipts best-effort.
-
-    Shapes:
-      - {"receipts": [{"kind": "...", "data": {...}}, ...]}
-      - {"result": {"receipts": [...]}}
-    """
     receipts: list[Receipt] = []
 
     def _parse_list(lst: Any) -> None:
@@ -301,15 +353,6 @@ def _extract_receipts(raw: Any) -> List[Receipt]:
 
 
 def _emit_bundled_events(emit: EventEmitter, raw: Any) -> None:
-    """
-    Some servers/adapters bundle events/progress in the final response.
-
-    Shapes:
-      - {"events": [{"type": "progress"|"log"|"partial", "message": "...", "data": {...}}, ...]}
-      - {"progress": [...]} (treated as events)
-      - {"result": {"events": [...]}}
-    """
-
     def _emit_list(lst: Any) -> None:
         if not isinstance(lst, list):
             return

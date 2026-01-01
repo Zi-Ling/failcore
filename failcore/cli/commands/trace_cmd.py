@@ -8,6 +8,31 @@ from pathlib import Path
 from failcore.infra.storage import SQLiteStore, TraceIngestor
 
 
+def register_command(subparsers):
+    """Register the 'trace' command and its subcommands."""
+    trace_p = subparsers.add_parser("trace", help="Trace management (ingest, query, stats)")
+    trace_sub = trace_p.add_subparsers(dest="trace_command")
+    
+    # trace ingest
+    ingest_p = trace_sub.add_parser("ingest", help="Ingest trace.jsonl into database")
+    ingest_p.add_argument("trace", help="Path to trace.jsonl file")
+    ingest_p.set_defaults(func=trace_ingest)
+    
+    # trace query
+    query_p = trace_sub.add_parser("query", help="Execute SQL query on trace database")
+    query_p.add_argument("query", help="SQL query to execute")
+    query_p.set_defaults(func=trace_query)
+    
+    # trace stats
+    stats_p = trace_sub.add_parser("stats", help="Show trace statistics")
+    stats_p.add_argument("--run", help="Filter by run_id")
+    stats_p.set_defaults(func=trace_stats)
+    
+    # Store trace_p for help display
+    trace_p._subparser = trace_sub
+    return trace_p
+
+
 def trace_ingest(args):
     """Ingest trace file into database"""
     trace_path = args.trace

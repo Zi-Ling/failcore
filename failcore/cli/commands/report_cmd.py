@@ -9,6 +9,14 @@ from failcore.cli.views.trace_report import build_report_view_from_trace
 from failcore.cli.renderers.html import HtmlRenderer
 
 
+def register_command(subparsers):
+    """Register the 'report' command and its arguments."""
+    report_p = subparsers.add_parser("report", help="Generate HTML execution report")
+    report_p.add_argument("--trace", help="Path to trace.jsonl file (default: last run)")
+    report_p.add_argument("--html", action="store_true", default=True, help="Generate HTML format (default)")
+    report_p.set_defaults(func=generate_report)
+
+
 def generate_report(args):
     """
     Generate HTML execution report

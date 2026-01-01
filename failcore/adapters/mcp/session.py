@@ -162,18 +162,23 @@ class McpSession:
     async def notify(self, method: str, params: Optional[Dict[str, Any]] = None) -> None:
         """
         Send a JSON-RPC notification (no response expected).
+        IMPORTANT: Do NOT force params={} when params is None.
+        Some MCP implementations distinguish {} vs missing params.
         """
         if self._closed:
             raise McpSessionClosed("MCP session is closed")
 
         await self.start()
 
-        msg = {
+        msg: Dict[str, Any] = {
             "jsonrpc": "2.0",
             "method": method,
-            "params": params or {},
         }
+        if params is not None:
+            msg["params"] = params  # may be {}, if caller explicitly wants it
+
         await self._send_msg(msg)
+
 
     # =========================================================
     # Internal call implementation
@@ -193,28 +198,43 @@ class McpSession:
         fut: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
         self._pending[req_id] = fut
 
+        # Observability: MCP_RX
+        params_desc = "null" if params is None else f"keys={list(params.keys())}" if isinstance(params, dict) else "non-dict"
+        print(f"[MCP_RX] method={method} id={req_id} params={params_desc}", file=sys.stderr)
+
+        # MCP SDK >= 1.2.0: strictly follow JSON-RPC 2.0
+        # - If params is None, omit the "params" field entirely (not send null)
+        # - If params is dict, send as-is
         msg = {
             "jsonrpc": "2.0",
             "id": req_id,
             "method": method,
-            "params": params or {},
         }
+        if params is not None:
+            msg["params"] = params
 
         try:
             await self._send_msg(msg)
 
             t = timeout_s if timeout_s is not None else self._cfg.request_timeout_s
             try:
-                return await asyncio.wait_for(self._wait_future_or_crash(fut), timeout=t)
+                result = await asyncio.wait_for(self._wait_future_or_crash(fut), timeout=t)
+                # Observability: MCP_TX (success)
+                print(f"[MCP_TX] id={req_id} ok=True", file=sys.stderr)
+                return result
             except asyncio.TimeoutError:
                 self._pending.pop(req_id, None)
                 if not fut.done():
                     fut.cancel()
+                # Observability: MCP_TX (timeout)
+                print(f"[MCP_TX] id={req_id} ok=False error=timeout", file=sys.stderr)
                 raise McpTimeout(f"timeout calling {method} after {t:.1f}s")
         except Exception:
             self._pending.pop(req_id, None)
             if not fut.done():
                 fut.cancel()
+            # Observability: MCP_TX (error)
+            print(f"[MCP_TX] id={req_id} ok=False error=exception", file=sys.stderr)
             raise
 
     async def _wait_future_or_crash(self, fut: asyncio.Future[Any]) -> Any:

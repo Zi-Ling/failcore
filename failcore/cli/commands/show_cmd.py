@@ -7,6 +7,18 @@ from pathlib import Path
 from failcore.infra.storage import SQLiteStore
 
 
+def register_command(subparsers):
+    """Register the 'show' command and its arguments."""
+    show_p = subparsers.add_parser("show", help="Show run/step details")
+    show_p.add_argument("--run", help="Show specific run_id")
+    show_p.add_argument("--last", action="store_true", help="Show last run (default)")
+    show_p.add_argument("--steps", action="store_true", help="Show steps list")
+    show_p.add_argument("--errors", action="store_true", help="Show only errors/blocked")
+    show_p.add_argument("--step", help="Show specific step detail")
+    show_p.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
+    show_p.set_defaults(func=show_trace)
+
+
 def show_trace(args):
     """
     Show run/step details from database

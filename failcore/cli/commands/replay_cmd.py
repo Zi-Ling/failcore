@@ -27,12 +27,39 @@ from failcore.cli.renderers.text import TextRenderer
 from failcore.cli.renderers.json import JsonRenderer
 
 
+def register_command(subparsers):
+    """Register the 'replay' command and its subcommands."""
+    replay_p = subparsers.add_parser("replay", help="Replay execution from trace")
+    replay_sub = replay_p.add_subparsers(dest="replay_command")
+    
+    # replay run
+    replay_run_p = replay_sub.add_parser("run", help="Replay execution")
+    replay_run_p.add_argument("trace", help="Path to trace.jsonl file")
+    replay_run_p.add_argument("--mode", choices=["report", "mock"], default="report",
+                             help="Replay mode: report (audit) or mock (inject outputs)")
+    replay_run_p.add_argument("--run", help="Filter by run_id")
+    replay_run_p.add_argument("--format", choices=["text", "json"], default="text",
+                             help="Output format")
+    replay_run_p.set_defaults(func=replay_trace)
+    
+    # replay diff
+    replay_diff_p = replay_sub.add_parser("diff", help="Show policy/output diffs")
+    replay_diff_p.add_argument("trace", help="Path to trace.jsonl file")
+    replay_diff_p.add_argument("--format", choices=["text", "json"], default="text",
+                             help="Output format")
+    replay_diff_p.set_defaults(func=replay_diff)
+    
+    # Store replay_p for help display
+    replay_p._subparser = replay_sub
+    return replay_p
+
+
 def replay_trace(args):
     """
     Replay execution from trace
     
     Two modes:
-    - report: Audit mode, show what would happen
+    - report: audit mode, show what would happen
     - mock: Simulation mode, actually inject outputs
     """
     trace_path = args.trace

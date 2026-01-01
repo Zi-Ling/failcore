@@ -1,6 +1,6 @@
 # failcore/cli/audit_cmd.py
 """
-Audit command - Generate Audit report (audit.jsonl or audit.html) from trace.jsonl
+audit command - Generate audit report (audit.jsonl or audit.html) from trace.jsonl
 
 Usage:
 - failcore audit
@@ -24,6 +24,16 @@ from failcore.core.audit.analyzer import analyze_events
 from failcore.infra.audit.writer import write_audit_jsonl
 from failcore.cli.views.audit_report import build_audit_view
 from failcore.cli.renderers.html import HtmlRenderer
+
+
+def register_command(subparsers):
+    """Register the 'audit' command and its arguments."""
+    audit_p = subparsers.add_parser("audit", help="Generate audit report (audit.json)")
+    audit_p.add_argument("--trace", help="Path to trace.jsonl file (default: last run)")
+    audit_p.add_argument("--out", help="Output path for audit.json (default: <trace_stem>_audit.json)")
+    audit_p.add_argument("--pretty", action="store_true", help="Pretty JSON output (indent=2)")
+    audit_p.add_argument("--html", action="store_true", help="Generate HTML report instead of JSON")
+    audit_p.set_defaults(func=generate_audit)
 
 
 def generate_audit(args) -> int:
@@ -101,10 +111,10 @@ def _generate_audit_from_trace(
     html: bool,
 ) -> int:
     """
-    Generate Audit report from a trace file.
+    Generate audit report from a trace file.
 
     Output default:
-      audit.jsonl (JSONL stream conforming to failcore.Audit.v0.1.1 schema)
+      audit.jsonl (JSONL stream conforming to failcore.audit.v0.1.1 schema)
       OR audit.html (HTML document-grade report)
     """
     try:
@@ -114,7 +124,7 @@ def _generate_audit_from_trace(
         if html:
             # HTML output
             view = build_audit_view(report, trace_path=str(trace_path), trace_events=events)
-            view.meta.overall_status = "AUDIT"  # Signal to layout.py for Audit header
+            view.meta.overall_status = "AUDIT"  # Signal to layout.py for audit header
             
             renderer = HtmlRenderer()
             html_content = renderer.render_audit_report(view)
@@ -123,9 +133,9 @@ def _generate_audit_from_trace(
                 out_path = trace_path.parent / "audit.html"
             
             out_path.write_text(html_content, encoding='utf-8')
-            print(f"[OK] Audit HTML report generated: {out_path}")
+            print(f"[OK] audit HTML report generated: {out_path}")
         else:
-            # JSONL output (conforming to failcore.Audit.v0.1.1 schema)
+            # JSONL output (conforming to failcore.audit.v0.1.1 schema)
             if out_path is None:
                 out_path = trace_path.parent / "audit.jsonl"
 
@@ -139,12 +149,12 @@ def _generate_audit_from_trace(
                 run_info=run_info,
                 host_info=host_info
             )
-            print(f"[OK] Audit (JSONL) generated: {out_path}")
+            print(f"[OK] audit (JSONL) generated: {out_path}")
 
         return 0
 
     except Exception as e:
-        print(f"Error: Failed to generate Audit report: {e}")
+        print(f"Error: Failed to generate audit report: {e}")
         import traceback
         traceback.print_exc()
         return 1
