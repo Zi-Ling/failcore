@@ -1,4 +1,4 @@
-# failcore/core/Audit/analyzer.py
+# failcore/core/audit/analyzer.py
 from __future__ import annotations
 
 from dataclasses import replace
@@ -70,7 +70,7 @@ def _safe_str(x: Any, limit: int = 600) -> str:
 
 def _normalize_ts(ts_any: Any) -> str:
     """
-    Normalize timestamps to Audit-safe ISO8601 UTC with 'Z' suffix.
+    Normalize timestamps to audit-safe ISO8601 UTC with 'Z' suffix.
     """
     if isinstance(ts_any, str):
         s = ts_any.strip()
@@ -513,7 +513,7 @@ def analyze_events(
             reproducible = True
 
         # ======================================================
-        # SPECIAL CASE: POLICY_DENIED (Audit-grade handling)
+        # SPECIAL CASE: POLICY_DENIED (audit-grade handling)
         # ======================================================
         if "POLICY_DENIED" in etype.upper():
             tool = tool_for_risk or "unknown-tool"

@@ -14,7 +14,7 @@ from ..step import StepResult, StepStatus, StepError, StepOutput, OutputKind
 
 class ReplayMode(str, Enum):
     """Replay execution modes"""
-    REPORT = "report"  # Audit mode - only report, no execution
+    REPORT = "report"  # audit mode - only report, no execution
     MOCK = "mock"  # Simulation mode - inject historical outputs
 
 
@@ -47,7 +47,7 @@ class Replayer:
     3. Deterministic Replay - reproducible execution
     
     Two modes:
-    - REPORT: Audit mode, only report what would happen
+    - REPORT: audit mode, only report what would happen
     - MOCK: Simulation mode, inject historical outputs
     """
     

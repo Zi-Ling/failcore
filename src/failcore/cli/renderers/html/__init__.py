@@ -6,7 +6,7 @@ This module is refactored into multiple components:
 - utils: Utility functions for formatting and highlighting
 - primitives: Atomic UI components (badges, buttons, etc.)
 - styles: CSS and JavaScript resources
-- sections: Large UI sections (summary, timeline, Audit)
+- sections: Large UI sections (summary, timeline, audit)
 - layout: HTML document structure
 """
 
@@ -84,7 +84,7 @@ class HtmlRenderer:
             created_at=view.meta.generated_at,
             workspace=view.meta.report_id, # abusing field for display
             trace_path=view.meta.trace_path,
-            overall_status="AUDIT", # Special status for Audit report
+            overall_status="AUDIT", # Special status for audit report
         )
         
         # For layout compatibility (it accesses view.meta attributes directly)
@@ -96,7 +96,7 @@ class HtmlRenderer:
         
         created_at_display = format_timestamp(view.meta.generated_at)
         
-        # Render the specific Audit content
+        # Render the specific audit content
         content_html = render_audit_section(view)
         
         return render_html_document(

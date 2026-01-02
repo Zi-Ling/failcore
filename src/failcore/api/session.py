@@ -84,14 +84,41 @@ class Session:
             >>> # Disable auto ingest
             >>> session = Session(auto_ingest=False)
         """
-        # Generate run_id first (needed for auto trace path)
+        # Generate run_id first (needed for auto trace path and sandbox)
         self._run_id = run_id or generate_run_id()
+        
+        # Handle auto trace path (must be done before sandbox to get run_dir)
+        if trace == "auto":
+            # Use unified path management
+            from failcore.utils.paths import init_run, create_run_directory
+            run_ctx = init_run(command_name="session", run_id=self._run_id)
+            run_dir = create_run_directory(run_ctx)
+            trace_path = str(run_ctx.trace_path)
+            self._recorder: TraceRecorder = JsonlTraceRecorder(trace_path)
+            self._trace_path = trace_path
+            self._run_ctx = run_ctx  # Store for sandbox creation
+        elif trace is None:
+            self._recorder: TraceRecorder = NullTraceRecorder()
+            self._trace_path = None
+            self._run_ctx = None
+        else:
+            # Custom trace path - ensure directory exists
+            trace_path = trace
+            Path(trace_path).parent.mkdir(parents=True, exist_ok=True)
+            self._recorder: TraceRecorder = JsonlTraceRecorder(trace_path)
+            self._trace_path = trace_path
+            self._run_ctx = None
         
         # Sandbox validation (v0.1.2: enforce explicit sandbox for security)
         if sandbox is None:
-            # Default to .failcore/sandbox for safety
-            sandbox = ".failcore/sandbox"
-            Path(sandbox).mkdir(parents=True, exist_ok=True)
+            # Default to per-run sandbox for isolation
+            if hasattr(self, '_run_ctx') and self._run_ctx:
+                from failcore.utils.paths import create_sandbox
+                sandbox = str(create_sandbox(self._run_ctx))
+            else:
+                # Fallback for custom trace paths (no run_ctx available)
+                sandbox = ".failcore/sandbox"
+                Path(sandbox).mkdir(parents=True, exist_ok=True)
         
         # Tool registry with sandbox support
         self._tools = ToolRegistry(sandbox_root=sandbox)
@@ -103,31 +130,6 @@ class Session:
         
         # Store auto_ingest flag
         self._auto_ingest = auto_ingest
-        
-        # Handle auto trace path
-        # Use POSIX format (forward slashes) for cross-platform compatibility
-        if trace == "auto":
-            # Generate: .failcore/runs/<date>/<run_id>_<time>/trace.jsonl
-            # Group by date to avoid too many directories in one folder
-            now = datetime.now()
-            date = now.strftime("%Y%m%d")
-            time = now.strftime("%H%M%S")
-            run_dir = Path(f".failcore/runs/{date}/{self._run_id}_{time}")
-            run_dir.mkdir(parents=True, exist_ok=True)
-            trace_path = (run_dir / "trace.jsonl").as_posix()
-            self._recorder: TraceRecorder = JsonlTraceRecorder(trace_path)
-            self._trace_path = trace_path
-        elif trace is None:
-            self._recorder: TraceRecorder = NullTraceRecorder()
-            self._trace_path = None
-        else:
-            # Custom trace path - ensure directory exists
-            trace_dir = Path(trace).parent
-            if trace_dir != Path('.'):
-                trace_dir.mkdir(parents=True, exist_ok=True)
-            # Store path in POSIX format
-            self._recorder: TraceRecorder = JsonlTraceRecorder(trace)
-            self._trace_path = Path(trace).as_posix()
         
         # Create executor
         self._executor = Executor(

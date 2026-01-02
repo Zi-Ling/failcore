@@ -23,6 +23,6 @@ __all__ = [
     'render_security_impact_section',
     'render_timeline_section',
     
-    # Audit Report
+    # audit Report
     'render_audit_section'
 ]

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Mapping
+from typing import Any, Mapping
 
 from failcore.core.tools.runtime.transports import BaseTransport
 
@@ -73,11 +73,11 @@ class TransportFactory:
     @staticmethod
     def _create_mcp(config: Mapping[str, Any]) -> BaseTransport:
         try:
-            from failcore.infra.transport.mcp.transport import (
+            from failcore.adapters.mcp.transport import (
                 McpTransport,
                 McpTransportConfig,
             )
-            from failcore.infra.transport.mcp.session import (
+            from failcore.adapters.mcp.session import (
                 McpSessionConfig,
             )
         except Exception as e:
@@ -126,7 +126,7 @@ class TransportFactory:
     @staticmethod
     def _create_proxy(config: Mapping[str, Any]) -> BaseTransport:
         try:
-            from failcore.infra.transport.proxy.transport import ProxyTransport
+            from failcore.adapters.proxy.transport import ProxyTransport
         except Exception as e:
             raise TransportFactoryError(
                 f"failed to import Proxy transport: {e}"

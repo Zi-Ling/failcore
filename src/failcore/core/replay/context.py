@@ -10,7 +10,7 @@ from typing import Optional, Any
 
 class ReplayMode(str, Enum):
     """Replay execution modes"""
-    REPORT = "report"  # Audit mode - only report, no execution
+    REPORT = "report"  # audit mode - only report, no execution
     MOCK = "mock"  # Simulation mode - inject historical outputs
     RESUME = "resume"  # Resume from specific step
 

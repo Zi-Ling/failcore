@@ -1,6 +1,6 @@
 # failcore/cli/renderers/html/sections/audit_report.py
 """
-Audit Report Renderer (Legal Document Format)
+audit Report Renderer (Legal Document Format)
 """
 
 from typing import List
@@ -55,7 +55,7 @@ def _calculate_observed_risk(findings) -> tuple[str, int]:
 
 def render_audit_section(view: AuditReportView) -> str:
     """
-    Render Audit report as a formal legal document with pagination.
+    Render audit report as a formal legal document with pagination.
     
     Structure (Three-Layer):
     - Layer 1 (Summary, Fixed 1 page): Executive Summary + Risk Overview
@@ -68,10 +68,10 @@ def render_audit_section(view: AuditReportView) -> str:
     # Document Header (not HTML <header>, but document title block)
     doc_header = f"""
         <div class="doc-header">
-            <div class="doc-title">FailCore Audit Report</div>
+            <div class="doc-title">FailCore audit Report</div>
             <div class="doc-classification">CONFIDENTIAL</div>
             <div style="margin-top: 1rem; font-size: 0.85rem; line-height: 1.6; color: #333; border-left: 3px solid #000; padding-left: 1rem;">
-                This document is an official Audit record.<br>
+                This document is an official audit record.<br>
                 Unauthorized distribution is prohibited.
             </div>
             <div class="doc-metadata">
