@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "failcore"
-version = "0.1.0"
+version = "0.1.3"
 description = "A minimal execution runtime and tracing toolkit for agent plans."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -12,7 +12,7 @@ license = { file = "LICENSE" }
 authors = [
   { name = "ZiLing(FailCore)" }
 ]
-keywords = ["agent", "runtime", "execution", "tracing", "debugging", "forensics"]
+keywords = ["agent", "runtime", "execution", "tracing", "debugging", "audit"]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",
@@ -35,6 +35,16 @@ dependencies = []
 langchain = [
   "langchain-core>=0.3.0,<2.0.0",
 ]
+mcp = [
+  "mcp>=1.2.0"
+]
+
+otel = [
+  "opentelemetry-api>=1.20.0",
+  "opentelemetry-sdk>=1.20.0",
+  "opentelemetry-exporter-otlp-proto-http>=1.20.0",
+]
+
 # Dev-only tooling
 dev = [
   "pytest>=9.0.2",
