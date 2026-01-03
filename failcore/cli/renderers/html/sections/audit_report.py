@@ -4,7 +4,7 @@ audit Report Renderer (Legal Document Format)
 """
 
 from typing import List
-from ....views.audit_report import AuditReportView, AuditFindingView
+from failcore.cli.views.audit_report import AuditReportView, AuditFindingView
 
 
 def _get_risk_level_semantic(score: int) -> str:

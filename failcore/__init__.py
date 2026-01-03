@@ -28,19 +28,9 @@ For advanced usage, import from submodules:
 __version__ = "0.1.0"
 
 # Public API
-from .api import run, Session, Result, presets, guard
-
-# Core types - for type hints and advanced usage
-from .core.step import (
-    Step,
-    StepResult,
-    StepStatus,
-    StepError,
-    StepOutput,
-    RunContext,
-    OutputKind,
-    ArtifactRef,
-)
+from .api import run
+from .api import guard
+from .api import session
 
 # Internal components - kept for backward compatibility
 from .core.executor.executor import Executor, ExecutorConfig
@@ -52,8 +42,6 @@ from .core.trace.recorder import TraceRecorder, JsonlTraceRecorder, NullTraceRec
 __all__ = [
     "__version__",
     "run",
-    "Session",
     "guard",
-    "Result",
-    "presets",
+    "session",
 ]

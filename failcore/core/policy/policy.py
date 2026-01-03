@@ -1,6 +1,6 @@
 # failcore/core/policy/policy.py
 """
-策略核心实现。
+Policy core implementation with LLM-friendly suggestions.
 """
 
 from __future__ import annotations
@@ -13,42 +13,78 @@ import time
 
 @dataclass
 class PolicyResult:
-    """策略检查结果"""
+    """
+    Policy check result (LLM-Friendly Design)
+    
+    The suggestion field is a first-class citizen, providing actionable fix guidance.
+    """
     allowed: bool
     reason: str = ""
     details: Dict[str, Any] = field(default_factory=dict)
     
+    # LLM-friendly fields
+    suggestion: Optional[str] = None      # Actionable fix suggestion
+    remediation: Optional[Dict[str, Any]] = None  # Structured fix with template vars
+    
     @classmethod
-    def allow(cls, reason: str = "允许") -> PolicyResult:
-        """创建允许结果"""
+    def allow(cls, reason: str = "Allowed") -> PolicyResult:
+        """Create allow result"""
         return cls(allowed=True, reason=reason)
     
     @classmethod
-    def deny(cls, reason: str, details: Optional[Dict[str, Any]] = None) -> PolicyResult:
-        """创建拒绝结果"""
-        return cls(allowed=False, reason=reason, details=details or {})
+    def deny(
+        cls, 
+        reason: str, 
+        details: Optional[Dict[str, Any]] = None,
+        suggestion: Optional[str] = None,
+        remediation: Optional[Dict[str, Any]] = None,
+    ) -> PolicyResult:
+        """
+        Create deny result with fix suggestion
+        
+        Args:
+            reason: Denial reason
+            details: Detailed information
+            suggestion: Actionable fix suggestion (for LLM/human)
+            remediation: Structured fix instructions (with template variables)
+        """
+        return cls(
+            allowed=False, 
+            reason=reason, 
+            details=details or {},
+            suggestion=suggestion,
+            remediation=remediation,
+        )
 
 
 class PolicyDeny(Exception):
-    """策略拒绝异常"""
+    """Policy denial exception"""
     def __init__(self, message: str, result: PolicyResult):
         super().__init__(message)
         self.result = result
 
 
 class Policy(Protocol):
-    """策略协议"""
+    """
+    Policy protocol (Enhanced with LLM-Friendly Suggestions)
     
-    def allow(self, step: Any, ctx: Any) -> tuple[bool, str]:
+    Return value can be:
+    - tuple[bool, str]: Legacy compatible (allowed, reason)
+    - PolicyResult: Modern recommended (includes suggestion)
+    """
+    
+    def allow(self, step: Any, ctx: Any) -> tuple[bool, str] | PolicyResult:
         """
-        检查是否允许执行。
+        Check if execution is allowed.
         
         Args:
-            step: Step 对象
-            ctx: RunContext 对象
+            step: Step object
+            ctx: RunContext object
             
         Returns:
-            (allowed, reason) 元组
+            tuple[bool, str] or PolicyResult
+            - Legacy: (allowed, reason)
+            - Modern: PolicyResult(allowed, reason, suggestion, remediation)
         """
         ...
 
@@ -56,27 +92,27 @@ class Policy(Protocol):
 @dataclass
 class ResourcePolicy:
     """
-    资源访问策略。
+    Resource access policy.
     
-    控制文件系统、网络等资源的访问权限。
+    Controls access to filesystem, network, and other resources.
     """
     name: str = "resource_policy"
     
-    # 文件系统策略
-    allowed_paths: List[str] = field(default_factory=list)  # 允许访问的路径
-    denied_paths: List[str] = field(default_factory=list)   # 禁止访问的路径
+    # Filesystem policy
+    allowed_paths: List[str] = field(default_factory=list)  # Allowed paths
+    denied_paths: List[str] = field(default_factory=list)   # Denied paths
     
-    # 网络策略
+    # Network policy
     allow_network: bool = True
-    allowed_domains: List[str] = field(default_factory=list)  # 允许访问的域名
-    denied_domains: List[str] = field(default_factory=list)   # 禁止访问的域名
+    allowed_domains: List[str] = field(default_factory=list)  # Allowed domains
+    denied_domains: List[str] = field(default_factory=list)   # Denied domains
     
     def allow(self, step: Any, ctx: Any) -> tuple[bool, str]:
-        """检查资源访问权限"""
+        """Check resource access permissions"""
         tool_name = step.tool
         params = step.params
         
-        # 检查文件操作
+        # Check file operations
         if tool_name.startswith(("file.", "dir.")):
             path_param = params.get("path") or params.get("source") or params.get("destination")
             if path_param:
@@ -84,7 +120,7 @@ class ResourcePolicy:
                 if not result.allowed:
                     return False, result.reason
         
-        # 检查网络操作
+        # Check network operations
         if tool_name.startswith("http."):
             url = params.get("url", "")
             result = self._check_network_access(url)
@@ -94,19 +130,19 @@ class ResourcePolicy:
         return True, ""
     
     def _check_file_access(self, path: str) -> PolicyResult:
-        """检查文件访问权限"""
+        """Check file access permissions"""
         abs_path = os.path.abspath(path)
         
-        # 检查黑名单
+        # Check deny list
         for denied in self.denied_paths:
             denied_abs = os.path.abspath(denied)
             if abs_path.startswith(denied_abs):
                 return PolicyResult.deny(
-                    f"禁止访问路径: {path}",
+                    f"Access denied to path: {path}",
                     {"path": abs_path, "denied": denied_abs}
                 )
         
-        # 如果有白名单，检查是否在白名单中
+        # If allow list exists, check if path is in allow list
         if self.allowed_paths:
             allowed = False
             for allowed_path in self.allowed_paths:
@@ -117,7 +153,7 @@ class ResourcePolicy:
             
             if not allowed:
                 return PolicyResult.deny(
-                    f"路径不在允许列表中: {path}",
+                    f"Path not in allow list: {path}",
                     {"path": abs_path, "allowed_paths": self.allowed_paths}
                 )
         

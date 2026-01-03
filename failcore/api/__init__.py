@@ -14,7 +14,6 @@ New features:
 from .run import run
 from .session import Session
 from .guard import guard
-from . import presets
 from .result import Result
 
 __all__ = [

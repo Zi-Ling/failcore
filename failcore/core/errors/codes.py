@@ -15,7 +15,9 @@ TIMEOUT: Final[str] = "TIMEOUT"
 
 # validation / security
 POLICY_DENIED: Final[str] = "POLICY_DENIED"
+SANDBOX_VIOLATION: Final[str] = "SANDBOX_VIOLATION"
 PATH_TRAVERSAL: Final[str] = "PATH_TRAVERSAL"
+PATH_INVALID: Final[str] = "PATH_INVALID"
 ABSOLUTE_PATH: Final[str] = "ABSOLUTE_PATH"
 UNC_PATH: Final[str] = "UNC_PATH"
 NT_PATH: Final[str] = "NT_PATH"
@@ -30,9 +32,19 @@ PERMISSION_DENIED: Final[str] = "PERMISSION_DENIED"
 SSRF_BLOCKED: Final[str] = "SSRF_BLOCKED"
 PRIVATE_NETWORK_BLOCKED: Final[str] = "PRIVATE_NETWORK_BLOCKED"
 
-# tool/runtime
+# tool/runtime (local)
 TOOL_NOT_FOUND: Final[str] = "TOOL_NOT_FOUND"
 TOOL_EXECUTION_FAILED: Final[str] = "TOOL_EXECUTION_FAILED"
+ASYNC_SYNC_MISMATCH: Final[str] = "ASYNC_SYNC_MISMATCH"
+TOOL_NAME_CONFLICT: Final[str] = "TOOL_NAME_CONFLICT"
+
+# remote tool errors (MCP/Proxy/Network)
+REMOTE_TIMEOUT: Final[str] = "REMOTE_TIMEOUT"
+REMOTE_UNREACHABLE: Final[str] = "REMOTE_UNREACHABLE"
+REMOTE_PROTOCOL_MISMATCH: Final[str] = "REMOTE_PROTOCOL_MISMATCH"
+REMOTE_TOOL_NOT_FOUND: Final[str] = "REMOTE_TOOL_NOT_FOUND"
+REMOTE_INVALID_PARAMS: Final[str] = "REMOTE_INVALID_PARAMS"
+REMOTE_SERVER_ERROR: Final[str] = "REMOTE_SERVER_ERROR"
 
 
 # ---- semantic groups (internal helpers) ----
@@ -40,7 +52,9 @@ TOOL_EXECUTION_FAILED: Final[str] = "TOOL_EXECUTION_FAILED"
 FS_CODES: Final[set[str]] = {
     FILE_NOT_FOUND,
     PERMISSION_DENIED,
+    SANDBOX_VIOLATION,
     PATH_TRAVERSAL,
+    PATH_INVALID,
     ABSOLUTE_PATH,
     UNC_PATH,
     NT_PATH,
@@ -57,6 +71,18 @@ NETWORK_CODES: Final[set[str]] = {
 TOOL_CODES: Final[set[str]] = {
     TOOL_NOT_FOUND,
     TOOL_EXECUTION_FAILED,
+    ASYNC_SYNC_MISMATCH,
+    TOOL_NAME_CONFLICT,
+}
+
+# remote tool/transport codes
+REMOTE_CODES: Final[set[str]] = {
+    REMOTE_TIMEOUT,
+    REMOTE_UNREACHABLE,
+    REMOTE_PROTOCOL_MISMATCH,
+    REMOTE_TOOL_NOT_FOUND,
+    REMOTE_INVALID_PARAMS,
+    REMOTE_SERVER_ERROR,
 }
 
 
@@ -74,7 +100,9 @@ DEFAULT_FALLBACK_CODES: Final[set[str]] = {
 # These MUST be handled explicitly and never be silently downgraded.
 SECURITY_CODES: Final[set[str]] = {
     POLICY_DENIED,
+    SANDBOX_VIOLATION,
     PATH_TRAVERSAL,
+    PATH_INVALID,
     ABSOLUTE_PATH,
     UNC_PATH,
     NT_PATH,
@@ -82,4 +110,21 @@ SECURITY_CODES: Final[set[str]] = {
     SYMLINK_ESCAPE,
     SSRF_BLOCKED,
     PRIVATE_NETWORK_BLOCKED,
+}
+
+# Operational error codes (registry, validation, execution, remote)
+# These are well-defined operational states that should not be downgraded
+OPERATIONAL_CODES: Final[set[str]] = {
+    TOOL_NOT_FOUND,
+    FILE_NOT_FOUND,
+    PERMISSION_DENIED,
+    ASYNC_SYNC_MISMATCH,
+    TOOL_NAME_CONFLICT,
+    # Remote codes
+    REMOTE_TIMEOUT,
+    REMOTE_UNREACHABLE,
+    REMOTE_PROTOCOL_MISMATCH,
+    REMOTE_TOOL_NOT_FOUND,
+    REMOTE_INVALID_PARAMS,
+    REMOTE_SERVER_ERROR,
 }

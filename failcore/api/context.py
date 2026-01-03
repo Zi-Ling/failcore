@@ -87,8 +87,8 @@ class RunCtx:
         
         # Resolve sandbox path with security constraints
         if sandbox is None:
-            # Default: project-level shared sandbox
-            sandbox_path = failcore_root / "sandbox"
+            # Default: run-specific sandbox (isolated per run)
+            sandbox_path = default_run_dir / "sandbox"
         else:
             default_sandbox_loc = default_run_dir / "sandbox"
             sandbox_path = path_resolver.resolve(
@@ -101,6 +101,9 @@ class RunCtx:
         # Create sandbox directory
         sandbox_path.mkdir(parents=True, exist_ok=True)
         sandbox = str(sandbox_path)
+        
+        # Store sandbox path for property access
+        self._sandbox_path = sandbox_path
         
         # Tool registry
         self._tools = ToolRegistry(sandbox_root=sandbox)
@@ -241,7 +244,7 @@ class RunCtx:
     
     def call(self, tool: str, **params: Any) -> Any:
         """
-        Call a tool
+        Call a tool (synchronous)
         
         Args:
             tool: Tool name
@@ -278,6 +281,76 @@ class RunCtx:
         # Raise unified error
         from ..core.errors import FailCoreError
         raise FailCoreError.from_tool_result(result)
+    
+    async def acall(self, tool: str, **params: Any) -> Any:
+        """
+        Call a tool (asynchronous) - Async Bridge Implementation
+        
+        Architecture:
+        - Strict async/sync separation via inspect.iscoroutinefunction
+        - Context preservation via contextvars.copy_context()
+        - Unified error handling with ASYNC_SYNC_MISMATCH detection
+        
+        Args:
+            tool: Tool name
+            **params: Tool parameters
+        
+        Returns:
+            Tool execution result
+        
+        Raises:
+            FailCoreError: On execution failure or async/sync mismatch
+        
+        Example:
+            >>> result = await ctx.acall("write_file", path="a.txt", content="hi")
+        """
+        import asyncio
+        import inspect
+        import contextvars
+        
+        # Check if tool function exists
+        fn = self._tools.get(tool)
+        if fn is None:
+            from ..core.errors import FailCoreError, codes
+            registered_tools = self._tools.list()
+            raise FailCoreError(
+                message=f"Tool '{tool}' not found in current context",
+                error_code=codes.TOOL_NOT_FOUND,
+                error_type="REGISTRY_ERROR",
+                phase="execute",
+                details={"tool_name": tool, "registered_tools": registered_tools},
+                suggestion=f"Register the tool first: guard({tool}, risk='medium', effect='fs')",
+                hint=f"Available tools: {', '.join(registered_tools) if registered_tools else 'none'}",
+            )
+        
+        # Strict async/sync type checking
+        is_async = inspect.iscoroutinefunction(fn)
+        
+        if is_async:
+            # Tool is async - currently not fully supported
+            # For now, raise clear error
+            from ..core.errors import FailCoreError, codes
+            raise FailCoreError(
+                message=f"Async tool '{tool}' called via acall() - async tools not yet fully supported",
+                error_code=codes.NOT_IMPLEMENTED,
+                error_type="ASYNC_ERROR",
+                phase="execute",
+                details={"tool_name": tool, "tool_is_async": True},
+                suggestion="Use synchronous tools for now. Async tool execution will be added in future versions.",
+                hint="Convert your tool to synchronous or wait for async executor support",
+            )
+        else:
+            # Tool is sync - run in executor with context preservation
+            loop = asyncio.get_event_loop()
+            
+            # Copy current context to preserve run() session across threads
+            ctx_copy = contextvars.copy_context()
+            
+            # Run sync tool in thread pool with context
+            return await loop.run_in_executor(
+                None,
+                lambda: ctx_copy.run(self.call, tool, **params)
+            )
     
     def close(self) -> None:
         """
@@ -352,6 +425,11 @@ class RunCtx:
     def trace_path(self) -> Optional[str]:
         """Get trace file path"""
         return self._trace_path
+    
+    @property
+    def sandbox_root(self) -> Path:
+        """Get sandbox root directory"""
+        return self._sandbox_path
     
     @property
     def run_id(self) -> str:

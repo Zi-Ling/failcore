@@ -10,8 +10,8 @@ This module is refactored into multiple components:
 - layout: HTML document structure
 """
 
-from ...views.trace_report import TraceReportView
-from ...views.audit_report import AuditReportView
+from failcore.cli.views.trace_report import TraceReportView
+from failcore.cli.views.audit_report import AuditReportView
 from .utils import format_timestamp, get_status_color
 from .sections import (
     render_trace_summary_section,
@@ -77,7 +77,7 @@ class HtmlRenderer:
         
         # Create a mock TraceReportView for layout compatibility
         # In a full refactor, layout should accept a generic meta interface.
-        from ...views.trace_report import ReportMeta
+        from failcore.cli.views.trace_report import ReportMeta
         
         meta_adapter = ReportMeta(
             run_id=view.meta.run_id,

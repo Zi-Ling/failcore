@@ -6,7 +6,7 @@ Bridges contract/ layer with validate/ layer.
 """
 
 from typing import Any, Dict, Optional
-from ...contract import ExpectedKind, check_output, ContractResult
+from failcore.core.contract import ExpectedKind, check_output, ContractResult
 from ..validator import PostconditionValidator, ValidationResult
 
 

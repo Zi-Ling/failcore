@@ -54,9 +54,9 @@ class ToolInvoker:
     
     def invoke(self, tool_name: str, **params) -> StepResult:
         """
-        Invoke a tool by name with parameters
+        Invoke a tool by name with parameters (synchronous)
         
-        This is the ONLY way to execute a tool in FailCore.
+        This is the main entry point for tool execution in FailCore.
         
         Args:
             tool_name: Tool name (must be registered)
@@ -83,6 +83,41 @@ class ToolInvoker:
         # Execute through core executor
         # This handles: validation → policy → execution → trace → normalization
         return self._executor.execute(step, self._context)
+    
+    async def ainvoke(self, tool_name: str, **params) -> StepResult:
+        """
+        Invoke a tool by name with parameters (asynchronous)
+        
+        Scheme 2: Async Bridge Implementation
+        - Preserves run() context via contextvars.copy_context()
+        - Executes synchronous tools in thread pool without blocking event loop
+        - Ensures policy/sandbox/trace context isolation
+        
+        Args:
+            tool_name: Tool name (must be registered)
+            **params: Tool parameters
+        
+        Returns:
+            StepResult: Execution result (status, output, error, etc.)
+        
+        Example:
+            >>> result = await invoker.ainvoke("divide", a=6, b=2)
+            >>> print(result.status, result.output.value)
+        """
+        import asyncio
+        import contextvars
+        
+        # Capture current context (includes run() session state)
+        current_context = contextvars.copy_context()
+        
+        # Run synchronous invoke() in thread pool with context preservation
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: current_context.run(self.invoke, tool_name, **params)
+        )
+        
+        return result
     
     def register_spec(self, spec: ToolSpec):
         """

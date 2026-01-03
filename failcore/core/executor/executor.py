@@ -156,15 +156,47 @@ class Executor:
             
             for result in validation_results:
                 if not result.valid:
+                    # Extract suggestion/remediation from ValidationResult.details
+                    details = result.details or {}
+                    suggestion = details.get("suggestion")
+                    remediation = details.get("remediation")
+                    
                     return self._fail(
                         step, ctx, run_ctx, attempt, started_at, t0,
                         result.code or "PRECONDITION_FAILED",  # Use specific code from validator
                         result.message,
                         ExecutionPhase.VALIDATE,
+                        details=details,
+                        suggestion=suggestion,
+                        remediation=remediation,
                     )
 
-        # 3. Policy check
-        allowed, reason = self.policy.allow(step, ctx)
+        # 3. Policy check (with LLM-friendly suggestion support)
+        policy_result = self.policy.allow(step, ctx)
+        
+        # Handle both legacy tuple and modern PolicyResult
+        if isinstance(policy_result, tuple):
+            # Legacy: (allowed, reason)
+            allowed, reason = policy_result
+            suggestion = None
+            remediation = None
+            details = {}
+        else:
+            # Modern: PolicyResult with suggestion/remediation
+            from ..policy.policy import PolicyResult
+            if isinstance(policy_result, PolicyResult):
+                allowed = policy_result.allowed
+                reason = policy_result.reason
+                suggestion = policy_result.suggestion
+                remediation = policy_result.remediation
+                details = policy_result.details
+            else:
+                # Fallback
+                allowed, reason = True, ""
+                suggestion = None
+                remediation = None
+                details = {}
+        
         if not allowed:
             # Record POLICY_DENIED event
             if hasattr(self.recorder, 'next_seq'):
@@ -183,7 +215,16 @@ class Executor:
                     )
                 )
             
-            return self._fail(step, ctx, run_ctx, attempt, started_at, t0, "POLICY_DENY", reason or "Denied by policy", ExecutionPhase.POLICY)
+            # Inject suggestion/remediation from policy into error
+            return self._fail(
+                step, ctx, run_ctx, attempt, started_at, t0, 
+                "POLICY_DENIED",  # Use proper error code
+                reason or "Denied by policy", 
+                ExecutionPhase.POLICY,
+                suggestion=suggestion,
+                remediation=remediation,
+                details=details,
+            )
 
         # 4. Replay Hook (CRITICAL: before tool execution)
         if self.replayer:
@@ -440,8 +481,18 @@ class Executor:
         message: str,
         phase: ExecutionPhase,
         detail: Optional[Dict[str, Any]] = None,
+        suggestion: Optional[str] = None,
+        remediation: Optional[Dict[str, Any]] = None,
+        details: Optional[Dict[str, Any]] = None,
     ) -> StepResult:
         finished_at, duration_ms = self._finish_times(t0)
+        
+        # Merge LLM-friendly fields into detail (Scheme 3: Policy → FailCoreError injection)
+        merged_detail = detail or details or {}
+        if suggestion:
+            merged_detail["suggestion"] = suggestion
+        if remediation:
+            merged_detail["remediation"] = remediation
         
         # Determine status based on phase (v0.1.2 semantic)
         if phase in (ExecutionPhase.VALIDATE, ExecutionPhase.POLICY):
@@ -467,7 +518,7 @@ class Executor:
                     error={
                         "code": error_code,
                         "message": self._truncate(message),
-                        "detail": detail or {},
+                        "detail": merged_detail,
                     },
                 )
             )
@@ -480,7 +531,7 @@ class Executor:
             finished_at=finished_at,
             duration_ms=duration_ms,
             output=None,
-            error=StepError(error_code=error_code, message=self._truncate(message), detail=detail),
+            error=StepError(error_code=error_code, message=self._truncate(message), detail=merged_detail),
             meta={"phase": phase.value},
         )
 

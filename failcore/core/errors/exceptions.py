@@ -37,19 +37,27 @@ def _normalize_error_code(code: Any) -> str:
     """
     Keep error_code stable and finite.
     Unknown upstream codes should not explode UI/report taxonomy.
+    
+    Preserves well-defined error codes across three categories:
+    - Security violations (SECURITY_CODES)
+    - Operational states (OPERATIONAL_CODES)  
+    - Fallback categories (DEFAULT_FALLBACK_CODES)
     """
     c = _safe_str(code or codes.UNKNOWN).strip() or codes.UNKNOWN
 
     # Keep all explicit security codes as-is
     if c in codes.SECURITY_CODES:
         return c
+    
+    # Keep operational codes (registry, validation, execution)
+    if c in codes.OPERATIONAL_CODES:
+        return c
 
     # Keep common fallback categories
     if c in codes.DEFAULT_FALLBACK_CODES:
         return c
 
-    # Keep other known codes we define (optional: extend later)
-    # If you want to be strict now, just downgrade:
+    # Unknown code from upstream - downgrade for stability
     return codes.UNKNOWN
 
 
@@ -57,6 +65,11 @@ def _normalize_error_code(code: Any) -> str:
 class FailCoreError(Exception):
     """
     The one public exception type for FailCore "easy" APIs.
+    
+    LLM-Friendly Design:
+    - suggestion: Machine-actionable fix guidance for AI agents
+    - hint: Human-readable explanation
+    - remediation: Structured fix instructions with template variables
     """
     message: str
     error_code: str = codes.UNKNOWN
@@ -65,20 +78,50 @@ class FailCoreError(Exception):
     retryable: bool = False
     details: Dict[str, Any] = field(default_factory=dict)
     cause: Optional[BaseException] = None
+    
+    # LLM-friendly fields (first-class citizens)
+    suggestion: Optional[str] = None      # Quick fix suggestion for AI/human
+    hint: Optional[str] = None            # Additional context/explanation
+    remediation: Optional[Dict[str, Any]] = None  # Structured fix with template vars
 
     def __post_init__(self) -> None:
         super().__init__(self.message)
 
     def __str__(self) -> str:
-        # More useful in logs
-        return f"[{self.error_code}] {self.message}"
+        """
+        Render error with suggestion for both human and LLM consumption.
+        Format: [ERROR_CODE] message\n[Suggestion] fix_guidance
+        """
+        result = f"[{self.error_code}] {self.message}"
+        
+        # Add suggestion prominently if available
+        if self.suggestion:
+            result += f"\n\n[Suggestion] {self.suggestion}"
+        
+        # Add hint if available
+        if self.hint:
+            result += f"\n[Hint] {self.hint}"
+        
+        # Add remediation (structured fix instructions) if available
+        if self.remediation and isinstance(self.remediation, dict):
+            if "template" in self.remediation:
+                template = self.remediation.get("template", "")
+                vars_dict = self.remediation.get("vars", {})
+                result += f"\n[Remediation] {template}"
+                if vars_dict:
+                    result += f" (vars: {vars_dict})"
+            else:
+                result += f"\n[Remediation] {self.remediation}"
+        
+        return result
 
     @property
     def is_security(self) -> bool:
         return self.error_code in codes.SECURITY_CODES
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        """Export error as dict (includes LLM-friendly fields)"""
+        result = {
             "type": self.error_type,
             "error_code": self.error_code,
             "message": self.message,
@@ -86,6 +129,16 @@ class FailCoreError(Exception):
             "retryable": self.retryable,
             "details": self.details,
         }
+        
+        # Include LLM-friendly fields if present
+        if self.suggestion:
+            result["suggestion"] = self.suggestion
+        if self.hint:
+            result["hint"] = self.hint
+        if self.remediation:
+            result["remediation"] = self.remediation
+        
+        return result
 
     # -------- factories --------
 
@@ -114,12 +167,20 @@ class FailCoreError(Exception):
             message = _get_mapping(err, "message", None) or "Tool call failed."
             phase = _get_mapping(err, "phase", None) or _get_mapping(err, "where", None) or "unknown"
             retryable = bool(_get_mapping(err, "retryable", False))
-            details = dict(_get_mapping(err, "details", {}) or {})
+            
+            # CRITICAL: StepError uses "detail" (singular), not "details" (plural)
+            # Try both for backward compatibility
+            details = dict(_get_mapping(err, "detail", {}) or _get_mapping(err, "details", {}) or {})
             details.setdefault("status", _safe_str(status))
 
             # preserve original upstream code if we downgraded
             if code == codes.UNKNOWN and raw_code not in (None, "", codes.UNKNOWN):
                 details.setdefault("upstream_error_code", _safe_str(raw_code))
+            
+            # Scheme 3: Extract LLM-friendly fields from details dict
+            # Since we already merged detail/details above, extract from there
+            suggestion = details.get("suggestion") if isinstance(details, dict) else None
+            remediation = details.get("remediation") if isinstance(details, dict) else None
 
             return cls(
                 message=_safe_str(message),
@@ -128,9 +189,12 @@ class FailCoreError(Exception):
                 phase=_safe_str(phase),
                 retryable=retryable,
                 details=details,
+                suggestion=_safe_str(suggestion) if suggestion else None,
+                hint=None,  # Could be added later
+                remediation=remediation if isinstance(remediation, dict) else None,
             )
 
-        # object-like error
+        # object-like error (e.g., StepError dataclass)
         raw_code = _get_attr(err, "error_code", codes.UNKNOWN)
         code = _normalize_error_code(raw_code)
 
@@ -138,13 +202,19 @@ class FailCoreError(Exception):
         message = _get_attr(err, "message", None) or "Tool call failed."
         phase = _get_attr(err, "phase", None) or _get_attr(err, "where", None) or "unknown"
         retryable = bool(_get_attr(err, "retryable", False))
-        details = _get_attr(err, "details", None)
+        
+        # CRITICAL: StepError uses "detail" (singular), not "details" (plural)
+        details = _get_attr(err, "detail", None) or _get_attr(err, "details", None)
         if not isinstance(details, dict):
             details = {}
         details.setdefault("status", _safe_str(status))
 
         if code == codes.UNKNOWN and raw_code not in (None, "", codes.UNKNOWN):
             details.setdefault("upstream_error_code", _safe_str(raw_code))
+        
+        # Scheme 3: Extract LLM-friendly fields from detail dict
+        suggestion = details.get("suggestion") if isinstance(details, dict) else None
+        remediation = details.get("remediation") if isinstance(details, dict) else None
 
         return cls(
             message=_safe_str(message),
@@ -153,6 +223,9 @@ class FailCoreError(Exception):
             phase=_safe_str(phase),
             retryable=retryable,
             details=details,
+            suggestion=_safe_str(suggestion) if suggestion else None,
+            hint=None,  # Could be added later
+            remediation=remediation if isinstance(remediation, dict) else None,
         )
 
     @classmethod

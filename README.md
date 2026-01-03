@@ -104,7 +104,7 @@ pip install "failcore[langchain]"
 ```
 
 ```python
-from failcore.adapters.integrations.langchain import create_langchain_toolkit
+from failcore.adapters.langchain import create_langchain_toolkit
 
 toolkit = create_langchain_toolkit(session)
 # All agent tool calls are traced by FailCore

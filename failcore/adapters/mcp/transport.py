@@ -60,6 +60,28 @@ class McpTransportConfig:
 class McpTransport(BaseTransport):
     """
     MCP transport implementation backed by a long-lived stdio session.
+    
+    Optimization 3: MCP as Pure Transport
+    ======================================
+    
+    Responsibilities (Protocol ↔ Internal Structure):
+    - Encode internal ToolSpecRef/CallContext to MCP JSON-RPC format
+    - Decode MCP responses to ToolResult with FailCoreError structure
+    - Map MCP notifications to ToolEvent stream
+    - Handle MCP session lifecycle (init, reconnect, shutdown)
+    
+    NOT Responsible For (Delegated to ToolRuntime Middleware):
+    - Policy enforcement (done by PolicyMiddleware)
+    - Validation (done by ValidationMiddleware)
+    - Retry logic (done by RetryMiddleware if added)
+    - Audit/trace (done by AuditMiddleware)
+    - Caching/replay (done by ReplayMiddleware)
+    
+    This separation ensures:
+    1. MCP protocol changes don't affect business logic
+    2. Same middleware works for MCP, Proxy, Local
+    3. Transport is easily testable (mock MCP server)
+    4. Clear error boundary (NETWORK/DECODE vs VALIDATE/POLICY/EXECUTE)
 
     Streaming:
       - Supports true server notifications via McpSession(on_notification=...).
@@ -164,6 +186,24 @@ class McpTransport(BaseTransport):
                 raise McpSessionError(f"MCP initialize failed: {e}") from e
 
     async def list_tools(self, *, ctx: Optional[CallContext] = None) -> list[ToolSpecRef]:
+        """
+        List tools from remote MCP server
+        
+        Error Contract (Scheme 3/4):
+        Remote MCP servers MAY return structured errors in the following format:
+        {
+            "error": {
+                "type": "SECURITY" | "PRECONDITION" | "TOOL" | "INTERNAL",
+                "error_code": "PATH_TRAVERSAL" | "TOOL_NOT_FOUND" | ...,
+                "message": "Human-readable error message",
+                "suggestion": "Actionable fix guidance (optional)",
+                "remediation": {"template": "...", "vars": {...}} (optional),
+                "retryable": true | false (optional)
+            }
+        }
+        
+        FailCore will preserve these fields for LLM self-healing.
+        """
         await self._ensure_initialized()
 
         try:
@@ -210,11 +250,12 @@ class McpTransport(BaseTransport):
             try:
                 raw = await self._session.call(self._cfg.call_tool_method, params=params)
             except Exception as e:
+                # Optimization 4: Remote-specific error codes with LLM-friendly suggestions
                 return ToolResult(
                     ok=False,
                     content=None,
                     raw=None,
-                    error={"type": e.__class__.__name__, "message": str(e)},
+                    error=_classify_transport_error(e, tool.name),
                 )
 
             _emit_bundled_events(emit, raw)
@@ -302,18 +343,30 @@ def _extract_tools_list(res: Any) -> List[Dict[str, Any]]:
 
 
 def _normalize_call_result(raw: Any) -> tuple[bool, Optional[Any], Optional[Dict[str, Any]]]:
+    """
+    Normalize MCP call result into ToolResult format
+    
+    Scheme 3: Extract structured error fields (error_code, suggestion, remediation)
+    if the remote MCP server returns FailCore-compatible errors.
+    """
     if raw is None:
-        return False, None, {"type": "MCPEmptyResult", "message": "empty result"}
+        return False, None, {
+            "type": "TOOL",
+            "error_code": "MCP_EMPTY_RESULT",
+            "message": "MCP server returned empty result"
+        }
 
     if isinstance(raw, dict):
+        # Check for error indicators
         if raw.get("isError") is True:
             err = raw.get("error") or {"message": "tool returned error"}
-            return False, None, {"type": "ToolError", "message": str(err), "details": err}
+            return False, None, _extract_structured_error(err, "ToolError")
 
         if "error" in raw and raw["error"] is not None and "content" not in raw:
             err = raw["error"]
-            return False, None, {"type": "ToolError", "message": str(err), "details": err}
+            return False, None, _extract_structured_error(err, "ToolError")
 
+        # Success paths
         if "content" in raw:
             return True, raw.get("content"), None
 
@@ -326,6 +379,157 @@ def _normalize_call_result(raw: Any) -> tuple[bool, Optional[Any], Optional[Dict
         return True, raw, None
 
     return True, raw, None
+
+
+def _extract_structured_error(err: Any, default_type: str = "TOOL") -> Dict[str, Any]:
+    """
+    Extract structured error fields from MCP error response
+    
+    Optimization 1: Unified error contract - transform MCP errors to FailCoreError format
+    Optimization 4: Add remote-specific suggestions if not provided by server
+    """
+    from failcore.core.errors import codes
+    
+    if isinstance(err, str):
+        # Check for common patterns
+        if "not found" in err.lower():
+            return {
+                "type": "TOOL",
+                "error_code": codes.REMOTE_TOOL_NOT_FOUND,
+                "message": err,
+                "phase": "VALIDATE",
+                "suggestion": "Verify tool name spelling. Use tools/list to see available tools.",
+            }
+        return {
+            "type": default_type,
+            "error_code": "UNKNOWN",
+            "message": err
+        }
+    
+    if not isinstance(err, dict):
+        return {
+            "type": default_type,
+            "error_code": "UNKNOWN",
+            "message": str(err)
+        }
+    
+    # Build structured error dict
+    error_dict = {
+        "type": err.get("type", default_type),
+        "error_code": err.get("error_code") or err.get("code", "UNKNOWN"),
+        "message": err.get("message", str(err)),
+    }
+    
+    # Add phase if present
+    if "phase" in err:
+        error_dict["phase"] = err["phase"]
+    
+    # Scheme 3: Extract LLM-friendly fields (if server provided them)
+    if "suggestion" in err:
+        error_dict["suggestion"] = err["suggestion"]
+    if "remediation" in err:
+        error_dict["remediation"] = err["remediation"]
+    if "hint" in err:
+        error_dict["hint"] = err["hint"]
+    
+    # Optimization 4: Generate suggestion if not provided
+    if "suggestion" not in error_dict:
+        error_code = error_dict["error_code"]
+        message_lower = error_dict["message"].lower()
+        
+        # Tool not found
+        if error_code == "TOOL_NOT_FOUND" or "not found" in message_lower:
+            error_dict["error_code"] = codes.REMOTE_TOOL_NOT_FOUND
+            error_dict["suggestion"] = "Verify tool name spelling. Use tools/list to see available tools."
+            error_dict["phase"] = "VALIDATE"
+        
+        # Invalid parameters
+        elif "parameter" in message_lower or "argument" in message_lower or "missing" in message_lower:
+            error_dict["error_code"] = codes.REMOTE_INVALID_PARAMS
+            error_dict["suggestion"] = "Check parameter names and types. Refer to tool schema for required fields."
+            error_dict["phase"] = "VALIDATE"
+    
+    # Preserve details (but be careful about sensitive data)
+    if "details" in err:
+        error_dict["details"] = err["details"]
+    
+    # Retryable hint for agent loops
+    if "retryable" in err:
+        error_dict["retryable"] = err["retryable"]
+    
+    return error_dict
+
+
+def _classify_transport_error(exc: Exception, tool_name: str) -> Dict[str, Any]:
+    """
+    Classify transport exceptions into FailCoreError-compatible structure
+    
+    Optimization 1: Unified error contract for remote calls
+    Optimization 4: Remote-specific error codes with suggestions
+    """
+    from .session import McpTimeout, McpSessionClosed, McpProcessCrashed
+    from failcore.core.errors import codes
+    
+    # Timeout errors
+    if isinstance(exc, McpTimeout) or "timeout" in str(exc).lower():
+        return {
+            "type": "TRANSPORT",
+            "error_code": codes.REMOTE_TIMEOUT,
+            "message": f"MCP tool '{tool_name}' timed out",
+            "phase": "NETWORK",
+            "retryable": True,
+            "suggestion": "Increase timeout, reduce payload size, or retry with exponential backoff",
+            "remediation": {
+                "action": "retry_with_config",
+                "template": "Retry with timeout={timeout}s and max_retries={max_retries}",
+                "vars": {"timeout": 120, "max_retries": 3}
+            },
+            "details": {"original_error": str(exc)}
+        }
+    
+    # Connection/process errors
+    if isinstance(exc, (McpSessionClosed, McpProcessCrashed)):
+        return {
+            "type": "TRANSPORT",
+            "error_code": codes.REMOTE_UNREACHABLE,
+            "message": f"MCP server unreachable for tool '{tool_name}'",
+            "phase": "NETWORK",
+            "retryable": True,
+            "suggestion": "Check MCP server is running and accessible. Verify network connectivity.",
+            "remediation": {
+                "action": "restart_server",
+                "template": "Restart MCP server: {command}",
+                "vars": {"command": "check server process status"}
+            },
+            "details": {"original_error": str(exc)}
+        }
+    
+    # Protocol/decode errors
+    if "json" in str(exc).lower() or "decode" in str(exc).lower() or "parse" in str(exc).lower():
+        return {
+            "type": "TRANSPORT",
+            "error_code": codes.REMOTE_PROTOCOL_MISMATCH,
+            "message": f"MCP protocol error calling '{tool_name}': {exc}",
+            "phase": "DECODE",
+            "retryable": False,
+            "suggestion": "Verify MCP protocol version compatibility. Check for malformed responses.",
+            "details": {"original_error": str(exc)}
+        }
+    
+    # Generic transport error
+    return {
+        "type": "TRANSPORT",
+        "error_code": codes.REMOTE_SERVER_ERROR,
+        "message": f"MCP server error: {exc}",
+        "phase": "EXECUTE",
+        "retryable": False,
+        "suggestion": "Check MCP server logs for details. Verify tool exists and parameters are correct.",
+        "details": {
+            "tool": tool_name,
+            "exception_type": exc.__class__.__name__,
+            "original_error": str(exc)
+        }
+    }
 
 
 def _extract_receipts(raw: Any) -> List[Receipt]:
