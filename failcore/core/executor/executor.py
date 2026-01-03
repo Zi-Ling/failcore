@@ -178,6 +178,7 @@ class Executor:
         if isinstance(policy_result, tuple):
             # Legacy: (allowed, reason)
             allowed, reason = policy_result
+            error_code = None
             suggestion = None
             remediation = None
             details = {}
@@ -187,12 +188,14 @@ class Executor:
             if isinstance(policy_result, PolicyResult):
                 allowed = policy_result.allowed
                 reason = policy_result.reason
+                error_code = policy_result.error_code
                 suggestion = policy_result.suggestion
                 remediation = policy_result.remediation
                 details = policy_result.details
             else:
                 # Fallback
                 allowed, reason = True, ""
+                error_code = None
                 suggestion = None
                 remediation = None
                 details = {}
@@ -218,7 +221,7 @@ class Executor:
             # Inject suggestion/remediation from policy into error
             return self._fail(
                 step, ctx, run_ctx, attempt, started_at, t0, 
-                "POLICY_DENIED",  # Use proper error code
+                error_code or "POLICY_DENIED",  # Use specific error code from policy if provided
                 reason or "Denied by policy", 
                 ExecutionPhase.POLICY,
                 suggestion=suggestion,

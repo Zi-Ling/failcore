@@ -23,6 +23,7 @@ class PolicyResult:
     details: Dict[str, Any] = field(default_factory=dict)
     
     # LLM-friendly fields
+    error_code: Optional[str] = None      # Specific error code (e.g., PATH_TRAVERSAL)
     suggestion: Optional[str] = None      # Actionable fix suggestion
     remediation: Optional[Dict[str, Any]] = None  # Structured fix with template vars
     
@@ -35,6 +36,7 @@ class PolicyResult:
     def deny(
         cls, 
         reason: str, 
+        error_code: Optional[str] = None,
         details: Optional[Dict[str, Any]] = None,
         suggestion: Optional[str] = None,
         remediation: Optional[Dict[str, Any]] = None,
@@ -44,13 +46,15 @@ class PolicyResult:
         
         Args:
             reason: Denial reason
+            error_code: Specific error code (e.g., PATH_TRAVERSAL, SSRF_BLOCKED)
             details: Detailed information
             suggestion: Actionable fix suggestion (for LLM/human)
             remediation: Structured fix instructions (with template variables)
         """
         return cls(
             allowed=False, 
-            reason=reason, 
+            reason=reason,
+            error_code=error_code,
             details=details or {},
             suggestion=suggestion,
             remediation=remediation,

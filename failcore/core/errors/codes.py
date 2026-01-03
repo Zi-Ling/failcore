@@ -46,6 +46,16 @@ REMOTE_TOOL_NOT_FOUND: Final[str] = "REMOTE_TOOL_NOT_FOUND"
 REMOTE_INVALID_PARAMS: Final[str] = "REMOTE_INVALID_PARAMS"
 REMOTE_SERVER_ERROR: Final[str] = "REMOTE_SERVER_ERROR"
 
+# resource limits (P0-2)
+RESOURCE_LIMIT_TIMEOUT: Final[str] = "RESOURCE_LIMIT_TIMEOUT"
+RESOURCE_LIMIT_OUTPUT: Final[str] = "RESOURCE_LIMIT_OUTPUT"
+RESOURCE_LIMIT_EVENTS: Final[str] = "RESOURCE_LIMIT_EVENTS"
+RESOURCE_LIMIT_FILE: Final[str] = "RESOURCE_LIMIT_FILE"
+RESOURCE_LIMIT_CONCURRENCY: Final[str] = "RESOURCE_LIMIT_CONCURRENCY"
+
+# retry exhausted (P0-3)
+RETRY_EXHAUSTED: Final[str] = "RETRY_EXHAUSTED"
+
 
 # ---- semantic groups (internal helpers) ----
 
@@ -112,7 +122,7 @@ SECURITY_CODES: Final[set[str]] = {
     PRIVATE_NETWORK_BLOCKED,
 }
 
-# Operational error codes (registry, validation, execution, remote)
+# Operational error codes (registry, validation, execution, remote, limits, retry)
 # These are well-defined operational states that should not be downgraded
 OPERATIONAL_CODES: Final[set[str]] = {
     TOOL_NOT_FOUND,
@@ -127,4 +137,12 @@ OPERATIONAL_CODES: Final[set[str]] = {
     REMOTE_TOOL_NOT_FOUND,
     REMOTE_INVALID_PARAMS,
     REMOTE_SERVER_ERROR,
+    # Resource limit codes (P0-2)
+    RESOURCE_LIMIT_TIMEOUT,
+    RESOURCE_LIMIT_OUTPUT,
+    RESOURCE_LIMIT_EVENTS,
+    RESOURCE_LIMIT_FILE,
+    RESOURCE_LIMIT_CONCURRENCY,
+    # Retry codes (P0-3)
+    RETRY_EXHAUSTED,
 }

@@ -243,18 +243,34 @@ def path_traversal_precondition(
                     try:
                         resolved_parent.relative_to(sandbox_root)
                     except ValueError:
-                        return ValidationResult.failure(
-                            message=f"Parent directory is outside sandbox: '{path_value}'",
-                            code="SANDBOX_VIOLATION",
-                            details={
-                                "path": str(path_value),
-                                "sandbox": format_relative_path(sandbox_root),
-                                "parent": str(resolved_parent),
-                                "reason": "parent_outside_sandbox",
-                                "field": found_param,
-                                "suggestion": "Path must be within sandbox"
-                            }
-                        )
+                        # Check if this is path traversal
+                        is_traversal = ".." in str(path_value)
+                        if is_traversal:
+                            return ValidationResult.failure(
+                                message=f"Path traversal detected: '{path_value}' attempts to escape sandbox using '../'",
+                                code="PATH_TRAVERSAL",
+                                details={
+                                    "path": str(path_value),
+                                    "sandbox": format_relative_path(sandbox_root),
+                                    "parent": str(resolved_parent),
+                                    "reason": "parent_outside_sandbox",
+                                    "field": found_param,
+                                    "suggestion": "Remove '../' path components"
+                                }
+                            )
+                        else:
+                            return ValidationResult.failure(
+                                message=f"Parent directory is outside sandbox: '{path_value}'",
+                                code="SANDBOX_VIOLATION",
+                                details={
+                                    "path": str(path_value),
+                                    "sandbox": format_relative_path(sandbox_root),
+                                    "parent": str(resolved_parent),
+                                    "reason": "parent_outside_sandbox",
+                                    "field": found_param,
+                                    "suggestion": "Path must be within sandbox"
+                                }
+                            )
                     
                     # Reconstruct resolved path using resolved parent + filename
                     resolved_path = resolved_parent / full_path.name
@@ -270,18 +286,34 @@ def path_traversal_precondition(
                         try:
                             resolved_ancestor.relative_to(sandbox_root)
                         except ValueError:
-                            return ValidationResult.failure(
-                                message=f"Path would be created outside sandbox: '{path_value}'",
-                                code="SANDBOX_VIOLATION",
-                                details={
-                                    "path": str(path_value),
-                                    "sandbox": format_relative_path(sandbox_root),
-                                    "ancestor": str(resolved_ancestor),
-                                    "reason": "ancestor_outside_sandbox",
-                                    "field": found_param,
-                                    "suggestion": "Path must be within sandbox"
-                                }
-                            )
+                            # Check if this is path traversal
+                            is_traversal = ".." in str(path_value)
+                            if is_traversal:
+                                return ValidationResult.failure(
+                                    message=f"Path traversal detected: '{path_value}' attempts to escape sandbox using '../'",
+                                    code="PATH_TRAVERSAL",
+                                    details={
+                                        "path": str(path_value),
+                                        "sandbox": format_relative_path(sandbox_root),
+                                        "ancestor": str(resolved_ancestor),
+                                        "reason": "ancestor_outside_sandbox",
+                                        "field": found_param,
+                                        "suggestion": "Remove '../' path components"
+                                    }
+                                )
+                            else:
+                                return ValidationResult.failure(
+                                    message=f"Path would be created outside sandbox: '{path_value}'",
+                                    code="SANDBOX_VIOLATION",
+                                    details={
+                                        "path": str(path_value),
+                                        "sandbox": format_relative_path(sandbox_root),
+                                        "ancestor": str(resolved_ancestor),
+                                        "reason": "ancestor_outside_sandbox",
+                                        "field": found_param,
+                                        "suggestion": "Path must be within sandbox"
+                                    }
+                                )
                         # Reconstruct full resolved path
                         resolved_path = resolved_ancestor / full_path.relative_to(ancestor)
                     else:
