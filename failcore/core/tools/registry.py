@@ -15,7 +15,7 @@ class ToolRegistry:
     Enhanced tool registry with metadata and auto-rule assembly
     
     Features:
-    - Tool metadata tracking (risk_level, side_effect, default_policy)
+    - Tool metadata tracking (risk_level, side_effect, default_action)
     - Automatic validation rule assembly based on metadata
     - Strict mode enforcement for HIGH risk tools
     - Precondition/Postcondition validator registration
@@ -172,7 +172,7 @@ class ToolRegistry:
         if spec:
             result["risk_level"] = spec.tool_metadata.risk_level.value
             result["side_effect"] = spec.tool_metadata.side_effect.value
-            result["default_policy"] = spec.tool_metadata.default_policy.value
+            result["default_action"] = spec.tool_metadata.default_action.value
             result["strict_required"] = spec.tool_metadata.strict_required
         
         # Add validator counts

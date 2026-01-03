@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block title %}Overview - FailCore{% endblock %}
+
+{% block content %}
+<div class="overview">
+    <h1>Overview</h1>
+    
+    <div class="stats-grid">
+        <div class="stat-card">
+            <h3>Total Runs</h3>
+            <p class="stat-value">{{ stats.total_runs }}</p>
+        </div>
+        <div class="stat-card">
+            <h3>Traces Available</h3>
+            <p class="stat-value">{{ stats.traces_available }}</p>
+        </div>
+    </div>
+    
+    <h2>Recent Runs</h2>
+    <div class="runs-list">
+        {% if recent_runs %}
+            <table class="runs-table">
+                <thead>
+                    <tr>
+                        <th>Run ID</th>
+                        <th>Command</th>
+                        <th>Date</th>
+                        <th>Trace</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for run in recent_runs %}
+                    <tr>
+                        <td><code>{{ run.name.split('_')[0] }}</code></td>
+                        <td><span class="badge">{{ run.name.split('_')[2] if run.name.split('_')|length == 3 else 'unknown' }}</span></td>
+                        <td>{{ run.date }}</td>
+                        <td>
+                            {% if run.has_trace %}
+                                <span class="status-success">✓</span>
+                            {% else %}
+                                <span class="status-error">✗</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if run.has_trace %}
+                                <a href="/traces/{{ run.date }}/{{ run.name }}" class="btn btn-sm">View Trace</a>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <div class="empty-state">
+                <p>No runs found. Run <code>failcore sample</code> to create your first execution.</p>
+            </div>
+        {% endif %}
+    </div>
+    
+    <div class="actions">
+        <a href="/runs" class="btn">View All Runs →</a>
+    </div>
+</div>
+{% endblock %}

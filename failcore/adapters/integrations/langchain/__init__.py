@@ -25,8 +25,8 @@ Usage:
     result = session.invoker.invoke("my_tool", x=5)
 """
 
-from .mapper import map_langchain_tool
+from .mapper import map_tool
 
 __all__ = [
-    "map_langchain_tool",
+    "map_tool",
 ]

@@ -1,0 +1,246 @@
+{# Artifacts Panel - displays run outputs (reports, audits, traces) #}
+<div class="artifacts-panel">
+    <h3>ARTIFACTS</h3>
+    
+    <div id="artifacts-list" class="artifacts-list">
+        <div class="artifacts-loading">Loading artifacts...</div>
+    </div>
+    
+    <!-- Preview Modal -->
+    <div id="preview-modal" class="preview-modal" style="display: none;">
+        <div class="preview-modal-content">
+            <div class="preview-modal-header">
+                <h4 id="preview-title">Preview</h4>
+                <button onclick="closePreview()" class="btn btn-sm">✕ CLOSE</button>
+            </div>
+            <div id="preview-body" class="preview-modal-body"></div>
+        </div>
+    </div>
+</div>
+
+<style>
+.artifacts-panel {
+    margin-top: 1rem;
+    padding: 1rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+}
+
+.artifacts-panel h3 {
+    font-size: 0.875rem;
+    margin-bottom: 1rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+
+.artifacts-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.artifacts-loading {
+    padding: 1rem;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.875rem;
+}
+
+.artifact-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-light);
+}
+
+.artifact-meta {
+    display: flex;
+    gap: 1rem;
+    flex: 1;
+}
+
+.artifact-name {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.artifact-size {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.artifact-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.preview-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.8);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.preview-modal-content {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    width: 90%;
+    max-width: 1200px;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.preview-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.preview-modal-header h4 {
+    font-size: 0.875rem;
+    text-transform: uppercase;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.preview-modal-body {
+    flex: 1;
+    overflow: auto;
+    padding: 1rem;
+}
+
+.preview-json {
+    background: var(--bg-tertiary);
+    padding: 1rem;
+    border: 1px solid var(--border);
+    overflow-x: auto;
+}
+
+.preview-json pre {
+    margin: 0;
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    color: var(--text-primary);
+}
+
+.preview-html iframe {
+    width: 100%;
+    height: 70vh;
+    border: 1px solid var(--border);
+    background: white;
+}
+</style>
+
+<script>
+// Load artifacts on page load
+async function loadArtifacts() {
+    const runId = document.querySelector('[data-run-id]')?.dataset.runId;
+    const date = document.querySelector('[data-run-date]')?.dataset.runDate;
+    const runName = document.querySelector('[data-run-name]')?.dataset.runName;
+    
+    if (!date || !runName) return;
+    
+    try {
+        const response = await fetch(`/api/artifacts/runs/${date}/${runName}/artifacts`);
+        const data = await response.json();
+        
+        const container = document.getElementById('artifacts-list');
+        
+        if (data.artifacts && data.artifacts.length > 0) {
+            container.innerHTML = data.artifacts.map(a => `
+                <div class="artifact-item">
+                    <div class="artifact-meta">
+                        <span class="artifact-name">${a.name}</span>
+                        <span class="artifact-size">${(a.size / 1024).toFixed(1)} KB</span>
+                    </div>
+                    <div class="artifact-actions">
+                        ${a.preview_mode !== 'none' ? `
+                        <button class="btn btn-sm" onclick="previewArtifact('${a.artifact_id}', '${a.name}')">
+                            👁 PREVIEW
+                        </button>
+                        ` : ''}
+                        <a href="/api/artifacts/download/${a.artifact_id}" class="btn btn-sm" download>
+                            💾 DOWNLOAD
+                        </a>
+                    </div>
+                </div>
+            `).join('');
+        } else {
+            container.innerHTML = '<div class="artifacts-loading">No artifacts yet</div>';
+        }
+    } catch (error) {
+        document.getElementById('artifacts-list').innerHTML = 
+            '<div class="artifacts-loading">Failed to load artifacts</div>';
+    }
+}
+
+async function previewArtifact(artifactId, name) {
+    try {
+        const response = await fetch(`/api/artifacts/${artifactId}/preview`);
+        const data = await response.json();
+        
+        const modal = document.getElementById('preview-modal');
+        const title = document.getElementById('preview-title');
+        const body = document.getElementById('preview-body');
+        
+        title.textContent = `Preview: ${name}`;
+        
+        if (data.format === 'html') {
+            body.innerHTML = `<div class="preview-html"><iframe srcdoc="${data.content.replace(/"/g, '&quot;')}" sandbox></iframe></div>`;
+        } else if (data.format === 'json') {
+            // Handle JSONL (multiple JSON objects, one per line)
+            let formatted;
+            try {
+                if (name.endsWith('.jsonl')) {
+                    // JSONL format: each line is a separate JSON object
+                    const lines = data.content.trim().split('\n');
+                    const objects = lines.map(line => JSON.parse(line));
+                    formatted = objects.map(obj => JSON.stringify(obj, null, 2)).join('\n\n---\n\n');
+                } else {
+                    // Regular JSON
+                    formatted = JSON.stringify(JSON.parse(data.content), null, 2);
+                }
+            } catch (e) {
+                // Fallback to plain text if parsing fails
+                formatted = data.content;
+            }
+            body.innerHTML = `<div class="preview-json"><pre>${formatted}</pre></div>`;
+        } else {
+            body.innerHTML = `<div class="preview-json"><pre>${data.content}</pre></div>`;
+        }
+        
+        modal.style.display = 'flex';
+    } catch (error) {
+        alert(`Preview failed: ${error.message}`);
+    }
+}
+
+function closePreview() {
+    document.getElementById('preview-modal').style.display = 'none';
+}
+
+// Close modal on outside click
+document.getElementById('preview-modal')?.addEventListener('click', (e) => {
+    if (e.target.id === 'preview-modal') closePreview();
+});
+
+// Auto-load on page ready
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', loadArtifacts);
+} else {
+    loadArtifacts();
+}
+</script>

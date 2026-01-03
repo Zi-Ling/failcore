@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block title %}Runs - FailCore{% endblock %}
+
+{% block content %}
+<div class="runs-page">
+    <h1>Execution History</h1>
+    
+    <div class="filters">
+        <form method="get" class="filter-form">
+            <input 
+                type="text" 
+                name="command" 
+                placeholder="FILTER BY COMMAND..." 
+                value="{{ filter_command or '' }}"
+                class="filter-input"
+            >
+            <button type="submit" class="btn">FILTER</button>
+            {% if filter_command %}
+                <a href="/runs" class="btn btn-secondary">CLEAR</a>
+            {% endif %}
+        </form>
+    </div>
+    
+    {% if runs %}
+        <table class="runs-table">
+            <thead>
+                <tr>
+                    <th>STATUS</th>
+                    <th>RUN ID</th>
+                    <th>COMMAND</th>
+                    <th>TIMESTAMP</th>
+                    <th>DATE</th>
+                    <th>ACTION</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for run in runs %}
+                <tr>
+                    <td>
+                        {% if run.has_trace %}
+                            <span class="status-badge status-success">AVAILABLE</span>
+                        {% else %}
+                            <span class="status-badge status-unknown">NO TRACE</span>
+                        {% endif %}
+                    </td>
+                    <td><span class="run-id">{{ run.run_id[:12] }}</span></td>
+                    <td><span class="badge">{{ run.command }}</span></td>
+                    <td>{{ run.timestamp }}</td>
+                    <td>{{ run.date }}</td>
+                    <td>
+                        {% if run.has_trace %}
+                            <a href="/run/{{ run.date }}/{{ run.name }}" class="btn btn-sm">[INSPECT]</a>
+                        {% else %}
+                            <span style="color: var(--text-muted);">—</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        
+        <div class="pagination-info">
+            Showing {{ runs|length }} runs (limited to {{ limit }})
+        </div>
+    {% else %}
+        <div class="empty-state">
+            <p>No runs found matching your criteria.</p>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

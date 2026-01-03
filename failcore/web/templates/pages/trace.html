@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block title %}Trace: {{ run_info.run_id }} - FailCore{% endblock %}
+
+{% block content %}
+<div class="trace-page">
+    <div class="trace-header">
+        <h1>Trace Analysis</h1>
+        <a href="/runs" class="btn btn-secondary">← BACK TO RUNS</a>
+    </div>
+    
+    <div class="trace-info-card">
+        <h2>Run Information</h2>
+        <dl class="info-grid">
+            <dt>Run ID</dt>
+            <dd><code>{{ run_info.run_id }}</code></dd>
+            
+            <dt>Command</dt>
+            <dd><span class="badge">{{ run_info.command }}</span></dd>
+            
+            <dt>Date</dt>
+            <dd>{{ run_info.date }}</dd>
+            
+            <dt>Timestamp</dt>
+            <dd>{{ run_info.timestamp }}</dd>
+            
+            <dt>Total Events</dt>
+            <dd>{{ run_info.total_events }}</dd>
+        </dl>
+    </div>
+    
+    <h2>Event Timeline</h2>
+    <div class="events-timeline">
+        {% for event in events %}
+        <div class="event-card event-type-{{ event.type or event.event_type }}">
+            <div class="event-header">
+                <span class="event-type">{{ (event.event_type or event.type) | upper }}</span>
+                {% if event.seq is defined %}
+                    <span class="event-seq">#{{ "%03d"|format(event.seq) }}</span>
+                {% endif %}
+                {% if event.timestamp %}
+                    <span class="event-time">{{ event.timestamp }}</span>
+                {% endif %}
+            </div>
+            
+            {% if event.message %}
+            <div class="event-message">
+                {{ event.message }}
+            </div>
+            {% endif %}
+            
+            {% if event.data %}
+            <details class="event-data">
+                <summary>EVENT DATA</summary>
+                <pre><code>{{ event.data | tojson(indent=2) }}</code></pre>
+            </details>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

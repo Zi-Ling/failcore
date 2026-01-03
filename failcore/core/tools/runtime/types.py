@@ -96,6 +96,19 @@ class Receipt:
 
 
 # =========================
+# Error Taxonomy
+# =========================
+
+ErrorType = Literal[
+    "VALIDATION",   # Input validation failure (schema, format, precondition)
+    "POLICY",       # Policy/security violation (sandbox, permissions, rate limit)
+    "TRANSPORT",    # Transport/communication error (network, protocol, timeout)
+    "TOOL",         # Tool execution failure (runtime error, business logic)
+    "INTERNAL",     # Internal runtime error (FailCore bug, unexpected state)
+]
+
+
+# =========================
 # Tool Invocation Result
 # =========================
 
@@ -107,6 +120,16 @@ class ToolResult:
     Semantics:
     - content: agent-visible output (JSON-serializable)
     - raw: transport raw output (audit/debug ONLY)
+    - error: structured error with type taxonomy for better handling
+    
+    Error structure (when ok=False):
+        {
+            "type": "VALIDATION" | "POLICY" | "TRANSPORT" | "TOOL" | "INTERNAL",
+            "error_code": "SANDBOX_VIOLATION" | "SCHEMA_MISMATCH" | ...,
+            "message": "Human-readable description",
+            "details": {...},  # Structured fields for programmatic handling
+            "retryable": bool,  # (optional) Whether retry might succeed
+        }
     """
 
     ok: bool
@@ -148,6 +171,8 @@ class ToolEvent:
 
     Ordering:
     - seq is assigned by the runtime (monotonic).
+    - Middleware should NOT set seq; runtime will assign it automatically.
+    - Default value -1 indicates "not yet assigned by runtime".
 
     Timing:
     - timestamp is wall-clock emission time (epoch seconds).
@@ -156,13 +181,15 @@ class ToolEvent:
     for audit, replay, and incident analysis.
     """
 
-    # Monotonic sequence number (assigned by runtime)
-    seq: int
+    # Event type (required)
+    type: ToolEventType
+    
+    # Monotonic sequence number (assigned by runtime, default -1 = unassigned)
+    seq: int = -1
 
     # Wall-clock time at emission
     timestamp: float = field(default_factory=time.time)
-
-    type: ToolEventType
+    
     message: Optional[str] = None
 
     # Flexible payload (can be refined later per event type)

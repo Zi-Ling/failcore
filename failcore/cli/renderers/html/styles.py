@@ -1,12 +1,12 @@
 # failcore/cli/renderers/html/styles.py
 """
-CSS for Audit Report - Unified Screen + Print Style
+CSS for audit Report - Unified Screen + Print Style
 One stylesheet for both screen preview and print output.
 """
 
 def get_css() -> str:
     """
-    Get CSS styles for Audit report.
+    Get CSS styles for audit report.
     One stylesheet for both screen preview and print output - WYSIWYG.
     """
     return """
@@ -706,8 +706,8 @@ def get_css() -> str:
 
 
 def get_javascript() -> str:
-    """Minimal JS for Audit report"""
+    """Minimal JS for audit report"""
     return """
-        // No interactive elements in Audit reports
+        // No interactive elements in audit reports
         // All evidence is in Appendix, not togglable
     """

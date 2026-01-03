@@ -1,0 +1,73 @@
+{# Action Bar - renders registered actions dynamically #}
+<div class="action-bar">
+    {% if actions %}
+        {% for action in actions %}
+        <button 
+            class="action-btn {% if action.danger %}action-danger{% endif %}"
+            data-action-id="{{ action.id }}"
+            data-endpoint="{{ action.endpoint }}"
+            data-method="{{ action.method }}"
+            data-result="{{ action.result }}"
+            {% if not action.capability or action.capability %}{% else %}disabled{% endif %}
+            onclick="executeAction(this)"
+            title="{{ action.description or action.label }}"
+        >
+            {% if action.icon %}{{ action.icon }} {% endif %}{{ action.label }}
+        </button>
+        {% endfor %}
+    {% else %}
+        <span class="no-actions">No actions available</span>
+    {% endif %}
+</div>
+
+<script>
+async function executeAction(btn) {
+    const actionId = btn.dataset.actionId;
+    const isDanger = btn.classList.contains('action-danger');
+    
+    // Confirm dangerous actions
+    if (isDanger && !confirm(`Are you sure you want to execute: ${btn.textContent.trim()}?`)) {
+        return;
+    }
+    
+    // Disable button
+    const originalLabel = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '⏳ Processing...';
+    
+    try {
+        // Get run info from page
+        const runId = document.querySelector('[data-run-id]')?.dataset.runId;
+        
+        // Unified job creation endpoint
+        const response = await fetch('/api/jobs', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                action_id: actionId,
+                run_id: runId,
+                params: {},
+            }),
+        });
+        
+        const data = await response.json();
+        
+        if (!response.ok) {
+            throw new Error(data.detail || 'Action failed');
+        }
+        
+        // Show success and optionally navigate
+        alert(`✓ Job created: ${data.job_id}\nStatus: ${data.status}\n\nView progress in Jobs page.`);
+        
+        // Optional: auto-navigate to jobs page
+        // window.location.href = '/jobs';
+        
+    } catch (error) {
+        alert(`✗ Error: ${error.message}`);
+    } finally {
+        // Re-enable button
+        btn.disabled = false;
+        btn.innerHTML = originalLabel;
+    }
+}
+</script>

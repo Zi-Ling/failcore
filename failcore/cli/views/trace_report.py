@@ -37,7 +37,7 @@ class ReportStepView:
     # v0.1.2: Tool metadata
     risk_level: Optional[str] = None
     side_effect: Optional[str] = None
-    default_policy: Optional[str] = None
+    default_action: Optional[str] = None
     # v0.1.2: Semantic fields
     severity: Optional[str] = None  # INFO, WARN, ERROR, CRITICAL
     provenance: Optional[str] = None  # LIVE, REPLAY_HIT, REPLAY_MISS, INJECTED
@@ -316,7 +316,7 @@ def _analyze_step(step_id: str, events: List[Dict[str, Any]]) -> ReportStepView:
     params = {}
     risk_level = None
     side_effect = None
-    default_policy = None
+    default_action = None
     provenance = None
     
     if start_evt:
@@ -327,7 +327,7 @@ def _analyze_step(step_id: str, events: List[Dict[str, Any]]) -> ReportStepView:
         metadata = step.get("metadata", {})
         risk_level = metadata.get("risk_level")
         side_effect = metadata.get("side_effect")
-        default_policy = metadata.get("default_policy")
+        default_action = metadata.get("default_action")
         
         # v0.1.2: Extract provenance (normalize to enum string)
         provenance_raw = step.get("provenance")
@@ -437,7 +437,7 @@ def _analyze_step(step_id: str, events: List[Dict[str, Any]]) -> ReportStepView:
         # v0.1.2: Tool metadata
         risk_level=risk_level,
         side_effect=side_effect,
-        default_policy=default_policy,
+        default_action=default_action,
         # v0.1.2: Semantic fields
         severity=severity,
         provenance=provenance,

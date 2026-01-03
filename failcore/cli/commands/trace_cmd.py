@@ -35,11 +35,12 @@ def register_command(subparsers):
 
 def trace_ingest(args):
     """Ingest trace file into database"""
+    from failcore.utils.paths import get_database_path
     trace_path = args.trace
-    db_path = ".failcore/failcore.db"  # Global shared database
+    db_path = str(get_database_path())  # Global shared database
     
-    # Ensure .failcore directory exists
-    Path(".failcore").mkdir(exist_ok=True)
+    # Ensure directory exists
+    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     
     if not Path(trace_path).exists():
         print(f"Error: Trace file not found: {trace_path}")
@@ -95,7 +96,8 @@ def trace_ingest(args):
 
 def trace_query(args):
     """Execute SQL query on trace database"""
-    db_path = ".failcore/failcore.db"  # Global shared database
+    from failcore.utils.paths import get_database_path
+    db_path = str(get_database_path())  # Global shared database
     sql = args.query
     
     if not Path(db_path).exists():
@@ -136,7 +138,8 @@ def trace_query(args):
 
 def trace_stats(args):
     """Show trace database statistics"""
-    db_path = ".failcore/failcore.db"  # Global shared database
+    from failcore.utils.paths import get_database_path
+    db_path = str(get_database_path())  # Global shared database
     run_id = getattr(args, 'run', None)
     
     if not Path(db_path).exists():

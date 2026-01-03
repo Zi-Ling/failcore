@@ -17,7 +17,7 @@ except ImportError:
 from failcore.core.tools.spec import ToolSpec
 
 
-def map_langchain_tool(tool: Any) -> ToolSpec:
+def map_tool(tool: Any) -> ToolSpec:
     """
     Convert LangChain tool to ToolSpec (pure translation, no execution)
     

@@ -1,8 +1,20 @@
-# failcore/base.py
+# failcore/__init__.py
 """
 FailCore - Observable and replayable tool execution engine
 
-Quick Start:
+Quick Start (Recommended):
+    >>> from failcore import run, guard
+    >>> 
+    >>> with run(policy="fs_safe", sandbox="./data", strict=True) as ctx:
+    ...     @guard()
+    ...     def write_file(path: str, content: str):
+    ...         with open(path, "w") as f:
+    ...             f.write(content)
+    ...     
+    ...     write_file(path="a.txt", content="hi")
+    ...     print(ctx.trace_path)
+
+Legacy Session API (Backward Compatible):
     >>> from failcore import Session
     >>> session = Session(trace="trace.jsonl")
     >>> session.register("divide", lambda a, b: a / b)
@@ -16,7 +28,7 @@ For advanced usage, import from submodules:
 __version__ = "0.1.0"
 
 # Public API
-from .api import run, Session, Result, presets, watch, set_watch_session, WatchContext
+from .api import run, Session, Result, presets, guard
 
 # Core types - for type hints and advanced usage
 from .core.step import (
@@ -41,9 +53,7 @@ __all__ = [
     "__version__",
     "run",
     "Session",
+    "guard",
     "Result",
     "presets",
-    "watch",
-    "set_watch_session",
-    "WatchContext",
 ]

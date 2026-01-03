@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 import traceback
 from typing import Any, Callable, Iterable, List, Optional
 
@@ -74,6 +75,9 @@ class ToolRuntime:
         ctx: CallContext,
         emit: Optional[EventEmitter],
     ) -> ToolResult:
+        # Observability: RUNTIME_INVOKE
+        print(f"[RUNTIME_INVOKE] tool={tool.name} run_id={ctx.run_id} trace_id={ctx.trace_id}", file=sys.stderr)
+
         emitter = emit or (lambda _e: None)
 
         def _emit(event: ToolEvent) -> None:
@@ -86,7 +90,6 @@ class ToolRuntime:
         # ---- START event ----
         _emit(
             ToolEvent(
-                seq=0,
                 type="start",
                 message=f"tool call start: {tool.name}",
                 data={"tool": tool.name, "args": args},
@@ -123,17 +126,30 @@ class ToolRuntime:
 
                 _emit(
                     ToolEvent(
-                        seq=0,
                         type="error",
                         message=str(exc),
                         data={"exception": exc.__class__.__name__, "traceback": tb},
                     )
                 )
+                
+                # Classify error type
+                error_type = self._classify_exception_type(exc)
+                error_code = self._classify_exception_code(exc)
+                
                 return ToolResult(
                     ok=False,
                     content=None,
                     raw=None,
-                    error={"type": exc.__class__.__name__, "message": str(exc)},
+                    error={
+                        "type": error_type,
+                        "error_code": error_code,
+                        "message": str(exc),
+                        "details": {
+                            "exception_class": exc.__class__.__name__,
+                            "traceback": tb[:500],
+                        },
+                        "retryable": error_type == "TRANSPORT",
+                    },
                 )
 
         # ---- Execute via transport ----
@@ -166,19 +182,101 @@ class ToolRuntime:
 
             _emit(
                 ToolEvent(
-                    seq=0,
                     type="error",
                     message=str(exc),
                     data={"exception": exc.__class__.__name__, "traceback": tb},
                 )
             )
+            
+            # Classify error type based on exception
+            error_type = self._classify_exception_type(exc)
+            error_code = self._classify_exception_code(exc)
 
             return ToolResult(
                 ok=False,
                 content=None,
                 raw=None,
-                error={"type": exc.__class__.__name__, "message": str(exc)},
+                error={
+                    "type": error_type,
+                    "error_code": error_code,
+                    "message": str(exc),
+                    "details": {
+                        "exception_class": exc.__class__.__name__,
+                        "traceback": tb[:500],  # Truncate for readability
+                    },
+                    "retryable": error_type == "TRANSPORT",  # Network errors might be retryable
+                },
             )
+
+    # =========================================================
+    # Error classification
+    # =========================================================
+    
+    def _classify_exception_type(self, exc: Exception) -> str:
+        """
+        Classify exception into error type taxonomy.
+        
+        Returns:
+            "TRANSPORT" | "TOOL" | "INTERNAL"
+        """
+        exc_name = exc.__class__.__name__
+        
+        # Network/protocol errors
+        if any(keyword in exc_name.lower() for keyword in [
+            "connection", "timeout", "network", "socket", "http", "rpc", "protocol"
+        ]):
+            return "TRANSPORT"
+        
+        # I/O errors (file system, permissions)
+        if any(keyword in exc_name.lower() for keyword in [
+            "filenotfound", "permission", "io", "oserror", "notfound"
+        ]):
+            return "TOOL"  # I/O errors are tool-layer issues
+        
+        # Tool execution failures
+        if any(keyword in exc_name.lower() for keyword in [
+            "runtime", "execution", "tool", "value", "type", "attribute"
+        ]):
+            return "TOOL"
+        
+        # Everything else is internal (FailCore bug)
+        return "INTERNAL"
+    
+    def _classify_exception_code(self, exc: Exception) -> str:
+        """
+        Classify exception into specific error code.
+        
+        Returns:
+            Specific error code (IO_ERROR, RPC_ERROR, etc.)
+        """
+        exc_name = exc.__class__.__name__
+        
+        # Network/protocol
+        if "timeout" in exc_name.lower():
+            return "TIMEOUT"
+        if any(keyword in exc_name.lower() for keyword in ["connection", "socket", "network"]):
+            return "CONNECTION_ERROR"
+        if any(keyword in exc_name.lower() for keyword in ["rpc", "protocol", "http"]):
+            return "RPC_ERROR"
+        
+        # I/O
+        if "filenotfound" in exc_name.lower() or "notfound" in exc_name.lower():
+            return "FILE_NOT_FOUND"
+        if "permission" in exc_name.lower():
+            return "PERMISSION_DENIED"
+        if "io" in exc_name.lower() or "oserror" in exc_name.lower():
+            return "IO_ERROR"
+        
+        # Tool runtime
+        if "value" in exc_name.lower():
+            return "INVALID_VALUE"
+        if "type" in exc_name.lower():
+            return "TYPE_ERROR"
+        if "attribute" in exc_name.lower():
+            return "ATTRIBUTE_ERROR"
+        
+        # Generic
+        return "TOOL_EXECUTION_ERROR"
 
     # =========================================================
     # Sequence generator

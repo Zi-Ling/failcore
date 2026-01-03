@@ -1,8 +1,8 @@
 # failcore/cli/views/audit_report.py
 """
-AuditReportView - View model for Audit (Audit) report rendering.
+AuditReportView - View model for audit (audit) report rendering.
 
-This module converts core.Audit.model.AuditReport (dataclass)
+This module converts core.audit.model.AuditReport (dataclass)
 into a renderer-friendly view model for HTML/Text/JSON presentation.
 
 Design goals:
@@ -86,7 +86,7 @@ class AuditFindingView:
 
 @dataclass
 class AuditSummaryView:
-    """Summary statistics for the Audit report"""
+    """Summary statistics for the audit report"""
     tool_calls: int = 0
     denied: int = 0
     errors: int = 0
@@ -100,7 +100,7 @@ class AuditSummaryView:
 
 @dataclass
 class AuditMetaView:
-    """Metadata about this Audit report"""
+    """Metadata about this audit report"""
     schema: str
     report_id: str
     generated_at: str
@@ -114,7 +114,7 @@ class AuditValueMetricsView:
     """
     Value/impact metrics (human-facing).
 
-    Note: do not pretend side effects happened; this is for Audit signal.
+    Note: do not pretend side effects happened; this is for audit signal.
     """
     findings_total: int
     critical_or_high: int
@@ -125,14 +125,14 @@ class AuditValueMetricsView:
 @dataclass
 class AuditReportView:
     """
-    Complete view model for Audit report rendering.
+    Complete view model for audit report rendering.
     """
     meta: AuditMetaView
     summary: AuditSummaryView
     value_metrics: AuditValueMetricsView
     findings: List[AuditFindingView]
     
-    # v0.1.3 Audit Enhancements
+    # v0.1.3 audit Enhancements
     executive_summary: str = ""
     compliance_mapping: Dict[str, List[str]] = field(default_factory=dict)
     signature_placeholder: Dict[str, str] = field(default_factory=lambda: {
@@ -233,7 +233,7 @@ def build_audit_view(
     Convert core AuditReport -> AuditReportView.
 
     Args:
-        report: core.Audit.model.AuditReport
+        report: core.audit.model.AuditReport
         trace_path: optional trace file path (string) for display
         trace_events: optional parsed trace events (list[dict]) used to enrich tool_name
 
@@ -265,7 +265,7 @@ def build_audit_view(
 
     for f in report.findings:
         sev = _norm_sev(f.severity)
-        # Expand severity name for Audit report trust
+        # Expand severity name for audit report trust
         sev_display = sev
         if sev == "MED": sev_display = "MEDIUM RISK"
         elif sev == "CRIT": sev_display = "CRITICAL RISK"
@@ -396,7 +396,7 @@ def build_audit_view_from_trace(
     Convenience helper: read trace.jsonl -> analyze -> view.
 
     NOTE:
-    This function assumes you already have core.Audit.analyzer integrated
+    This function assumes you already have core.audit.analyzer integrated
     somewhere else. If you want to keep cli/views pure, do not call analyzer here.
     For now, we keep it as a utility for CLI.
 
@@ -456,13 +456,23 @@ def _severity_rank(sev: str) -> int:
 
 
 def _looks_like_policy_denied(f: Finding) -> bool:
-    # Best-effort heuristic: tag contains "policy" or title includes "Policy denied"
+    """
+    Detect if a finding represents a blocked/denied operation.
+    Critical: Also detects runtime enforcement blocks, not just policy denials.
+    """
     try:
         title = (f.title or "").lower()
-        if "policy denied" in title or "policy" in title and "denied" in title:
+        # Check for policy denied or runtime blocked
+        if "policy denied" in title or ("policy" in title and "denied" in title):
             return True
+        if "runtime enforcement blocked" in title or "blocked" in title:
+            return True
+        # Check tags
         tags = getattr(f, "tags", []) or []
-        return any(str(t).lower() == "policy" for t in tags)
+        tag_strs = [str(t).lower() for t in tags]
+        if any(tag in ["policy", "interception", "blocked"] for tag in tag_strs):
+            return True
+        return False
     except Exception:
         return False
 

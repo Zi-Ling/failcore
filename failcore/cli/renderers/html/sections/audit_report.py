@@ -1,6 +1,6 @@
 # failcore/cli/renderers/html/sections/audit_report.py
 """
-Audit Report Renderer (Legal Document Format)
+audit Report Renderer (Legal Document Format)
 """
 
 from typing import List
@@ -55,7 +55,7 @@ def _calculate_observed_risk(findings) -> tuple[str, int]:
 
 def render_audit_section(view: AuditReportView) -> str:
     """
-    Render Audit report as a formal legal document with pagination.
+    Render audit report as a formal legal document with pagination.
     
     Structure (Three-Layer):
     - Layer 1 (Summary, Fixed 1 page): Executive Summary + Risk Overview
@@ -68,10 +68,10 @@ def render_audit_section(view: AuditReportView) -> str:
     # Document Header (not HTML <header>, but document title block)
     doc_header = f"""
         <div class="doc-header">
-            <div class="doc-title">FailCore Audit Report</div>
+            <div class="doc-title">FailCore audit Report</div>
             <div class="doc-classification">CONFIDENTIAL</div>
             <div style="margin-top: 1rem; font-size: 0.85rem; line-height: 1.6; color: #333; border-left: 3px solid #000; padding-left: 1rem;">
-                This document is an official Audit record.<br>
+                This document is an official audit record.<br>
                 Unauthorized distribution is prohibited.
             </div>
             <div class="doc-metadata">
@@ -423,8 +423,19 @@ def _render_incident_chapters(view: AuditReportView) -> str:
             "Policy violation": "Policy Compliance Violation Detected During Enforcement",
             "Validation failure": "Input Validation Failure Detected During Pre-Execution Check",
             "Contract drift": "Contract Integrity Drift Detected During Runtime Verification",
+            "Runtime enforcement blocked unsafe execution": "Unsafe Operation Blocked by Runtime Enforcement",
+            "Policy denied unsafe execution": "Unsafe Tool Execution Denied by Policy Engine",
         }
-        audit_title = incident_title_map.get(finding.title, f"{finding.title} Detected During Runtime Enforcement")
+        
+        # Check if title contains error code (e.g. "Runtime enforcement blocked: FILE_NOT_FOUND")
+        if "Runtime enforcement blocked:" in finding.title and ":" in finding.title:
+            audit_title = finding.title  # Keep the detailed title with error code
+        elif finding.title in incident_title_map:
+            audit_title = incident_title_map[finding.title]
+        elif any(keyword in finding.title for keyword in ["Runtime enforcement", "Policy denied", "blocked", "denied"]):
+            audit_title = finding.title  # Already has enforcement/policy language
+        else:
+            audit_title = f"{finding.title} Detected During Runtime Enforcement"
         
         # Mitigation recommendations - actionable FailCore config
         tool_name = finding.tool_name or "unknown_tool"

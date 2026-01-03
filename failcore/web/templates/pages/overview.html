@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block title %}Overview - FailCore{% endblock %}
+
+{% block content %}
+<div class="overview">
+    <h1>⚡ FailCore Security Console</h1>
+    
+    <div class="stats-grid">
+        <div class="stat-card stat-blocked">
+            <h3>Threats Blocked</h3>
+            <p class="stat-value">{{ stats.blocked }}</p>
+        </div>
+        <div class="stat-card stat-errors">
+            <h3>Errors Detected</h3>
+            <p class="stat-value">{{ stats.errors }}</p>
+        </div>
+        <div class="stat-card stat-success">
+            <h3>Successful Runs</h3>
+            <p class="stat-value">{{ stats.success }}</p>
+        </div>
+        <div class="stat-card">
+            <h3>Total Executions</h3>
+            <p class="stat-value">{{ stats.total_runs }}</p>
+        </div>
+    </div>
+    
+    <h2>Recent Activity</h2>
+    <div class="runs-list">
+        {% if recent_runs %}
+            <table class="runs-table">
+                <thead>
+                    <tr>
+                        <th>STATUS</th>
+                        <th>RUN ID</th>
+                        <th>COMMAND</th>
+                        <th>TIMESTAMP</th>
+                        <th>DATE</th>
+                        <th>ACTION</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for run in recent_runs %}
+                    <tr>
+                        <td>
+                            {% if run.status == "BLOCKED" %}
+                                <span class="status-badge status-blocked">BLOCKED</span>
+                            {% elif run.status == "ERROR" %}
+                                <span class="status-badge status-error">ERROR</span>
+                            {% elif run.status == "SUCCESS" %}
+                                <span class="status-badge status-success">SUCCESS</span>
+                            {% else %}
+                                <span class="status-badge status-unknown">NO TRACE</span>
+                            {% endif %}
+                        </td>
+                        <td><span class="run-id">{{ run.run_id[:12] }}</span></td>
+                        <td><span class="badge">{{ run.command }}</span></td>
+                        <td>{{ run.timestamp }}</td>
+                        <td>{{ run.date }}</td>
+                        <td>
+                            {% if run.has_trace %}
+                                <a href="/run/{{ run.date }}/{{ run.name }}" class="btn btn-sm">[INSPECT]</a>
+                            {% else %}
+                                <span style="color: var(--text-muted);">—</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <div class="empty-state">
+                <p>No execution data found.</p>
+                <p style="margin-top: 1rem;">Run <code>failcore sample</code> to generate your first trace.</p>
+            </div>
+        {% endif %}
+    </div>
+    
+    {% if recent_runs %}
+    <div class="actions">
+        <a href="/runs" class="btn btn-primary">VIEW ALL RUNS →</a>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

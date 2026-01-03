@@ -1,6 +1,9 @@
 # failcore/api/session.py
 """
-Session API - recommended main entry point for real usage
+Session API - legacy API for backward compatibility
+
+Note: For new code, prefer using run() API instead.
+Session is kept for backward compatibility with existing codebases.
 """
 
 from __future__ import annotations
@@ -18,17 +21,18 @@ from ..core.validate.validator import ValidatorRegistry
 from ..core.validate.rules import ValidationRuleSet
 from ..core.validate.presets import ValidationPreset
 from ..core.policy.policy import Policy
-
+from ..utils.paths import get_failcore_root, get_database_path
 
 class Session:
     """
-    Session API - multiple calls within a single session
+    Session API - multiple tool calls within a single session
     
-    Users can execute tools like running a script/workflow.
+    Legacy API: This class is kept for backward compatibility.
+    For new code, prefer using run() API which provides better ergonomics.
     
     Features:
-    - session.call("tool", **params): execute one step
-    - session.register("tool_name", fn): register a tool
+    - session.call("tool", **params): Execute one step
+    - session.register("tool_name", fn): Register a tool
     - Decorator-style tool registration supported
     - Failures don't raise exceptions: always returns structured result
     
@@ -44,6 +48,10 @@ class Session:
         ... def add(a: int, b: int) -> int:
         ...     return a + b
         >>> result = session.call("add", a=1, b=2)
+    
+    Note:
+        Session API returns StepResult objects, not direct values.
+        For exception-based error handling, use run() API instead.
     """
     
     def __init__(
@@ -90,8 +98,7 @@ class Session:
         # Sandbox validation (v0.1.2: enforce explicit sandbox for security)
         if sandbox is None:
             # Default to .failcore/sandbox for safety
-            sandbox = ".failcore/sandbox"
-            Path(sandbox).mkdir(parents=True, exist_ok=True)
+            sandbox = str(get_failcore_root() / "sandbox")  
         
         # Tool registry with sandbox support
         self._tools = ToolRegistry(sandbox_root=sandbox)
@@ -107,12 +114,13 @@ class Session:
         # Handle auto trace path
         # Use POSIX format (forward slashes) for cross-platform compatibility
         if trace == "auto":
-            # Generate: .failcore/runs/<date>/<run_id>_<time>/trace.jsonl
+            # Generate: <project_root>/.failcore/runs/<date>/<run_id>_<time>/trace.jsonl
             # Group by date to avoid too many directories in one folder
+            failcore_root = get_failcore_root()
             now = datetime.now()
             date = now.strftime("%Y%m%d")
             time = now.strftime("%H%M%S")
-            run_dir = Path(f".failcore/runs/{date}/{self._run_id}_{time}")
+            run_dir = failcore_root / "runs" / date / f"{self._run_id}_{time}"
             run_dir.mkdir(parents=True, exist_ok=True)
             trace_path = (run_dir / "trace.jsonl").as_posix()
             self._recorder: TraceRecorder = JsonlTraceRecorder(trace_path)
@@ -163,10 +171,6 @@ class Session:
         # Create invoker (unified tool execution interface)
         # This is the entry point for all adapters
         self.invoker = ToolInvoker(self._executor, self._ctx)
-        
-        # Auto-register as the watch session
-        from .watch import set_watch_session
-        set_watch_session(self)
     
     def register(
         self,
@@ -191,14 +195,14 @@ class Session:
             >>> session.register("divide", lambda a, b: a / b)
             
             >>> # With metadata
-            >>> from failcore.core.tools.metadata import ToolMetadata, RiskLevel, SideEffect, DefaultPolicy
+            >>> from failcore.core.tools.metadata import ToolMetadata, RiskLevel, SideEffect, DefaultAction
             >>> session.register(
             ...     "write_file",
             ...     write_file_fn,
             ...     metadata=ToolMetadata(
             ...         risk_level=RiskLevel.HIGH,
-            ...         side_effect=SideEffect.WRITE,
-            ...         default_policy=DefaultPolicy.BLOCK,
+            ...         side_effect=SideEffect.FS,
+            ...         default_action=DefaultAction.BLOCK,
             ...     )
             ... )
         """
@@ -341,11 +345,11 @@ class Session:
             if file_size == 0:
                 return
             
-            # Default database path
-            db_path = ".failcore/failcore.db"
+            # Default database path (uses project root detection)
+            db_path = str(get_database_path())
             
             # Ensure directory exists
-            Path(".failcore").mkdir(exist_ok=True)
+            Path(db_path).parent.mkdir(parents=True, exist_ok=True)
             
             # Ingest trace
             with SQLiteStore(db_path) as store:

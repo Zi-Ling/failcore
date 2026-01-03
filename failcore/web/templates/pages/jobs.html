@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block title %}Jobs - FailCore{% endblock %}
+
+{% block content %}
+<div class="jobs-page">
+    <h1>BACKGROUND JOBS</h1>
+    
+    <div class="stats-grid">
+        <div class="stat-card">
+            <h3>Running</h3>
+            <p class="stat-value" style="color: var(--blue-500);">{{ stats.running }}</p>
+        </div>
+        <div class="stat-card">
+            <h3>Queued</h3>
+            <p class="stat-value" style="color: var(--yellow-500);">{{ stats.queued }}</p>
+        </div>
+        <div class="stat-card stat-success">
+            <h3>Completed</h3>
+            <p class="stat-value">{{ stats.success }}</p>
+        </div>
+        <div class="stat-card stat-errors">
+            <h3>Failed</h3>
+            <p class="stat-value">{{ stats.failed }}</p>
+        </div>
+    </div>
+    
+    <h2>Job Queue</h2>
+    {% if jobs %}
+        <table class="runs-table">
+            <thead>
+                <tr>
+                    <th>JOB ID</th>
+                    <th>TYPE</th>
+                    <th>STATUS</th>
+                    <th>CREATED</th>
+                    <th>DURATION</th>
+                    <th>ARTIFACTS</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for job in jobs %}
+                <tr>
+                    <td><span class="run-id">{{ job.job_id }}</span></td>
+                    <td><span class="badge">{{ job.type }}</span></td>
+                    <td>
+                        {% if job.status == "running" %}
+                            <span class="status-badge" style="color: var(--blue-500);">RUNNING</span>
+                        {% elif job.status == "queued" %}
+                            <span class="status-badge" style="color: var(--yellow-500);">QUEUED</span>
+                        {% elif job.status == "success" %}
+                            <span class="status-badge status-success">SUCCESS</span>
+                        {% elif job.status == "failed" %}
+                            <span class="status-badge status-error">FAILED</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ "%.0f"|format(job.created_at) }}</td>
+                    <td>
+                        {% if job.finished_at and job.started_at %}
+                            {{ "%.2fs"|format(job.finished_at - job.started_at) }}
+                        {% elif job.started_at %}
+                            Running...
+                        {% else %}
+                            —
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if job.artifacts %}
+                            {{ job.artifacts | length }} file(s)
+                        {% else %}
+                            —
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <div class="empty-state">
+            <p>No jobs yet.</p>
+            <p style="margin-top: 1rem;">Jobs will appear here when you execute actions (Report, Audit, etc.)</p>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

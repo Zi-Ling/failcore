@@ -1,20 +1,23 @@
 # failcore/core/validate/validators/security.py
-"""
+r"""
 Security-focused validators for path traversal, sandbox enforcement, etc.
 
 This module provides validators for production security requirements:
 - Path traversal detection (../ attacks)
 - Sandbox boundary enforcement
-- Symlink resolution checks
+- Symlink/junction resolution checks
+- Windows-specific path family detection (\\?\, \\.\, ADS, etc.)
 """
 
 from pathlib import Path
 import os
+import sys
 from typing import Any, Dict
 from ..validator import (
     PreconditionValidator,
     ValidationResult,
 )
+from failcore.utils.paths import format_relative_path
 
 
 def path_traversal_precondition(
@@ -22,12 +25,16 @@ def path_traversal_precondition(
     sandbox_root: str = None
 ) -> PreconditionValidator:
     """
-    Path traversal defense validator
+    Path traversal defense validator with comprehensive attack detection.
     
-    Checks if path attempts to escape sandbox:
-    - Resolves .. and symlinks
-    - Normalizes path
-    - Validates path is within sandbox_root
+    Protects against:
+    - Path traversal (../)
+    - Absolute paths (C:\\, /, \\)
+    - UNC paths (\\\\server\\share)
+    - Windows special paths (\\\\?\\, \\\\.\\, GLOBALROOT, Device)
+    - Alternate Data Streams (file.txt:stream)
+    - Symlink/junction escapes (resolves to real path)
+    - Mixed separators and trailing dots/spaces
     
     Args:
         *param_names: Parameter names to check (path, file_path, etc.)
@@ -71,24 +78,223 @@ def path_traversal_precondition(
                 code="PATH_CHECK_SKIPPED"
             )
         
+        # Convert to string for pattern checking (DO NOT strip - we need to detect trailing manipulation)
+        path_str = str(path_value)
+        
+        # === Trailing dots/spaces check (BEFORE any normalization) ===
+        # Windows auto-strips these, so they're potential evasion vectors
+        path_str_clean = path_str.rstrip(". ")
+        if path_str_clean != path_str:
+            # Path changed after normalization - potential evasion
+            return ValidationResult.failure(
+                message=f"Path with trailing dots/spaces not allowed: '{path_value}'",
+                code="PATH_INVALID",
+                details={
+                    "path": str(path_value),
+                    "normalized": path_str_clean,
+                    "reason": "trailing_manipulation",
+                    "field": found_param,
+                    "suggestion": "Remove trailing dots and spaces"
+                }
+            )
+        
+        # Now safe to work with cleaned string
+        path_str = path_str.strip()
+        
+        # === Windows-specific path family checks ===
+        if sys.platform == 'win32':
+            # Block NT path prefixes (\\?\, \\.\)
+            if path_str.startswith(("\\\\?\\", "\\\\.\\")):
+                return ValidationResult.failure(
+                    message=f"NT path prefix not allowed: '{path_value}'",
+                    code="SANDBOX_VIOLATION",
+                    details={
+                        "path": str(path_value),
+                        "sandbox": format_relative_path(sandbox_root),
+                        "reason": "nt_path_prefix",
+                        "field": found_param,
+                        "suggestion": "Use regular relative paths"
+                    }
+                )
+            
+            # Block device paths (GLOBALROOT, Device\)
+            upper_path = path_str.upper()
+            if "GLOBALROOT" in upper_path or "DEVICE\\" in upper_path:
+                return ValidationResult.failure(
+                    message=f"Device path not allowed: '{path_value}'",
+                    code="SANDBOX_VIOLATION",
+                    details={
+                        "path": str(path_value),
+                        "sandbox": format_relative_path(sandbox_root),
+                        "reason": "device_path",
+                        "field": found_param,
+                        "suggestion": "Use regular file paths"
+                    }
+                )
+            
+            # Check for Alternate Data Stream (ADS)
+            # Allow drive letter colon (C:), but block ADS (file.txt:stream)
+            colon_count = path_str.count(":")
+            if colon_count > 1 or (colon_count == 1 and not (len(path_str) >= 2 and path_str[1] == ":")):
+                return ValidationResult.failure(
+                    message=f"Alternate Data Stream not allowed: '{path_value}'",
+                    code="SANDBOX_VIOLATION",
+                    details={
+                        "path": str(path_value),
+                        "sandbox": format_relative_path(sandbox_root),
+                        "reason": "alternate_data_stream",
+                        "field": found_param,
+                        "suggestion": "Remove ':' from filename"
+                    }
+                )
+        
+        # === Normalize and sanitize input ===
         try:
-            # Normalize path (resolve handles .. and symlinks)
+            # Normalize path separators (detect mixed separators)
+            if "\\" in path_str and "/" in path_str:
+                return ValidationResult.failure(
+                    message=f"Mixed path separators not allowed: '{path_value}'",
+                    code="PATH_INVALID",
+                    details={
+                        "path": str(path_value),
+                        "reason": "mixed_separators",
+                        "field": found_param,
+                        "suggestion": "Use consistent separators (/ or \\)"
+                    }
+                )
+            
             target_path = Path(path_value)
             
-            # If relative path, resolve based on sandbox root
-            if not target_path.is_absolute():
-                target_path = sandbox_root / target_path
+            # Block absolute paths immediately (before resolve)
+            if target_path.is_absolute():
+                return ValidationResult.failure(
+                    message=f"Absolute paths are not allowed: '{path_value}'",
+                    code="SANDBOX_VIOLATION",
+                    details={
+                        "path": str(path_value),
+                        "sandbox": format_relative_path(sandbox_root),
+                        "reason": "absolute_path",
+                        "field": found_param,
+                        "suggestion": f"Use relative paths within sandbox"
+                    }
+                )
             
-            # Resolve to absolute path
-            resolved_path = target_path.resolve()
+            # Block UNC paths (Windows)
+            if str(path_value).startswith(("\\\\", "//")):
+                return ValidationResult.failure(
+                    message=f"UNC paths are not allowed: '{path_value}'",
+                    code="SANDBOX_VIOLATION",
+                    details={
+                        "path": str(path_value),
+                        "sandbox": format_relative_path(sandbox_root),
+                        "reason": "unc_path",
+                        "field": found_param,
+                        "suggestion": f"Use relative paths within sandbox"
+                    }
+                )
             
-            # Check if within sandbox
+            # Construct target path relative to sandbox
+            full_path = sandbox_root / target_path
+            
+            # === Critical: Resolve symlinks/junctions at EVERY level ===
+            # For existing paths: resolve and check (handles symlinks/junctions)
+            # For non-existing paths: check parent directory
+            if full_path.exists():
+                # Path exists - resolve it (this handles symlinks/junctions)
+                resolved_path = full_path.resolve()
+                
+                # CRITICAL: Also verify that ALL parent directories are within sandbox
+                # This prevents intermediate junction attacks
+                try:
+                    # Check if any parent is outside sandbox before reaching the file
+                    current = resolved_path
+                    while current != current.parent:
+                        current = current.parent
+                        if current == sandbox_root:
+                            break
+                        # Verify parent is within sandbox
+                        try:
+                            current.relative_to(sandbox_root)
+                        except ValueError:
+                            return ValidationResult.failure(
+                                message=f"Path escapes sandbox via symlink/junction: '{path_value}'",
+                                code="SANDBOX_VIOLATION",
+                                details={
+                                    "path": str(path_value),
+                                    "sandbox": format_relative_path(sandbox_root),
+                                    "resolved": str(resolved_path),
+                                    "escape_point": str(current),
+                                    "reason": "symlink_escape",
+                                    "field": found_param,
+                                    "suggestion": "Remove symlinks/junctions pointing outside sandbox"
+                                }
+                            )
+                except Exception:
+                    pass  # Continue to main boundary check
+                
+            else:
+                # Path doesn't exist yet (common for write operations)
+                # Check parent directory to prevent creating outside sandbox
+                parent = full_path.parent
+                if parent.exists():
+                    resolved_parent = parent.resolve()
+                    
+                    # Verify parent is within sandbox
+                    try:
+                        resolved_parent.relative_to(sandbox_root)
+                    except ValueError:
+                        return ValidationResult.failure(
+                            message=f"Parent directory is outside sandbox: '{path_value}'",
+                            code="SANDBOX_VIOLATION",
+                            details={
+                                "path": str(path_value),
+                                "sandbox": format_relative_path(sandbox_root),
+                                "parent": str(resolved_parent),
+                                "reason": "parent_outside_sandbox",
+                                "field": found_param,
+                                "suggestion": "Path must be within sandbox"
+                            }
+                        )
+                    
+                    # Reconstruct resolved path using resolved parent + filename
+                    resolved_path = resolved_parent / full_path.name
+                else:
+                    # Parent doesn't exist either - find first existing ancestor
+                    ancestor = parent
+                    while not ancestor.exists() and ancestor != ancestor.parent:
+                        ancestor = ancestor.parent
+                    
+                    if ancestor.exists():
+                        resolved_ancestor = ancestor.resolve()
+                        # Ensure ancestor is within sandbox
+                        try:
+                            resolved_ancestor.relative_to(sandbox_root)
+                        except ValueError:
+                            return ValidationResult.failure(
+                                message=f"Path would be created outside sandbox: '{path_value}'",
+                                code="SANDBOX_VIOLATION",
+                                details={
+                                    "path": str(path_value),
+                                    "sandbox": format_relative_path(sandbox_root),
+                                    "ancestor": str(resolved_ancestor),
+                                    "reason": "ancestor_outside_sandbox",
+                                    "field": found_param,
+                                    "suggestion": "Path must be within sandbox"
+                                }
+                            )
+                        # Reconstruct full resolved path
+                        resolved_path = resolved_ancestor / full_path.relative_to(ancestor)
+                    else:
+                        # No existing ancestor found (shouldn't happen in practice)
+                        resolved_path = full_path.resolve()
+            
+            # === Final boundary check: is resolved path within sandbox? ===
             try:
                 resolved_path.relative_to(sandbox_root)
             except ValueError:
-                # relative_to raises ValueError if not within subdirectory
-                # Distinguish between path traversal (../) and absolute path outside sandbox
-                is_traversal_attempt = ".." in str(path_value) or path_value.startswith(("../", "..\\"))
+                # Path is outside sandbox
+                # Distinguish between traversal (..) and other violations
+                is_traversal_attempt = ".." in str(path_value)
                 
                 if is_traversal_attempt:
                     return ValidationResult.failure(
@@ -96,8 +302,10 @@ def path_traversal_precondition(
                         code="PATH_TRAVERSAL",
                         details={
                             "path": str(path_value),
-                            "sandbox": str(sandbox_root),
+                            "sandbox": format_relative_path(sandbox_root),
                             "resolved": str(resolved_path),
+                            "reason": "traversal",
+                            "field": found_param,
                             "suggestion": "Remove '../' path components"
                         }
                     )
@@ -107,9 +315,11 @@ def path_traversal_precondition(
                         code="SANDBOX_VIOLATION",
                         details={
                             "path": str(path_value),
-                            "sandbox": str(sandbox_root),
+                            "sandbox": format_relative_path(sandbox_root),
                             "resolved": str(resolved_path),
-                            "suggestion": f"Path must be within sandbox: {sandbox_root}"
+                            "reason": "outside_sandbox",
+                            "field": found_param,
+                            "suggestion": "Path must be within sandbox"
                         }
                     )
             
@@ -124,7 +334,12 @@ def path_traversal_precondition(
             return ValidationResult.failure(
                 message=f"Invalid path: {e}",
                 code="PATH_INVALID",
-                details={"suggestion": "Provide a valid file path"}
+                details={
+                    "path": str(path_value),
+                    "error": str(e),
+                    "field": found_param,
+                    "suggestion": "Provide a valid file path"
+                }
             )
     
     return PreconditionValidator(
