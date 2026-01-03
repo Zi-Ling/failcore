@@ -504,8 +504,12 @@ def _classify_transport_error(exc: Exception, tool_name: str) -> Dict[str, Any]:
             "details": {"original_error": str(exc)}
         }
     
-    # Protocol/decode errors
-    if "json" in str(exc).lower() or "decode" in str(exc).lower() or "parse" in str(exc).lower():
+    # Protocol/decode errors (check exception type AND message)
+    exc_str_lower = str(exc).lower()
+    exc_type_name = exc.__class__.__name__.lower()
+    
+    if ("json" in exc_str_lower or "decode" in exc_str_lower or "parse" in exc_str_lower or
+        "json" in exc_type_name or "decode" in exc_type_name):
         return {
             "type": "TRANSPORT",
             "error_code": codes.REMOTE_PROTOCOL_MISMATCH,
@@ -513,7 +517,10 @@ def _classify_transport_error(exc: Exception, tool_name: str) -> Dict[str, Any]:
             "phase": "DECODE",
             "retryable": False,
             "suggestion": "Verify MCP protocol version compatibility. Check for malformed responses.",
-            "details": {"original_error": str(exc)}
+            "details": {
+                "original_error": str(exc),
+                "exception_type": exc.__class__.__name__
+            }
         }
     
     # Generic transport error
