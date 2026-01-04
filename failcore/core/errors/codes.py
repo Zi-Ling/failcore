@@ -56,6 +56,24 @@ RESOURCE_LIMIT_CONCURRENCY: Final[str] = "RESOURCE_LIMIT_CONCURRENCY"
 # retry exhausted (P0-3)
 RETRY_EXHAUSTED: Final[str] = "RETRY_EXHAUSTED"
 
+# approval/governance (HITL)
+APPROVAL_REQUIRED: Final[str] = "APPROVAL_REQUIRED"
+APPROVAL_REJECTED: Final[str] = "APPROVAL_REJECTED"
+APPROVAL_TIMEOUT: Final[str] = "APPROVAL_TIMEOUT"
+
+# economic/cost guardrails
+ECONOMIC_BUDGET_EXCEEDED: Final[str] = "ECONOMIC_BUDGET_EXCEEDED"
+ECONOMIC_TOKEN_LIMIT: Final[str] = "ECONOMIC_TOKEN_LIMIT"
+ECONOMIC_COST_ESTIMATION_FAILED: Final[str] = "ECONOMIC_COST_ESTIMATION_FAILED"
+
+# data loss prevention (DLP/taint tracking)
+DATA_LEAK_PREVENTED: Final[str] = "DATA_LEAK_PREVENTED"
+DATA_TAINTED: Final[str] = "DATA_TAINTED"
+SANITIZATION_REQUIRED: Final[str] = "SANITIZATION_REQUIRED"
+
+# semantic validation (high-confidence intent guard)
+SEMANTIC_VIOLATION: Final[str] = "SEMANTIC_VIOLATION"
+
 
 # ---- semantic groups (internal helpers) ----
 
@@ -120,6 +138,7 @@ SECURITY_CODES: Final[set[str]] = {
     SYMLINK_ESCAPE,
     SSRF_BLOCKED,
     PRIVATE_NETWORK_BLOCKED,
+    SEMANTIC_VIOLATION,
 }
 
 # Operational error codes (registry, validation, execution, remote, limits, retry)
@@ -145,4 +164,18 @@ OPERATIONAL_CODES: Final[set[str]] = {
     RESOURCE_LIMIT_CONCURRENCY,
     # Retry codes (P0-3)
     RETRY_EXHAUSTED,
+    # Approval codes (HITL)
+    APPROVAL_REQUIRED,
+    APPROVAL_REJECTED,
+    APPROVAL_TIMEOUT,
+    # Economic codes
+    ECONOMIC_BUDGET_EXCEEDED,
+    ECONOMIC_TOKEN_LIMIT,
+    ECONOMIC_COST_ESTIMATION_FAILED,
+    # DLP codes
+    DATA_LEAK_PREVENTED,
+    DATA_TAINTED,
+    SANITIZATION_REQUIRED,
+    # Semantic codes
+    SEMANTIC_VIOLATION,
 }

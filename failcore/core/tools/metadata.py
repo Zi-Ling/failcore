@@ -38,6 +38,20 @@ class DefaultAction(str, Enum):
     BLOCK = "block"
 
 
+class Determinism(str, Enum):
+    """
+    Tool determinism classification.
+    
+    Used by optimizer to determine caching safety:
+    - DETERMINISTIC: Same inputs -> same outputs (safe to cache)
+    - NON_DETERMINISTIC: Outputs vary (e.g., get_time, random)
+    - UNKNOWN: Not specified (use conservative confidence)
+    """
+    DETERMINISTIC = "deterministic"
+    NON_DETERMINISTIC = "non_deterministic"
+    UNKNOWN = "unknown"
+
+
 @dataclass(frozen=True)
 class ToolMetadata:
     """
@@ -46,10 +60,12 @@ class ToolMetadata:
     - risk_level defaults to MEDIUM
     - default_action defaults to WARN
     - side_effect is Optional: None means "unspecified/unknown" (not "safe")
+    - determinism: DETERMINISTIC/NON_DETERMINISTIC/UNKNOWN (default: UNKNOWN)
     """
     side_effect: Optional[SideEffect] = None
     risk_level: RiskLevel = RiskLevel.MEDIUM
     default_action: DefaultAction = DefaultAction.WARN
+    determinism: Determinism = Determinism.UNKNOWN
 
     @property
     def requires_strict_mode(self) -> bool:
@@ -92,35 +108,42 @@ DEFAULT_METADATA_PROFILES: Dict[str, ToolMetadata] = {
         side_effect=SideEffect.FS,
         risk_level=RiskLevel.MEDIUM,
         default_action=DefaultAction.WARN,
+        determinism=Determinism.DETERMINISTIC,  # Same file -> same content (at snapshot)
     ),
     "write_file": ToolMetadata(
         side_effect=SideEffect.FS,
         risk_level=RiskLevel.MEDIUM,
         default_action=DefaultAction.WARN,
+        determinism=Determinism.DETERMINISTIC,  # Same params -> same effect
     ),
     "delete_file": ToolMetadata(
         side_effect=SideEffect.FS,
         risk_level=RiskLevel.HIGH,
         default_action=DefaultAction.BLOCK,
+        determinism=Determinism.DETERMINISTIC,  # Same params -> same effect
     ),
     "list_dir": ToolMetadata(
         side_effect=SideEffect.FS,
         risk_level=RiskLevel.LOW,
         default_action=DefaultAction.WARN,
+        determinism=Determinism.DETERMINISTIC,  # Same dir -> same listing (at snapshot)
     ),
     "http_request": ToolMetadata(
         side_effect=SideEffect.NETWORK,
         risk_level=RiskLevel.HIGH,
         default_action=DefaultAction.BLOCK,
+        determinism=Determinism.NON_DETERMINISTIC,  # External API may return different results
     ),
     "python_exec": ToolMetadata(
         side_effect=SideEffect.EXEC,
         risk_level=RiskLevel.HIGH,
         default_action=DefaultAction.BLOCK,
+        determinism=Determinism.UNKNOWN,  # Depends on code being executed
     ),
     "shell_exec": ToolMetadata(
         side_effect=SideEffect.EXEC,
         risk_level=RiskLevel.HIGH,
         default_action=DefaultAction.BLOCK,
+        determinism=Determinism.UNKNOWN,  # Depends on command
     ),
 }
