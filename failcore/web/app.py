@@ -29,19 +29,24 @@ def create_app() -> FastAPI:
         app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
     
     # Register routes
-    from .routes.pages import overview, runs, run_detail, jobs
-    from .routes.api import actions_api, jobs_api, artifacts_api
+    from .routes.pages import overview, runs, run_detail, jobs, replay
+    from .routes.api import actions_api, jobs_api, artifacts_api, cost_api, events_api, replay_api, export_api
     
     # Page routes
     app.include_router(overview.router)
     app.include_router(runs.router)
     app.include_router(run_detail.router)
     app.include_router(jobs.router)
+    app.include_router(replay.router)
     
     # API routes
     app.include_router(actions_api.router)
     app.include_router(jobs_api.router)
     app.include_router(artifacts_api.router)
+    app.include_router(cost_api.router)
+    app.include_router(events_api.router)
+    app.include_router(replay_api.router)
+    app.include_router(export_api.router)
     
     return app
 

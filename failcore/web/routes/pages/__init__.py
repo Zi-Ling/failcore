@@ -3,4 +3,4 @@
 HTML page routes.
 """
 
-__all__ = ["overview", "runs", "run_detail", "jobs"]
+__all__ = ["overview", "runs", "run_detail", "jobs", "replay"]

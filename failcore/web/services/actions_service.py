@@ -154,6 +154,59 @@ class ActionsService:
         if action.capability is None:
             return True
         return self._capabilities.get(action.capability, False)
+    
+    def get_tool_metadata(self, tool_name: str) -> Optional[dict]:
+        """
+        Get tool metadata (risk_level, side_effect) for a tool.
+        
+        Args:
+            tool_name: Tool name
+        
+        Returns:
+            Dictionary with metadata or None if not found:
+            {
+                "risk_level": "low" | "medium" | "high",
+                "side_effect": "read" | "fs" | "network" | "exec" | None,
+                "default_action": "allow" | "warn" | "block"
+            }
+        """
+        try:
+            from failcore.core.tools.registry import get_tool_registry
+            from failcore.core.tools.metadata import DEFAULT_METADATA_PROFILES
+            
+            # First try to get from registry
+            registry = get_tool_registry()
+            if registry:
+                tool_info = registry.describe(tool_name)
+                if tool_info and "risk_level" in tool_info:
+                    return {
+                        "risk_level": tool_info.get("risk_level", "medium"),
+                        "side_effect": tool_info.get("side_effect"),
+                        "default_action": tool_info.get("default_action", "warn"),
+                    }
+            
+            # Fallback to default metadata profiles
+            if tool_name in DEFAULT_METADATA_PROFILES:
+                metadata = DEFAULT_METADATA_PROFILES[tool_name]
+                return {
+                    "risk_level": metadata.risk_level.value,
+                    "side_effect": metadata.side_effect.value if metadata.side_effect else None,
+                    "default_action": metadata.default_action.value,
+                }
+            
+            # Default fallback
+            return {
+                "risk_level": "medium",
+                "side_effect": None,
+                "default_action": "warn",
+            }
+        except Exception:
+            # If anything fails, return safe defaults
+            return {
+                "risk_level": "medium",
+                "side_effect": None,
+                "default_action": "warn",
+            }
 
 
 # Global singleton

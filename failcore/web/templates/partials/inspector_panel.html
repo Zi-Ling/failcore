@@ -7,3 +7,905 @@
         </div>
     </div>
 </div>
+
+<script>
+// Inspector panel rendering for replay viewer
+// This script handles rendering frame details including:
+// - Args diff (showing only changes)
+// - Decision narrative (why blocked/passed)
+// - Anomalies with field highlighting
+// - Cost information
+
+function renderFrameInspector(frame) {
+    if (!frame) {
+        return '<div class="inspector-placeholder">Select a frame to inspect</div>';
+    }
+    
+    let html = '';
+    
+    // Header
+    html += `
+        <div class="inspector-header">
+            <h4>Step ${frame.seq}: ${frame.tool || 'Unknown Tool'}</h4>
+            <div class="inspector-status status-${(frame.status || 'PENDING').toLowerCase()}">
+                ${(frame.status || 'PENDING').toUpperCase()}
+            </div>
+        </div>
+    `;
+    
+    // Tabs: Summary / Params / Evidence
+    html += `
+        <div class="inspector-tabs">
+            <button class="inspector-tab active" data-tab="summary" onclick="switchInspectorTab('summary', ${frame.seq})">
+                Summary
+            </button>
+            <button class="inspector-tab" data-tab="params" onclick="switchInspectorTab('params', ${frame.seq})">
+                Params
+            </button>
+            <button class="inspector-tab" data-tab="evidence" onclick="switchInspectorTab('evidence', ${frame.seq})">
+                Evidence
+            </button>
+        </div>
+    `;
+    
+    // Tab content container
+    html += '<div class="inspector-tab-content">';
+    
+    // Summary tab (default, high-level narrative)
+    html += `
+        <div id="inspector-tab-summary-${frame.seq}" class="inspector-tab-panel active">
+            ${renderSummaryTab(frame)}
+        </div>
+    `;
+    
+    // Params tab (arguments)
+    html += `
+        <div id="inspector-tab-params-${frame.seq}" class="inspector-tab-panel">
+            ${renderParamsTab(frame)}
+        </div>
+    `;
+    
+    // Evidence tab (raw trace data)
+    html += `
+        <div id="inspector-tab-evidence-${frame.seq}" class="inspector-tab-panel">
+            ${renderEvidenceTab(frame)}
+        </div>
+    `;
+    
+    html += '</div>';
+    
+    return html;
+}
+
+function renderSummaryTab(frame) {
+    let html = '';
+    
+    // Decision narrative (why blocked/passed)
+    if (frame.decision) {
+        html += `
+            <div class="inspector-section decision-section decision-${(frame.status || 'PENDING').toLowerCase()}">
+                <h5>DECISION</h5>
+                <div class="decision-narrative">${escapeHtml(frame.decision)}</div>
+            </div>
+        `;
+    }
+    
+    // Anomalies summary
+    if (frame.anomalies && frame.anomalies.length > 0) {
+        const critical = frame.anomalies.filter(a => a.severity === 'critical').length;
+        const high = frame.anomalies.filter(a => a.severity === 'high').length;
+        
+        html += `
+            <div class="inspector-section anomalies-section">
+                <h5>ANOMALIES (${frame.anomalies.length})</h5>
+                <div class="anomalies-summary">
+                    ${critical > 0 ? `<div class="anomaly-summary-item critical">${critical} Critical</div>` : ''}
+                    ${high > 0 ? `<div class="anomaly-summary-item high">${high} High</div>` : ''}
+                    ${frame.anomalies.length > 0 ? `<div class="anomaly-summary-item total">${frame.anomalies.length} Total</div>` : ''}
+                </div>
+                <div class="anomalies-list">
+                    ${frame.anomalies.slice(0, 3).map(anomaly => `
+                        <div class="anomaly-item severity-${anomaly.severity || 'low'}">
+                            <div class="anomaly-header">
+                                <span class="anomaly-field">${escapeHtml(anomaly.field_path || 'unknown')}</span>
+                                <span class="anomaly-severity">${(anomaly.severity || 'low').toUpperCase()}</span>
+                            </div>
+                            <div class="anomaly-reason">${escapeHtml(anomaly.reason || '')}</div>
+                        </div>
+                    `).join('')}
+                    ${frame.anomalies.length > 3 ? `<div class="anomalies-more">+${frame.anomalies.length - 3} more (see Evidence tab)</div>` : ''}
+                </div>
+            </div>
+        `;
+    }
+    
+    // Result summary
+    if (frame.result_summary) {
+        html += `
+            <div class="inspector-section result-section">
+                <h5>RESULT</h5>
+                <div class="result-summary">${escapeHtml(frame.result_summary)}</div>
+            </div>
+        `;
+    }
+    
+    // Cost information
+    if (frame.metrics && frame.metrics.cost) {
+        const cost = frame.metrics.cost;
+        html += `
+            <div class="inspector-section cost-section">
+                <h5>COST</h5>
+                <div class="cost-details">
+                    <div class="cost-item">
+                        <span class="cost-label">Delta:</span>
+                        <span class="cost-value">$${(cost.delta_cost_usd || cost.incremental?.cost_usd || 0).toFixed(6)}</span>
+                    </div>
+                    <div class="cost-item">
+                        <span class="cost-label">Cumulative:</span>
+                        <span class="cost-value">$${(cost.cumulative_cost_usd || cost.cumulative?.cost_usd || 0).toFixed(6)}</span>
+                    </div>
+                    ${cost.delta_tokens || cost.incremental?.tokens ? `
+                        <div class="cost-item">
+                            <span class="cost-label">Tokens:</span>
+                            <span class="cost-value">${(cost.delta_tokens || cost.incremental?.tokens || 0).toLocaleString()}</span>
+                        </div>
+                    ` : ''}
+                </div>
+            </div>
+        `;
+    }
+    
+    return html || '<div class="inspector-placeholder">No summary available</div>';
+}
+
+function renderParamsTab(frame) {
+    let html = '';
+    
+    // Args diff (default view: only show changes)
+    if (frame.args_diff && hasArgsDiffChanges(frame.args_diff)) {
+        html += `
+            <div class="inspector-section args-diff-section">
+                <h5>ARGUMENTS (CHANGES)</h5>
+                <div class="args-diff-view">
+                    ${renderArgsDiff(frame.args_diff, frame.anomalies || [])}
+                </div>
+                <button class="btn-expand-args" onclick="toggleFullArgs(this, ${frame.seq})">
+                    Show Full Arguments
+                </button>
+                <div id="full-args-${frame.seq}" class="full-args-view" style="display: none;">
+                    <pre><code>${escapeHtml(JSON.stringify(frame.args_raw || frame.args, null, 2))}</code></pre>
+                </div>
+            </div>
+        `;
+    } else if (frame.args || frame.args_raw) {
+        html += `
+            <div class="inspector-section args-section">
+                <h5>ARGUMENTS</h5>
+                <pre class="inspector-code"><code>${escapeHtml(JSON.stringify(frame.args_raw || frame.args, null, 2))}</code></pre>
+            </div>
+        `;
+    }
+    
+    // Full anomalies list in params tab
+    if (frame.anomalies && frame.anomalies.length > 0) {
+        html += `
+            <div class="inspector-section anomalies-section">
+                <h5>ANOMALIES (${frame.anomalies.length})</h5>
+                <div class="anomalies-list">
+                    ${frame.anomalies.map(anomaly => `
+                        <div class="anomaly-item severity-${anomaly.severity || 'low'}">
+                            <div class="anomaly-header">
+                                <span class="anomaly-field">${escapeHtml(anomaly.field_path || 'unknown')}</span>
+                                <span class="anomaly-severity">${(anomaly.severity || 'low').toUpperCase()}</span>
+                            </div>
+                            <div class="anomaly-reason">${escapeHtml(anomaly.reason || '')}</div>
+                            <div class="anomaly-explanation">${escapeHtml(anomaly.explanation || '')}</div>
+                            <div class="anomaly-risk-type">Risk: ${escapeHtml(anomaly.risk_type || 'other')}</div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    }
+    
+    return html || '<div class="inspector-placeholder">No parameters available</div>';
+}
+
+function renderEvidenceTab(frame) {
+    let html = '';
+    
+    // Evidence items (trace references)
+    if (frame.evidence && frame.evidence.length > 0) {
+        html += `
+            <div class="inspector-section evidence-section">
+                <h5>EVIDENCE (${frame.evidence.length})</h5>
+                <div class="evidence-list">
+                    ${frame.evidence.map(ev => `
+                        <div class="evidence-item">
+                            <div class="evidence-header">
+                                <span class="evidence-type">${escapeHtml(ev.type || 'unknown')}</span>
+                                <span class="evidence-seq">#${ev.seq || ev.event_id || '?'}</span>
+                            </div>
+                            ${ev.ts ? `<div class="evidence-ts">${new Date(ev.ts).toLocaleString()}</div>` : ''}
+                            ${ev.message ? `<div class="evidence-message">${escapeHtml(ev.message)}</div>` : ''}
+                            ${ev.trace_line !== undefined ? `<div class="evidence-trace-line">Trace Line: ${ev.trace_line}</div>` : ''}
+                            ${ev.snippet ? `
+                                <div class="evidence-snippet">
+                                    <div class="evidence-snippet-label">Snippet:</div>
+                                    <pre class="evidence-snippet-code"><code>${escapeHtml(ev.snippet)}</code></pre>
+                                </div>
+                            ` : ''}
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    }
+    
+    // Raw result
+    if (frame.result_raw !== undefined && frame.result_raw !== null) {
+        html += `
+            <div class="inspector-section result-raw-section">
+                <h5>RAW RESULT</h5>
+                <pre class="inspector-code"><code>${escapeHtml(JSON.stringify(frame.result_raw, null, 2))}</code></pre>
+            </div>
+        `;
+    }
+    
+    // Raw args (if different from normalized)
+    if (frame.args_raw && JSON.stringify(frame.args_raw) !== JSON.stringify(frame.args)) {
+        html += `
+            <div class="inspector-section args-raw-section">
+                <h5>RAW ARGUMENTS</h5>
+                <pre class="inspector-code"><code>${escapeHtml(JSON.stringify(frame.args_raw, null, 2))}</code></pre>
+            </div>
+        `;
+    }
+    
+    // Full trace event reference (if available)
+    html += `
+        <div class="inspector-section trace-reference-section">
+            <h5>TRACE REFERENCE</h5>
+            <div class="trace-reference">
+                <div class="trace-ref-item">
+                    <span class="trace-ref-label">Step Sequence:</span>
+                    <span class="trace-ref-value">${frame.seq}</span>
+                </div>
+                <div class="trace-ref-item">
+                    <span class="trace-ref-label">Tool:</span>
+                    <span class="trace-ref-value">${escapeHtml(frame.tool || 'N/A')}</span>
+                </div>
+                <div class="trace-ref-item">
+                    <span class="trace-ref-label">Status:</span>
+                    <span class="trace-ref-value">${escapeHtml(frame.status || 'N/A')}</span>
+                </div>
+                ${frame.ts_start ? `
+                    <div class="trace-ref-item">
+                        <span class="trace-ref-label">Start Time:</span>
+                        <span class="trace-ref-value">${new Date(frame.ts_start).toLocaleString()}</span>
+                    </div>
+                ` : ''}
+                ${frame.ts_end ? `
+                    <div class="trace-ref-item">
+                        <span class="trace-ref-label">End Time:</span>
+                        <span class="trace-ref-value">${new Date(frame.ts_end).toLocaleString()}</span>
+                    </div>
+                ` : ''}
+            </div>
+        </div>
+    `;
+    
+    return html || '<div class="inspector-placeholder">No evidence available</div>';
+}
+
+function switchInspectorTab(tabName, seq) {
+    // Update tab buttons
+    const tabButtons = document.querySelectorAll(`#inspector-content .inspector-tab[data-tab]`);
+    tabButtons.forEach(btn => {
+        if (btn.dataset.tab === tabName) {
+            btn.classList.add('active');
+        } else {
+            btn.classList.remove('active');
+        }
+    });
+    
+    // Update tab panels
+    const tabPanels = document.querySelectorAll(`#inspector-content .inspector-tab-panel`);
+    tabPanels.forEach(panel => {
+        if (panel.id === `inspector-tab-${tabName}-${seq}`) {
+            panel.classList.add('active');
+        } else {
+            panel.classList.remove('active');
+        }
+    });
+}
+
+function renderArgsDiff(diff, anomalies) {
+    if (!diff) return '';
+    
+    let html = '';
+    
+    // Added fields
+    if (diff.added && Object.keys(diff.added).length > 0) {
+        html += '<div class="diff-group diff-added">';
+        html += '<div class="diff-label">Added:</div>';
+        for (const [key, value] of Object.entries(diff.added)) {
+            const anomaly = anomalies.find(a => a.field_path === key);
+            const anomalyClass = anomaly ? `anomaly-highlight severity-${anomaly.severity}` : '';
+            html += `
+                <div class="diff-item ${anomalyClass}" data-field="${escapeHtml(key)}">
+                    <span class="diff-key">${escapeHtml(key)}:</span>
+                    <span class="diff-value">${escapeHtml(JSON.stringify(value))}</span>
+                </div>
+            `;
+        }
+        html += '</div>';
+    }
+    
+    // Modified fields
+    if (diff.modified && Object.keys(diff.modified).length > 0) {
+        html += '<div class="diff-group diff-modified">';
+        html += '<div class="diff-label">Modified:</div>';
+        for (const [key, change] of Object.entries(diff.modified)) {
+            const anomaly = anomalies.find(a => a.field_path === key);
+            const anomalyClass = anomaly ? `anomaly-highlight severity-${anomaly.severity}` : '';
+            html += `
+                <div class="diff-item ${anomalyClass}" data-field="${escapeHtml(key)}">
+                    <span class="diff-key">${escapeHtml(key)}:</span>
+                    <span class="diff-old">${escapeHtml(JSON.stringify(change.old))}</span>
+                    <span class="diff-arrow">→</span>
+                    <span class="diff-new">${escapeHtml(JSON.stringify(change.new))}</span>
+                </div>
+            `;
+        }
+        html += '</div>';
+    }
+    
+    // Deleted fields
+    if (diff.deleted && Object.keys(diff.deleted).length > 0) {
+        html += '<div class="diff-group diff-deleted">';
+        html += '<div class="diff-label">Deleted:</div>';
+        for (const [key, value] of Object.entries(diff.deleted)) {
+            html += `
+                <div class="diff-item">
+                    <span class="diff-key">${escapeHtml(key)}:</span>
+                    <span class="diff-value">${escapeHtml(JSON.stringify(value))}</span>
+                </div>
+            `;
+        }
+        html += '</div>';
+    }
+    
+    return html || '<div class="diff-empty">No changes from previous frame</div>';
+}
+
+function hasArgsDiffChanges(diff) {
+    return (diff.added && Object.keys(diff.added).length > 0) ||
+           (diff.modified && Object.keys(diff.modified).length > 0) ||
+           (diff.deleted && Object.keys(diff.deleted).length > 0);
+}
+
+function toggleFullArgs(button, seq) {
+    const fullArgsDiv = document.getElementById(`full-args-${seq}`);
+    if (fullArgsDiv.style.display === 'none') {
+        fullArgsDiv.style.display = 'block';
+        button.textContent = 'Hide Full Arguments';
+    } else {
+        fullArgsDiv.style.display = 'none';
+        button.textContent = 'Show Full Arguments';
+    }
+}
+
+function escapeHtml(text) {
+    if (text === null || text === undefined) return '';
+    const div = document.createElement('div');
+    div.textContent = String(text);
+    return div.innerHTML;
+}
+
+// Make functions available globally for timeline integration
+window.renderFrameInspector = renderFrameInspector;
+window.toggleFullArgs = toggleFullArgs;
+window.switchInspectorTab = switchInspectorTab;
+</script>
+
+<style>
+.inspector-panel {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    padding: 1rem;
+    height: 100%;
+    overflow-y: auto;
+}
+
+.inspector-panel h3 {
+    font-size: 0.875rem;
+    margin-bottom: 1rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+
+.inspector-content {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.inspector-placeholder {
+    padding: 2rem;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.875rem;
+}
+
+.inspector-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.inspector-header h4 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.inspector-status {
+    padding: 0.25rem 0.75rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border: 1px solid;
+}
+
+.inspector-status.status-ok {
+    color: var(--green-500);
+    border-color: var(--green-600);
+    background: rgba(16, 185, 129, 0.1);
+}
+
+.inspector-status.status-blocked {
+    color: var(--red-500);
+    border-color: var(--red-600);
+    background: rgba(239, 68, 68, 0.1);
+}
+
+.inspector-status.status-pending {
+    color: var(--text-muted);
+    border-color: var(--border);
+    background: var(--bg-primary);
+}
+
+.inspector-section {
+    padding: 0.75rem;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+}
+
+.inspector-section h5 {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.5rem;
+}
+
+.decision-section {
+    border-left: 3px solid var(--border);
+}
+
+.decision-section.decision-blocked {
+    border-left-color: var(--red-500);
+}
+
+.decision-section.decision-ok {
+    border-left-color: var(--green-500);
+}
+
+.decision-narrative {
+    font-size: 0.875rem;
+    color: var(--text-primary);
+    line-height: 1.5;
+}
+
+.args-diff-view {
+    font-size: 0.8125rem;
+    font-family: monospace;
+}
+
+.diff-group {
+    margin-bottom: 1rem;
+}
+
+.diff-label {
+    font-weight: 600;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    margin-bottom: 0.5rem;
+}
+
+.diff-added .diff-label {
+    color: var(--green-500);
+}
+
+.diff-modified .diff-label {
+    color: var(--yellow-500);
+}
+
+.diff-deleted .diff-label {
+    color: var(--red-500);
+}
+
+.diff-item {
+    padding: 0.25rem 0.5rem;
+    margin-bottom: 0.25rem;
+    background: var(--bg-secondary);
+    border-radius: 2px;
+    display: flex;
+    gap: 0.5rem;
+    align-items: baseline;
+}
+
+.diff-item.anomaly-highlight {
+    border-left: 3px solid;
+    padding-left: 0.75rem;
+}
+
+.diff-item.anomaly-highlight.severity-critical {
+    border-left-color: var(--red-500);
+    background: rgba(239, 68, 68, 0.1);
+}
+
+.diff-item.anomaly-highlight.severity-high {
+    border-left-color: var(--red-500);
+    background: rgba(239, 68, 68, 0.05);
+}
+
+.diff-item.anomaly-highlight.severity-medium {
+    border-left-color: var(--yellow-500);
+    background: rgba(245, 158, 11, 0.05);
+}
+
+.diff-item.anomaly-highlight.severity-low {
+    border-left-color: var(--blue-500);
+    background: rgba(59, 130, 246, 0.05);
+}
+
+.diff-key {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.diff-value, .diff-old, .diff-new {
+    color: var(--text-secondary);
+}
+
+.diff-old {
+    text-decoration: line-through;
+    opacity: 0.6;
+}
+
+.diff-arrow {
+    color: var(--text-muted);
+}
+
+.diff-empty {
+    color: var(--text-muted);
+    font-style: italic;
+    padding: 0.5rem;
+}
+
+.btn-expand-args {
+    margin-top: 0.5rem;
+    padding: 0.25rem 0.75rem;
+    font-size: 0.75rem;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    cursor: pointer;
+    border-radius: 2px;
+}
+
+.btn-expand-args:hover {
+    background: var(--bg-secondary);
+    border-color: var(--text-secondary);
+}
+
+.full-args-view {
+    margin-top: 0.5rem;
+    padding: 0.75rem;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+}
+
+.full-args-view pre {
+    margin: 0;
+    font-size: 0.75rem;
+    overflow-x: auto;
+}
+
+.anomalies-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.anomaly-item {
+    padding: 0.75rem;
+    background: var(--bg-secondary);
+    border-left: 3px solid var(--border);
+    border-radius: 2px;
+}
+
+.anomaly-item.severity-critical {
+    border-left-color: var(--red-500);
+}
+
+.anomaly-item.severity-high {
+    border-left-color: var(--red-500);
+}
+
+.anomaly-item.severity-medium {
+    border-left-color: var(--yellow-500);
+}
+
+.anomaly-item.severity-low {
+    border-left-color: var(--blue-500);
+}
+
+.anomaly-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.25rem;
+}
+
+.anomaly-field {
+    font-weight: 600;
+    color: var(--text-primary);
+    font-family: monospace;
+    font-size: 0.8125rem;
+}
+
+.anomaly-severity {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    padding: 0.125rem 0.5rem;
+    border-radius: 2px;
+    background: var(--bg-tertiary);
+}
+
+.anomaly-reason {
+    font-size: 0.8125rem;
+    color: var(--text-primary);
+    margin-bottom: 0.25rem;
+}
+
+.anomaly-explanation {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.25rem;
+}
+
+.anomaly-risk-type {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+.cost-details {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.cost-item {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.875rem;
+}
+
+.cost-label {
+    color: var(--text-muted);
+}
+
+.cost-value {
+    color: var(--text-primary);
+    font-family: monospace;
+    font-weight: 600;
+}
+
+.result-summary {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.evidence-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.evidence-item {
+    padding: 0.5rem;
+    background: var(--bg-secondary);
+    border-left: 2px solid var(--border);
+    border-radius: 2px;
+    font-size: 0.8125rem;
+}
+
+.evidence-type {
+    font-weight: 600;
+    color: var(--text-primary);
+    text-transform: uppercase;
+    font-size: 0.75rem;
+}
+
+.evidence-seq {
+    color: var(--text-muted);
+    font-family: monospace;
+    margin-left: 0.5rem;
+}
+
+.evidence-message {
+    margin-top: 0.25rem;
+    color: var(--text-secondary);
+}
+
+.inspector-code {
+    margin: 0;
+    padding: 0.75rem;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    overflow-x: auto;
+    font-size: 0.75rem;
+    line-height: 1.5;
+}
+
+/* Tabs */
+.inspector-tabs {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.inspector-tab {
+    padding: 0.5rem 1rem;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 0.875rem;
+    font-weight: 500;
+    transition: all 0.15s;
+}
+
+.inspector-tab:hover {
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
+}
+
+.inspector-tab.active {
+    color: var(--blue-500);
+    border-bottom-color: var(--blue-500);
+}
+
+.inspector-tab-content {
+    position: relative;
+}
+
+.inspector-tab-panel {
+    display: none;
+}
+
+.inspector-tab-panel.active {
+    display: block;
+}
+
+.anomalies-summary {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+}
+
+.anomaly-summary-item {
+    padding: 0.5rem;
+    background: var(--bg-secondary);
+    border-radius: 2px;
+    font-size: 0.8125rem;
+    font-weight: 600;
+}
+
+.anomaly-summary-item.critical {
+    color: var(--red-500);
+    border-left: 3px solid var(--red-500);
+}
+
+.anomaly-summary-item.high {
+    color: var(--red-500);
+    border-left: 3px solid var(--red-500);
+}
+
+.anomaly-summary-item.total {
+    color: var(--text-primary);
+    border-left: 3px solid var(--border);
+}
+
+.anomalies-more {
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-style: italic;
+    margin-top: 0.5rem;
+}
+
+.evidence-ts {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    margin-top: 0.25rem;
+}
+
+.evidence-trace-line {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-family: monospace;
+    margin-top: 0.25rem;
+}
+
+.evidence-snippet {
+    margin-top: 0.5rem;
+    padding: 0.5rem;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+}
+
+.evidence-snippet-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-bottom: 0.25rem;
+    display: block;
+}
+
+.evidence-snippet-code {
+    margin: 0;
+    font-size: 0.75rem;
+    overflow-x: auto;
+}
+
+.trace-reference {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.trace-ref-item {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.875rem;
+}
+
+.trace-ref-label {
+    color: var(--text-muted);
+}
+
+.trace-ref-value {
+    color: var(--text-primary);
+    font-family: monospace;
+}
+</style>

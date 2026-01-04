@@ -17,7 +17,10 @@
                 <span>{{ run_info.date }} {{ run_info.timestamp }}</span>
             </div>
         </div>
-        <a href="/runs" class="btn btn-secondary">← BACK TO RUNS</a>
+        <div class="run-detail-actions">
+            <a href="/runs" class="btn btn-secondary">← BACK TO RUNS</a>
+            <a href="/runs/{{ run_info.date }}_{{ run_info.name }}/replay" class="btn btn-primary">OPEN REPLAY</a>
+        </div>
     </div>
     
     {# Action Bar (extensible) #}
@@ -38,6 +41,9 @@
         </div>
     </div>
     
+    {# Bottom: Cost Panel #}
+    {% include "partials/cost_panel.html" %}
+    
     {# Bottom: Artifacts Panel #}
     {% include "partials/artifacts_panel.html" %}
 </div>
@@ -56,6 +62,11 @@
     padding: 1rem;
     background: var(--bg-secondary);
     border: 1px solid var(--border);
+}
+
+.run-detail-actions {
+    display: flex;
+    gap: 0.5rem;
 }
 
 .run-meta {

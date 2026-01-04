@@ -1,0 +1,230 @@
+{# Timeline Step - unified rendering for step + cost + status #}
+{% set event_dict = event if event is mapping else event.__dict__ %}
+{% set event_type = event_dict.get('type') or event_dict.get('event_type') or (event_dict.get('event', {})).get('type', 'UNKNOWN') %}
+{% set event_seq = event_dict.get('seq') or (event_dict.get('event', {})).get('step', {}).get('seq') %}
+{% set event_ts = event_dict.get('ts') or event_dict.get('timestamp') or event_dict.get('time') %}
+{% set event_msg = event_dict.get('message') or (event_dict.get('event', {})).get('data', {}).get('result', {}).get('message') %}
+{% set event_data = event_dict.get('data') or event_dict.get('event', {}) %}
+
+<div class="timeline-step event-type-{{ event_type }}">
+    <div class="step-header">
+        <span class="step-type">{{ event_type | upper }}</span>
+        {% if event_seq is defined %}
+            <span class="step-seq">#{{ "%03d"|format(event_seq) }}</span>
+        {% endif %}
+        {% if event_ts %}
+            <span class="step-time">{{ event_ts }}</span>
+        {% endif %}
+    </div>
+    
+    {% if event_msg %}
+    <div class="step-message">
+        {{ event_msg }}
+    </div>
+    {% endif %}
+    
+    {# Cost information (if available) #}
+    {% if cost_info or (event_dict.get('metrics') and event_dict.get('metrics').get('cost')) %}
+    <div class="step-cost">
+        {% set cost_metrics = cost_info if cost_info else event_dict.get('metrics', {}).get('cost', {}) %}
+        {% set delta_cost = cost_metrics.get('delta_cost_usd') or cost_metrics.get('incremental', {}).get('cost_usd', 0.0) %}
+        {% set cum_cost = cost_metrics.get('cumulative_cost_usd') or cost_metrics.get('cumulative', {}).get('cost_usd', 0.0) %}
+        {% set budget_limit = cost_info.get('budget_limit') if cost_info else None %}
+        {% set projected_cost = cost_info.get('projected_cost') if cost_info else None %}
+        
+        <div class="cost-row">
+            <span class="cost-label">Cost:</span>
+            <span class="cost-value">
+                {% if delta_cost %}
+                    <span class="cost-delta">Δ ${{ "%.6f"|format(delta_cost) }}</span>
+                    {% if cum_cost %}
+                        <span class="cost-cumulative">(Total: ${{ "%.6f"|format(cum_cost) }})</span>
+                    {% endif %}
+                {% else %}
+                    N/A
+                {% endif %}
+            </span>
+        </div>
+        
+        {% if budget_limit %}
+        <div class="cost-row cost-budget-info">
+            <span class="cost-label">Budget:</span>
+            <span class="cost-value">
+                Limit: ${{ "%.2f"|format(budget_limit) }}
+                {% if projected_cost %}
+                    {% set over = projected_cost - budget_limit %}
+                    {% if over > 0 %}
+                        <span class="cost-over">(Over: ${{ "%.6f"|format(over) }})</span>
+                    {% else %}
+                        <span class="cost-remaining">(Remaining: ${{ "%.6f"|format(-over) }})</span>
+                    {% endif %}
+                {% endif %}
+            </span>
+        </div>
+        {% endif %}
+        {% if cost_info.delta_tokens or cost_info.cum_tokens %}
+        <div class="cost-row">
+            <span class="cost-label">Tokens:</span>
+            <span class="cost-value">
+                {% if cost_info.delta_tokens %}
+                    {{ cost_info.delta_tokens | int | default(0) | number_format }}
+                    {% if cost_info.cum_tokens %}
+                        <span class="cost-cumulative">(Total: {{ cost_info.cum_tokens | int | default(0) | number_format }})</span>
+                    {% endif %}
+                {% else %}
+                    N/A
+                {% endif %}
+            </span>
+        </div>
+        {% endif %}
+        {% if cost_info.status and cost_info.status != "OK" %}
+        <div class="cost-row cost-status-{{ cost_info.status | lower }}">
+            <span class="cost-label">Status:</span>
+            <span class="cost-value cost-status">{{ cost_info.status }}</span>
+            {% if cost_info.error_code %}
+                <span class="cost-error-code">{{ cost_info.error_code }}</span>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+    
+    {% if event_data %}
+    <details class="step-data">
+        <summary>EVENT DATA</summary>
+        <pre><code>{{ event_data | tojson(indent=2) }}</code></pre>
+    </details>
+    {% endif %}
+</div>
+
+<style>
+.timeline-step {
+    background: var(--bg-secondary);
+    border-left: 2px solid var(--border-light);
+    padding: 0.875rem 1rem;
+    margin-bottom: 0.5rem;
+}
+
+.timeline-step.event-type-step_end,
+.timeline-step.event-type-step_start {
+    border-left-color: var(--blue-500);
+}
+
+.timeline-step.event-type-error,
+.timeline-step.event-type-blocked {
+    border-left-color: var(--red-500);
+}
+
+.step-header {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.step-type {
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.6875rem;
+    letter-spacing: 0.1em;
+    color: var(--text-primary);
+}
+
+.step-seq {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.step-time {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.step-message {
+    margin-bottom: 0.5rem;
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+}
+
+.step-cost {
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border-light);
+}
+
+.cost-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: baseline;
+    margin-bottom: 0.25rem;
+    font-size: 0.8125rem;
+}
+
+.cost-label {
+    font-weight: 600;
+    color: var(--text-muted);
+    min-width: 60px;
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.05em;
+}
+
+.cost-value {
+    color: var(--text-primary);
+    font-family: monospace;
+}
+
+.cost-cumulative {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    margin-left: 0.5rem;
+}
+
+.cost-status {
+    font-weight: 600;
+}
+
+.cost-status-blocked {
+    color: var(--red-500);
+}
+
+.cost-status-error {
+    color: var(--yellow-500);
+}
+
+.cost-error-code {
+    margin-left: 0.5rem;
+    padding: 0.125rem 0.375rem;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    font-size: 0.6875rem;
+    color: var(--error);
+    font-family: monospace;
+}
+
+.step-data {
+    margin-top: 0.5rem;
+}
+
+.step-data summary {
+    cursor: pointer;
+    font-weight: 600;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.step-data pre {
+    margin-top: 0.5rem;
+    padding: 0.875rem;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    overflow-x: auto;
+    font-size: 0.8125rem;
+    line-height: 1.5;
+}
+</style>

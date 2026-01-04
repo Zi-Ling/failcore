@@ -1,0 +1,393 @@
+{# Replay Sidebar - Narrative / Evidence / Cost (right panel) #}
+<div class="replay-sidebar">
+    <h3>CONTEXT</h3>
+    <div id="replay-sidebar-content" class="replay-sidebar-content">
+        <div class="sidebar-placeholder">Select a frame to view context</div>
+    </div>
+</div>
+
+<script>
+// Initialize replay sidebar
+function initReplaySidebar(incidentTape) {
+    // Store incident tape for later use
+    window.currentIncidentTape = incidentTape;
+    
+    // Render initial view (summary)
+    if (incidentTape.meta) {
+        renderSidebarSummary(incidentTape);
+    }
+}
+
+// Update sidebar with frame context
+function updateReplaySidebar(frame, incidentTape) {
+    const content = document.getElementById('replay-sidebar-content');
+    if (!content) return;
+    
+    let html = '';
+    
+    // Decision narrative
+    if (frame.decision) {
+        html += `
+            <div class="sidebar-section narrative-section">
+                <h4>DECISION NARRATIVE</h4>
+                <div class="narrative-content">${escapeHtml(frame.decision)}</div>
+            </div>
+        `;
+    }
+    
+    // Evidence
+    if (frame.evidence && frame.evidence.length > 0) {
+        html += `
+            <div class="sidebar-section evidence-section">
+                <h4>EVIDENCE (${frame.evidence.length})</h4>
+                <div class="evidence-list">
+                    ${frame.evidence.map(ev => `
+                        <div class="evidence-item">
+                            <div class="evidence-header">
+                                <span class="evidence-type">${escapeHtml(ev.type || 'unknown')}</span>
+                                <span class="evidence-seq">#${ev.seq || ev.event_id || '?'}</span>
+                            </div>
+                            ${ev.message ? `<div class="evidence-message">${escapeHtml(ev.message)}</div>` : ''}
+                            ${ev.ts ? `<div class="evidence-ts">${new Date(ev.ts).toLocaleString()}</div>` : ''}
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    }
+    
+    // Cost for this frame
+    if (frame.metrics && frame.metrics.cost) {
+        const cost = frame.metrics.cost;
+        html += `
+            <div class="sidebar-section cost-section">
+                <h4>COST</h4>
+                <div class="cost-details">
+                    <div class="cost-item">
+                        <span class="cost-label">Delta:</span>
+                        <span class="cost-value">$${(cost.delta_cost_usd || cost.incremental?.cost_usd || 0).toFixed(6)}</span>
+                    </div>
+                    <div class="cost-item">
+                        <span class="cost-label">Cumulative:</span>
+                        <span class="cost-value">$${(cost.cumulative_cost_usd || cost.cumulative?.cost_usd || 0).toFixed(6)}</span>
+                    </div>
+                    ${cost.delta_tokens || cost.incremental?.tokens ? `
+                        <div class="cost-item">
+                            <span class="cost-label">Tokens:</span>
+                            <span class="cost-value">${(cost.delta_tokens || cost.incremental?.tokens || 0).toLocaleString()}</span>
+                        </div>
+                    ` : ''}
+                </div>
+            </div>
+        `;
+    }
+    
+    // Anomalies summary
+    if (frame.anomalies && frame.anomalies.length > 0) {
+        const critical = frame.anomalies.filter(a => a.severity === 'critical').length;
+        const high = frame.anomalies.filter(a => a.severity === 'high').length;
+        
+        html += `
+            <div class="sidebar-section anomalies-summary">
+                <h4>ANOMALIES</h4>
+                <div class="anomalies-stats">
+                    ${critical > 0 ? `<div class="anomaly-stat critical">${critical} Critical</div>` : ''}
+                    ${high > 0 ? `<div class="anomaly-stat high">${high} High</div>` : ''}
+                    <div class="anomaly-stat total">${frame.anomalies.length} Total</div>
+                </div>
+            </div>
+        `;
+    }
+    
+    content.innerHTML = html || '<div class="sidebar-placeholder">No context available</div>';
+}
+
+// Render sidebar summary (when no frame selected)
+function renderSidebarSummary(incidentTape) {
+    const content = document.getElementById('replay-sidebar-content');
+    if (!content) return;
+    
+    let html = '';
+    
+    // Run metadata
+    if (incidentTape.meta) {
+        html += `
+            <div class="sidebar-section summary-section">
+                <h4>RUN SUMMARY</h4>
+                <div class="summary-details">
+                    <div class="summary-item">
+                        <span class="summary-label">Run ID:</span>
+                        <span class="summary-value">${escapeHtml(incidentTape.meta.run_id || 'N/A')}</span>
+                    </div>
+                    ${incidentTape.meta.command ? `
+                        <div class="summary-item">
+                            <span class="summary-label">Command:</span>
+                            <span class="summary-value">${escapeHtml(incidentTape.meta.command)}</span>
+                        </div>
+                    ` : ''}
+                    ${incidentTape.meta.status ? `
+                        <div class="summary-item">
+                            <span class="summary-label">Status:</span>
+                            <span class="summary-value">${escapeHtml(incidentTape.meta.status)}</span>
+                        </div>
+                    ` : ''}
+                </div>
+            </div>
+        `;
+    }
+    
+    // Budget
+    if (incidentTape.budget) {
+        html += `
+            <div class="sidebar-section budget-section">
+                <h4>BUDGET</h4>
+                <div class="budget-details">
+                    ${incidentTape.budget.max_cost_usd ? `
+                        <div class="budget-item">
+                            <span class="budget-label">Max Cost:</span>
+                            <span class="budget-value">$${incidentTape.budget.max_cost_usd.toFixed(2)}</span>
+                        </div>
+                    ` : ''}
+                    ${incidentTape.budget.max_tokens ? `
+                        <div class="budget-item">
+                            <span class="budget-label">Max Tokens:</span>
+                            <span class="budget-value">${incidentTape.budget.max_tokens.toLocaleString()}</span>
+                        </div>
+                    ` : ''}
+                </div>
+            </div>
+        `;
+    }
+    
+    // Events summary
+    if (incidentTape.events && incidentTape.events.length > 0) {
+        html += `
+            <div class="sidebar-section events-summary">
+                <h4>INCIDENT EVENTS (${incidentTape.events.length})</h4>
+                <div class="events-list">
+                    ${incidentTape.events.slice(0, 5).map(ev => `
+                        <div class="event-item">
+                            <div class="event-type">${escapeHtml(ev.type || 'unknown')}</div>
+                            <div class="event-reason">${escapeHtml(ev.reason || '')}</div>
+                        </div>
+                    `).join('')}
+                    ${incidentTape.events.length > 5 ? `<div class="events-more">+${incidentTape.events.length - 5} more</div>` : ''}
+                </div>
+            </div>
+        `;
+    }
+    
+    content.innerHTML = html || '<div class="sidebar-placeholder">No summary available</div>';
+}
+
+// Make functions available globally
+window.initReplaySidebar = initReplaySidebar;
+window.updateReplaySidebar = updateReplaySidebar;
+
+function escapeHtml(text) {
+    if (text === null || text === undefined) return '';
+    const div = document.createElement('div');
+    div.textContent = String(text);
+    return div.innerHTML;
+}
+</script>
+
+<style>
+.replay-sidebar h3 {
+    font-size: 0.875rem;
+    margin-bottom: 1rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+
+.replay-sidebar-content {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.sidebar-placeholder {
+    padding: 2rem;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.875rem;
+}
+
+.sidebar-section {
+    padding: 0.75rem;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+}
+
+.sidebar-section h4 {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.75rem;
+    font-weight: 600;
+}
+
+.narrative-content {
+    font-size: 0.875rem;
+    color: var(--text-primary);
+    line-height: 1.6;
+    white-space: pre-wrap;
+}
+
+.evidence-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.evidence-item {
+    padding: 0.5rem;
+    background: var(--bg-secondary);
+    border-left: 2px solid var(--border);
+    border-radius: 2px;
+    font-size: 0.8125rem;
+}
+
+.evidence-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.25rem;
+}
+
+.evidence-type {
+    font-weight: 600;
+    color: var(--text-primary);
+    text-transform: uppercase;
+    font-size: 0.75rem;
+}
+
+.evidence-seq {
+    color: var(--text-muted);
+    font-family: monospace;
+    font-size: 0.75rem;
+}
+
+.evidence-message {
+    color: var(--text-secondary);
+    margin-top: 0.25rem;
+}
+
+.evidence-ts {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    margin-top: 0.25rem;
+}
+
+.cost-details {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.cost-item {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.875rem;
+}
+
+.cost-label {
+    color: var(--text-muted);
+}
+
+.cost-value {
+    color: var(--text-primary);
+    font-family: monospace;
+    font-weight: 600;
+}
+
+.anomalies-stats {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.anomaly-stat {
+    padding: 0.5rem;
+    background: var(--bg-secondary);
+    border-radius: 2px;
+    font-size: 0.8125rem;
+    font-weight: 600;
+}
+
+.anomaly-stat.critical {
+    color: var(--red-500);
+    border-left: 3px solid var(--red-500);
+}
+
+.anomaly-stat.high {
+    color: var(--red-500);
+    border-left: 3px solid var(--red-500);
+}
+
+.anomaly-stat.total {
+    color: var(--text-primary);
+    border-left: 3px solid var(--border);
+}
+
+.summary-details,
+.budget-details {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.summary-item,
+.budget-item {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.875rem;
+}
+
+.summary-label,
+.budget-label {
+    color: var(--text-muted);
+}
+
+.summary-value,
+.budget-value {
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.events-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.event-item {
+    padding: 0.5rem;
+    background: var(--bg-secondary);
+    border-left: 2px solid var(--red-500);
+    border-radius: 2px;
+    font-size: 0.8125rem;
+}
+
+.event-type {
+    font-weight: 600;
+    color: var(--text-primary);
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    margin-bottom: 0.25rem;
+}
+
+.event-reason {
+    color: var(--text-secondary);
+}
+
+.events-more {
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-style: italic;
+}
+</style>

@@ -20,6 +20,7 @@
     --yellow-600: #d97706;
     --blue-500: #3b82f6;
     --blue-600: #2563eb;
+    --error: #ef4444;
 }
 
 [data-theme="dark"] {

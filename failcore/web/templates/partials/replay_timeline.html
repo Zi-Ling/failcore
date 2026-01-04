@@ -1,0 +1,311 @@
+{# Replay Timeline - frame list (left panel) #}
+<div class="replay-timeline">
+    <h3>FRAME TIMELINE</h3>
+    <div id="replay-timeline-content" class="replay-timeline-content">
+        <div class="timeline-loading">Loading frames...</div>
+    </div>
+</div>
+
+<script>
+// Initialize replay timeline
+function initReplayTimeline(frames) {
+    const content = document.getElementById('replay-timeline-content');
+    if (!content) return;
+    
+    if (!frames || frames.length === 0) {
+        content.innerHTML = '<div class="timeline-empty">No frames available</div>';
+        return;
+    }
+    
+    let html = '<div class="replay-timeline-list">';
+    
+    frames.forEach((frame, index) => {
+        const status = (frame.status || 'PENDING').toLowerCase();
+        const tool = frame.tool || 'Unknown';
+        const hasAnomalies = frame.anomalies && frame.anomalies.length > 0;
+        const hasError = frame.error_code || frame.status === 'BLOCKED';
+        
+        // Get tool metadata
+        const toolMetadata = frame.tool_metadata || {};
+        const riskLevel = (toolMetadata.risk_level || 'medium').toLowerCase();
+        const sideEffect = (toolMetadata.side_effect || '').toUpperCase();
+        const isHighRisk = riskLevel === 'high';
+        const isBlocked = status === 'blocked';
+        
+        // Determine side effect badge
+        let sideEffectBadge = '';
+        if (sideEffect === 'FS') {
+            sideEffectBadge = '<span class="frame-badge side-effect side-effect-fs">FS</span>';
+        } else if (sideEffect === 'NETWORK') {
+            sideEffectBadge = '<span class="frame-badge side-effect side-effect-network">NETWORK</span>';
+        } else if (sideEffect === 'EXEC') {
+            sideEffectBadge = '<span class="frame-badge side-effect side-effect-exec">EXEC</span>';
+        }
+        
+        // Risk badge
+        let riskBadge = '';
+        if (riskLevel === 'high') {
+            riskBadge = '<span class="frame-badge risk risk-high">HIGH RISK</span>';
+        } else if (riskLevel === 'low') {
+            riskBadge = '<span class="frame-badge risk risk-low">LOW RISK</span>';
+        }
+        
+        // High-risk or blocked frames get special styling
+        const isHighlighted = isHighRisk || isBlocked;
+        
+        html += `
+            <div 
+                class="replay-timeline-item status-${status} ${hasAnomalies ? 'has-anomalies' : ''} ${hasError ? 'has-error' : ''} ${isHighRisk ? 'high-risk' : ''} ${isBlocked ? 'blocked-frame' : ''}"
+                data-frame-index="${index}"
+                onclick="selectFrame(${index})"
+            >
+                <div class="frame-header">
+                    <span class="frame-seq">#${String(frame.seq || index).padStart(3, '0')}</span>
+                    <span class="frame-status status-${status}">${(frame.status || 'PENDING').toUpperCase()}</span>
+                </div>
+                <div class="frame-tool">${escapeHtml(tool)}</div>
+                <div class="frame-badges">
+                    ${sideEffectBadge}
+                    ${riskBadge}
+                    ${hasAnomalies ? `<span class="frame-badge anomalies">${frame.anomalies.length} anomalies</span>` : ''}
+                    ${hasError ? `<span class="frame-badge error">${escapeHtml(frame.error_code || 'ERROR')}</span>` : ''}
+                </div>
+                ${frame.decision ? `<div class="frame-decision-preview">${escapeHtml(frame.decision.substring(0, 60))}${frame.decision.length > 60 ? '...' : ''}</div>` : ''}
+            </div>
+        `;
+    });
+    
+    html += '</div>';
+    content.innerHTML = html;
+}
+
+// Make function available globally
+window.initReplayTimeline = initReplayTimeline;
+
+function escapeHtml(text) {
+    if (text === null || text === undefined) return '';
+    const div = document.createElement('div');
+    div.textContent = String(text);
+    return div.innerHTML;
+}
+</script>
+
+<style>
+.replay-timeline h3 {
+    font-size: 0.875rem;
+    margin-bottom: 1rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+
+.replay-timeline-content {
+    display: flex;
+    flex-direction: column;
+}
+
+.timeline-loading,
+.timeline-empty {
+    padding: 2rem;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.875rem;
+}
+
+.replay-timeline-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.replay-timeline-item {
+    padding: 0.75rem;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--border);
+    cursor: pointer;
+    transition: all 0.15s;
+    border-radius: 2px;
+}
+
+.replay-timeline-item:hover {
+    background: var(--bg-tertiary);
+    border-color: var(--blue-500);
+}
+
+.replay-timeline-item.selected {
+    background: var(--bg-tertiary);
+    border-left-color: var(--blue-500);
+}
+
+.replay-timeline-item.status-ok {
+    border-left-color: var(--green-500);
+}
+
+.replay-timeline-item.status-blocked,
+.replay-timeline-item.has-error {
+    border-left-color: var(--red-500);
+}
+
+.replay-timeline-item.has-anomalies {
+    border-left-color: var(--yellow-500);
+}
+
+.replay-timeline-item.high-risk {
+    border-left-width: 4px;
+    border-left-color: var(--red-500);
+    background: rgba(239, 68, 68, 0.05);
+    box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.2);
+}
+
+.replay-timeline-item.blocked-frame {
+    border-left-width: 4px;
+    border-left-color: var(--red-500);
+    background: rgba(239, 68, 68, 0.1);
+    box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.3);
+    font-weight: 600;
+}
+
+.replay-timeline-item.blocked-frame .frame-tool {
+    color: var(--red-500);
+    font-weight: 600;
+}
+
+.frame-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    margin-top: 0.5rem;
+}
+
+.frame-badge.side-effect {
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.625rem;
+    letter-spacing: 0.05em;
+}
+
+.frame-badge.side-effect-fs {
+    background: rgba(59, 130, 246, 0.1);
+    color: var(--blue-500);
+    border: 1px solid var(--blue-600);
+}
+
+.frame-badge.side-effect-network {
+    background: rgba(245, 158, 11, 0.1);
+    color: var(--yellow-500);
+    border: 1px solid var(--yellow-600);
+}
+
+.frame-badge.side-effect-exec {
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--red-500);
+    border: 1px solid var(--red-600);
+}
+
+.frame-badge.risk {
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.625rem;
+    letter-spacing: 0.05em;
+}
+
+.frame-badge.risk-high {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--red-500);
+    border: 1px solid var(--red-600);
+    animation: pulse 2s infinite;
+}
+
+.frame-badge.risk-low {
+    background: rgba(16, 185, 129, 0.1);
+    color: var(--green-500);
+    border: 1px solid var(--green-600);
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.7;
+    }
+}
+
+.frame-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.frame-seq {
+    font-family: monospace;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.frame-status {
+    padding: 0.125rem 0.5rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    border-radius: 2px;
+    border: 1px solid;
+}
+
+.frame-status.status-ok {
+    color: var(--green-500);
+    border-color: var(--green-600);
+    background: rgba(16, 185, 129, 0.1);
+}
+
+.frame-status.status-blocked {
+    color: var(--red-500);
+    border-color: var(--red-600);
+    background: rgba(239, 68, 68, 0.1);
+}
+
+.frame-status.status-pending {
+    color: var(--text-muted);
+    border-color: var(--border);
+    background: var(--bg-secondary);
+}
+
+.frame-tool {
+    font-size: 0.8125rem;
+    color: var(--text-primary);
+    font-weight: 500;
+    margin-bottom: 0.25rem;
+}
+
+.frame-badge {
+    display: inline-block;
+    padding: 0.125rem 0.5rem;
+    font-size: 0.6875rem;
+    border-radius: 2px;
+    margin-top: 0.25rem;
+    margin-right: 0.25rem;
+}
+
+.frame-badge.anomalies {
+    background: rgba(245, 158, 11, 0.1);
+    color: var(--yellow-500);
+    border: 1px solid var(--yellow-600);
+}
+
+.frame-badge.error {
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--red-500);
+    border: 1px solid var(--red-600);
+}
+
+.frame-decision-preview {
+    margin-top: 0.5rem;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    font-style: italic;
+    line-height: 1.4;
+}
+</style>
