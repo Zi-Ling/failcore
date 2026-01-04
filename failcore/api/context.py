@@ -61,6 +61,10 @@ class RunCtx:
         allow_outside_root: bool = False,
         allowed_trace_roots: Optional[list] = None,
         allowed_sandbox_roots: Optional[list] = None,
+        # Cost guardrails
+        max_cost_usd: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        max_usd_per_minute: Optional[float] = None,
     ):
         """
         Create a new run context with intelligent path resolution.
@@ -145,14 +149,50 @@ class RunCtx:
             self._recorder: TraceRecorder = JsonlTraceRecorder(str(trace_path))
             self._trace_path = trace_path.as_posix()
         
+        # Create cost guardian if budget limits specified
+        cost_guardian = None
+        cost_estimator = None
+        cost_storage = None
+        enable_cost_tracking = False
+        
+        if max_cost_usd or max_tokens or max_usd_per_minute:
+            from ..core.cost.guardian import CostGuardian
+            from ..core.cost.estimator import CostEstimator
+            from ..infra.storage.cost_tables import CostStorage
+            
+            enable_cost_tracking = True
+            cost_estimator = CostEstimator()
+            cost_storage = CostStorage()
+            
+            # Note: CostGuardian only supports max_cost_usd, max_tokens, and max_usd_per_minute
+            cost_guardian = CostGuardian(
+                max_cost_usd=max_cost_usd,
+                max_tokens=max_tokens,
+                max_usd_per_minute=max_usd_per_minute,
+            )
+            
+            # Record budget snapshot for audit/replay
+            # This captures "what limits were applied" for this run
+            cost_storage.insert_budget_snapshot(
+                budget_id=f"run_{self._run_id}",
+                scope="run",
+                run_id=self._run_id,
+                max_cost_usd=max_cost_usd,
+                max_tokens=max_tokens,
+                max_usd_per_minute=max_usd_per_minute,
+            )
+        
         # Create executor
+        # Note: CostStorage is created inside Executor when cost tracking is enabled
         policy_obj = None  # TODO: create Policy object from policy parameter
         self._executor = Executor(
             tools=self._tools,
             recorder=self._recorder,
             validator=self._validator,
             policy=policy_obj,
-            config=ExecutorConfig()
+            config=ExecutorConfig(enable_cost_tracking=enable_cost_tracking),
+            cost_guardian=cost_guardian,
+            cost_estimator=cost_estimator,
         )
         
         # Run context
@@ -242,12 +282,13 @@ class RunCtx:
         
         return fn
     
-    def call(self, tool: str, **params: Any) -> Any:
+    def call(self, tool: str, _meta: Optional[Dict[str, Any]] = None, **params: Any) -> Any:
         """
         Call a tool (synchronous)
         
         Args:
             tool: Tool name
+            _meta: Optional metadata (for cost overrides, etc.)
             **params: Tool parameters
         
         Returns:
@@ -258,6 +299,7 @@ class RunCtx:
         
         Example:
             >>> result = ctx.call("write_file", path="a.txt", content="hi")
+            >>> result = ctx.call("expensive_tool", task="x", _meta={"cost_usd": 0.50})
         """
         # Generate step_id
         self._step_counter += 1
@@ -267,7 +309,8 @@ class RunCtx:
         step = Step(
             id=step_id,
             tool=tool,
-            params=params
+            params=params,
+            meta=_meta or {}
         )
         
         # Execute
@@ -358,6 +401,17 @@ class RunCtx:
         
         If auto_ingest=True, automatically ingest trace to database
         """
+        # Update run status to 'completed' before closing
+        if hasattr(self, '_executor') and self._executor.cost_storage:
+            try:
+                self._executor.cost_storage.upsert_run(
+                    run_id=self._run_id,
+                    status="completed",
+                )
+            except Exception:
+                # Don't fail cleanup if status update fails
+                pass
+        
         # Close recorder first to flush trace
         if hasattr(self._recorder, 'close'):
             try:
@@ -430,6 +484,13 @@ class RunCtx:
     def sandbox_root(self) -> Path:
         """Get sandbox root directory"""
         return self._sandbox_path
+    
+    @property
+    def cost_storage(self):
+        """Get the cost storage instance used by this context"""
+        if hasattr(self, '_executor') and self._executor:
+            return self._executor.cost_storage
+        return None
     
     @property
     def run_id(self) -> str:

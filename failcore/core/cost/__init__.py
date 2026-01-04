@@ -11,7 +11,7 @@ Features:
 """
 
 # Core models
-from .models import CostUnit, CostUsage, Budget
+from .models import CostUnit, CostUsage, Budget,BudgetScope
 
 # Estimation and tracking
 from .estimator import CostEstimator
@@ -57,11 +57,15 @@ from .guardian import (
 # Middleware
 from .middleware import BudgetGuardMiddleware
 
+# Usage extraction
+from .usage import UsageExtractor
+
 __all__ = [
     # Core models
     "CostUnit",
     "CostUsage",
     "Budget",
+    "BudgetScope",
     # Estimation and tracking
     "CostEstimator",
     "CostTracker",
@@ -89,4 +93,6 @@ __all__ = [
     "CostGuardian",
     # Middleware
     "BudgetGuardMiddleware",
+    # Usage extraction
+    "UsageExtractor",
 ]

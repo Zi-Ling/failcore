@@ -91,8 +91,13 @@ class BudgetAlertManager:
         """
         # Calculate current usage percentage
         if usage:
-            # Simulate adding usage
+            # Simulate adding usage (inherit scope from original budget)
             temp_budget = Budget(
+                budget_id=self.budget.budget_id,
+                scope=self.budget.scope,
+                run_id=self.budget.run_id,
+                user_id=self.budget.user_id,
+                org_id=self.budget.org_id,
                 max_cost_usd=self.budget.max_cost_usd,
                 max_tokens=self.budget.max_tokens,
                 max_api_calls=self.budget.max_api_calls,

@@ -25,7 +25,7 @@ from .events import (
 )
 
 # Version constants
-SCHEMA_VERSION = "failcore.trace.v0.1.2"
+SCHEMA_VERSION = "failcore.trace.v0.1.3"
 FAILCORE_VERSION = "0.1.0"
 
 
@@ -268,8 +268,9 @@ def build_step_end_event(
     output: Optional[Any] = None,
     error: Optional[Dict[str, Any]] = None,
     warnings: Optional[list] = None,
+    metrics: Optional[Dict[str, Any]] = None,
 ) -> TraceEvent:
-    """Build STEP_END event"""
+    """Build STEP_END event with optional cost metrics"""
     result = {
         "status": status.value,
         "phase": phase.value,
@@ -282,6 +283,10 @@ def build_step_end_event(
         result["warnings"] = warnings
     
     event_data = {"result": result}
+    
+    # Add metrics (cost tracking)
+    if metrics:
+        event_data["metrics"] = metrics
     
     # Add output payload if present
     if output:

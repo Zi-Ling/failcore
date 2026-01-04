@@ -18,6 +18,10 @@ def run(
     allow_outside_root: bool = False,
     allowed_trace_roots: Optional[list] = None,
     allowed_sandbox_roots: Optional[list] = None,
+    # Cost guardrails (budget enforcement)
+    max_cost_usd: Optional[float] = None,
+    max_tokens: Optional[int] = None,
+    max_usd_per_minute: Optional[float] = None,
 ) -> RunCtx:
     r"""
     Create a run context manager with intelligent path resolution.
@@ -79,6 +83,14 @@ def run(
             - Example: [Path("/tmp/sandbox"), Path("/opt/data")]
             - Only effective when allow_outside_root=True
             - Sandbox paths must be within one of these roots
+        max_cost_usd: Maximum total cost in USD (default: None = unlimited)
+            - Example: max_cost_usd=1.0 limits run to $1.00
+            - Automatically creates CostGuardian for budget enforcement
+        max_tokens: Maximum total tokens (default: None = unlimited)
+            - Example: max_tokens=10000 limits run to 10k tokens
+        max_usd_per_minute: Maximum burn rate in USD/minute (default: None = unlimited)
+            - Example: max_usd_per_minute=0.5 limits spending velocity to $0.50/min
+            - Uses sliding window for burn rate calculation
     
     Returns:
         RunCtx: Run context object
@@ -151,4 +163,8 @@ def run(
         allow_outside_root=allow_outside_root,
         allowed_trace_roots=allowed_trace_roots,
         allowed_sandbox_roots=allowed_sandbox_roots,
+        # Cost guardrails
+        max_cost_usd=max_cost_usd,
+        max_tokens=max_tokens,
+        max_usd_per_minute=max_usd_per_minute,
     )

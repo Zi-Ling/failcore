@@ -146,42 +146,78 @@ class CostEstimator:
         tool_name: str,
         params: Dict[str, Any],
         metadata: Dict[str, Any] = None,
+        actual_usage: Optional[CostUsage] = None,
     ) -> CostUsage:
         """
-        Estimate cost for any tool
+        Estimate cost for any tool with priority hierarchy
         
-        Uses metadata to determine estimation strategy:
-        - metadata["model"]: LLM tool
-        - metadata["cost_per_call"]: Flat rate API
-        - Otherwise: minimal default cost
+        Priority (highest to lowest):
+        1. actual_usage: Real usage from provider (estimated=False)
+        2. metadata["cost_usd"]: Explicit cost override
+        3. metadata["cost_per_call"]: Flat rate per call
+        4. metadata["model"]: LLM model-based estimation
+        5. Default: minimal cost
         
         Args:
             tool_name: Tool name
             params: Tool parameters
-            metadata: Tool metadata (risk, effect, model, etc.)
+            metadata: Tool metadata (risk, effect, model, cost overrides, etc.)
+            actual_usage: Real usage from tool execution (if available)
         
         Returns:
-            CostUsage with estimated cost
+            CostUsage with estimated or actual cost
         """
         metadata = metadata or {}
         
-        # Check if LLM tool
-        if "model" in metadata:
-            return self.estimate_llm_cost(
-                tool_name,
-                params,
-                model=metadata["model"]
+        # Priority 1: Use actual usage if provided
+        if actual_usage:
+            return actual_usage
+        
+        # Priority 2: Explicit cost override (deterministic for testing)
+        if "cost_usd" in metadata:
+            # Support both "tokens" and "total_tokens"
+            total_tokens = metadata.get("total_tokens", metadata.get("tokens", 0))
+            input_tokens = metadata.get("input_tokens", 0)
+            output_tokens = metadata.get("output_tokens", 0)
+            
+            # If only total_tokens provided, leave input/output as 0
+            # If total_tokens not provided but input/output are, calculate total
+            if not total_tokens and (input_tokens or output_tokens):
+                total_tokens = input_tokens + output_tokens
+            
+            return CostUsage(
+                run_id="",
+                step_id="",
+                tool_name=tool_name,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                total_tokens=total_tokens,
+                cost_usd=float(metadata["cost_usd"]),
+                estimated=True,
+                api_calls=1,
+                model=metadata.get("model"),
+                provider=metadata.get("provider"),
             )
         
-        # Check if flat rate specified
+        # Priority 3: Flat rate per call
         if "cost_per_call" in metadata:
             return self.estimate_api_cost(
                 tool_name,
                 params,
-                cost_per_call=metadata["cost_per_call"]
+                cost_per_call=float(metadata["cost_per_call"])
             )
         
-        # Default: minimal cost
+        # Priority 4: LLM model-based estimation
+        if "model" in metadata:
+            return self.estimate_llm_cost(
+                tool_name,
+                params,
+                model=metadata["model"],
+                estimated_input_tokens=metadata.get("input_tokens"),
+                estimated_output_tokens=metadata.get("output_tokens"),
+            )
+        
+        # Priority 5: Default minimal cost
         return CostUsage(
             run_id="",
             step_id="",

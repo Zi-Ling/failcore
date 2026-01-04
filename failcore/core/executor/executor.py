@@ -34,6 +34,19 @@ from ..trace import (
 from ..tools import ToolProvider
 from ..validate import ValidatorRegistry
 
+# Cost tracking imports
+try:
+    from ..cost import CostGuardian, CostEstimator, CostUsage, UsageExtractor
+    from ...infra.storage.cost_tables import CostStorage
+    COST_AVAILABLE = True
+except ImportError:
+    COST_AVAILABLE = False
+    CostGuardian = None
+    CostEstimator = None
+    CostUsage = None
+    UsageExtractor = None
+    CostStorage = None
+
 
 # ---------------------------
 # Policy (optional interface)
@@ -75,6 +88,7 @@ class ExecutorConfig:
     strict: bool = True                 # fail-fast always, but reserved for future
     include_stack: bool = True          # include stack in meta on failure
     summarize_limit: int = 200          # truncate long strings in summaries
+    enable_cost_tracking: bool = True   # enable cost tracking and metrics
 
 
 class Executor:
@@ -84,6 +98,7 @@ class Executor:
       - fail-fast validation
       - policy gate
       - tools dispatch
+      - cost tracking and budget enforcement
       - returns StepResult (never raises unless misconfigured)
     """
 
@@ -95,6 +110,8 @@ class Executor:
         validator: Optional[ValidatorRegistry] = None,
         config: Optional[ExecutorConfig] = None,
         replayer: Optional[Any] = None,
+        cost_guardian: Optional[Any] = None,
+        cost_estimator: Optional[Any] = None,
     ) -> None:
         self.tools = tools
         self.recorder = recorder or TraceRecorder()
@@ -103,6 +120,17 @@ class Executor:
         self.config = config or ExecutorConfig()
         self.replayer = replayer
         self._attempt_counter = {}
+        
+        # Cost tracking
+        self.cost_guardian = cost_guardian if COST_AVAILABLE else None
+        self.cost_estimator = cost_estimator or (CostEstimator() if COST_AVAILABLE and self.config.enable_cost_tracking else None)
+        self.cost_storage = CostStorage() if COST_AVAILABLE and self.config.enable_cost_tracking else None
+        
+        # Runtime cost accumulator (per-run cumulative tracking)
+        self._run_cost_cumulative: Dict[str, Dict[str, float]] = {}  # {run_id: {cost_usd, tokens, api_calls}}
+        
+        # Usage extractor for extracting actual usage from tool outputs
+        self.usage_extractor = UsageExtractor() if COST_AVAILABLE and self.config.enable_cost_tracking else None
 
     # ---- public API ----
 
@@ -171,7 +199,71 @@ class Executor:
                         remediation=remediation,
                     )
 
-        # 3. Policy check (with LLM-friendly suggestion support)
+        # 3. Cost check (BEFORE policy and execution)
+        estimated_usage = None
+        if self.cost_guardian and self.cost_estimator:
+            # Estimate cost for this step
+            tool_metadata = step.meta or {}
+            estimated_usage = self.cost_estimator.estimate(
+                tool_name=step.tool,
+                params=step.params,
+                metadata=tool_metadata,
+            )
+            # Fill in run/step context
+            estimated_usage = CostUsage(
+                run_id=ctx.run_id,
+                step_id=step.id,
+                tool_name=step.tool,
+                model=estimated_usage.model,
+                provider=estimated_usage.provider,
+                input_tokens=estimated_usage.input_tokens,
+                output_tokens=estimated_usage.output_tokens,
+                total_tokens=estimated_usage.total_tokens,
+                cost_usd=estimated_usage.cost_usd,
+                estimated=True,
+                api_calls=estimated_usage.api_calls,
+            )
+            
+            # Check budget (CRITICAL: this can block execution)
+            allowed_by_budget, budget_reason, budget_error_code = self.cost_guardian.check_operation(
+                estimated_usage,
+                raise_on_exceed=False,
+            )
+            
+            if not allowed_by_budget:
+                # Budget or burn rate exceeded - produce BLOCKED STEP_END with cost metrics
+                cost_metrics = self._build_cost_metrics(ctx.run_id, step, estimated_usage)
+                
+                # Use the specific error code from guardian
+                error_code = budget_error_code or "BUDGET_EXCEEDED"
+                
+                # Map to canonical error codes
+                from ..errors import codes
+                if error_code == "BURN_RATE_EXCEEDED":
+                    canonical_code = codes.ECONOMIC_BURN_RATE_EXCEEDED
+                elif error_code == "BUDGET_COST_EXCEEDED":
+                    canonical_code = codes.ECONOMIC_BUDGET_EXCEEDED
+                elif error_code == "BUDGET_TOKENS_EXCEEDED":
+                    canonical_code = codes.ECONOMIC_TOKEN_LIMIT
+                else:
+                    canonical_code = codes.ECONOMIC_BUDGET_EXCEEDED
+                
+                return self._fail(
+                    step, ctx, run_ctx, attempt, started_at, t0,
+                    canonical_code,
+                    budget_reason or "Budget or burn rate exceeded",
+                    ExecutionPhase.POLICY,  # Budget check is policy-level protection
+                    details={
+                        "budget_reason": budget_reason,
+                        "budget_error_code": error_code,
+                        "estimated_cost_usd": estimated_usage.cost_usd,
+                        "estimated_tokens": estimated_usage.total_tokens,
+                    },
+                    suggestion="Increase budget or wait before retrying" if error_code == "BURN_RATE_EXCEEDED" else "Increase budget or optimize tool usage",
+                    metrics=cost_metrics,
+                )
+        
+        # 4. Policy check (with LLM-friendly suggestion support)
         policy_result = self.policy.allow(step, ctx)
         
         # Handle both legacy tuple and modern PolicyResult
@@ -229,13 +321,13 @@ class Executor:
                 details=details,
             )
 
-        # 4. Replay Hook (CRITICAL: before tool execution)
+        # 5. Replay Hook (CRITICAL: before tool execution)
         if self.replayer:
             replay_result = self._try_replay(step, ctx, run_ctx, attempt, allowed, reason)
             if replay_result:
                 return replay_result
 
-        # 5. Dispatch
+        # 6. Dispatch
         fn = self.tools.get(step.tool)
         if fn is None:
             return self._fail(step, ctx, run_ctx, attempt, started_at, t0, "TOOL_NOT_FOUND", f"Tool not found: {step.tool}", ExecutionPhase.EXECUTE)
@@ -244,6 +336,19 @@ class Executor:
             out = fn(**step.params)
             output = self._normalize_output(out)
             finished_at, duration_ms = self._finish_times(t0)
+            
+            # Extract real usage from tool output (if available)
+            actual_usage = None
+            if COST_AVAILABLE and UsageExtractor:
+                actual_usage = UsageExtractor.extract(
+                    tool_output=out,
+                    run_id=ctx.run_id,
+                    step_id=step.id,
+                    tool_name=step.tool,
+                )
+            
+            # Use actual usage if available, otherwise use estimated
+            final_usage = actual_usage if actual_usage else estimated_usage
             
             # Record OUTPUT_NORMALIZED if type differs from expected
             # Only emit if we have a contract that specifies expected_kind
@@ -268,7 +373,36 @@ class Executor:
                     )
                     warnings.append("OUTPUT_KIND_MISMATCH")
 
-            # Record STEP_END
+            # Build cost metrics (incremental + cumulative)
+            # Use final_usage (real or estimated)
+            # CRITICAL: final_usage is the single source of truth for cost tracking
+            # - If actual_usage was extracted from tool output, use it (estimated=False)
+            # - Otherwise, use estimated_usage from pre-check (estimated=True)
+            # This ensures Guardian and Storage use the same cost value
+            cost_metrics = self._build_cost_metrics(ctx.run_id, step, final_usage)
+            
+            # CRITICAL: Update CostGuardian's budget counter after successful execution
+            # This ensures next step's check_operation will see the accumulated cost
+            # NOTE: We use final_usage (actual if available, otherwise estimated)
+            # This ensures budget counters reflect what was actually spent
+            # IMPORTANT: Guardian and Storage both use final_usage, ensuring consistency
+            if self.cost_guardian and final_usage:
+                try:
+                    # Record actual usage to update budget counters
+                    # If actual_usage was extracted, use it; otherwise use estimated
+                    self.cost_guardian.add_usage(final_usage)
+                    
+                    # DESIGN NOTE: Pre-check uses estimated_usage (from CostEstimator),
+                    # which may not match actual_usage if tool returns usage.cost_usd.
+                    # This is a known limitation: pre-check must happen BEFORE execution,
+                    # so it can't see the tool's return value.
+                    # To ensure accurate pre-check, use step.meta["cost_usd"] to provide
+                    # explicit cost overrides for deterministic testing.
+                except Exception:
+                    # Don't fail execution if budget recording fails
+                    pass
+            
+            # Record STEP_END (with cost metrics)
             if hasattr(self.recorder, 'next_seq'):
                 seq = self.recorder.next_seq()
                 self._record(
@@ -283,8 +417,50 @@ class Executor:
                         duration_ms=duration_ms,
                         output={"kind": output.kind.value, "value": output.value},
                         warnings=warnings if warnings else None,
+                        metrics=cost_metrics,
                     )
                 )
+                
+                # Record to SQLite cost storage
+                if self.cost_storage and cost_metrics:
+                    try:
+                        incremental = cost_metrics["cost"]["incremental"]
+                        cumulative = cost_metrics["cost"]["cumulative"]
+                        self.cost_storage.insert_usage(
+                            run_id=ctx.run_id,
+                            step_id=step.id,
+                            seq=seq,
+                            tool=step.tool,
+                            delta_cost_usd=incremental["cost_usd"],
+                            delta_tokens=incremental["tokens"],
+                            cumulative_cost_usd=cumulative["cost_usd"],
+                            cumulative_tokens=cumulative["tokens"],
+                            cumulative_api_calls=cumulative["api_calls"],
+                            status="OK",
+                            ts=started_at,
+                            delta_input_tokens=0,
+                            delta_output_tokens=0,
+                            delta_api_calls=incremental["api_calls"],
+                            error_code=None,
+                            estimated=incremental["estimated"],
+                            model=incremental.get("pricing_ref"),
+                            provider=None,
+                            duration_ms=duration_ms,
+                        )
+                        self.cost_storage.upsert_run(
+                            run_id=ctx.run_id,
+                            created_at=ctx.created_at,
+                            total_cost_usd=cumulative["cost_usd"],
+                            total_tokens=cumulative["tokens"],
+                            total_api_calls=cumulative["api_calls"],
+                            total_steps=seq,
+                            last_step_seq=seq,
+                            status="running",
+                        )
+                    except Exception as e:
+                        # Don't fail the step if cost storage fails
+                        import sys
+                        print(f"Warning: Failed to record cost to SQLite: {e}", file=sys.stderr)
 
             return StepResult(
                 step_id=step.id,
@@ -487,6 +663,7 @@ class Executor:
         suggestion: Optional[str] = None,
         remediation: Optional[Dict[str, Any]] = None,
         details: Optional[Dict[str, Any]] = None,
+        metrics: Optional[Dict[str, Any]] = None,
     ) -> StepResult:
         finished_at, duration_ms = self._finish_times(t0)
         
@@ -523,8 +700,54 @@ class Executor:
                         "message": self._truncate(message),
                         "detail": merged_detail,
                     },
+                    metrics=metrics,
                 )
             )
+            
+            # Record to SQLite cost storage (even for failed/blocked steps)
+            if self.cost_storage and metrics and "cost" in metrics:
+                try:
+                    incremental = metrics["cost"]["incremental"]
+                    cumulative = metrics["cost"]["cumulative"]
+                    self.cost_storage.insert_usage(
+                        run_id=ctx.run_id,
+                        step_id=step.id,
+                        seq=seq,
+                        tool=step.tool,
+                        delta_cost_usd=incremental["cost_usd"],
+                        delta_tokens=incremental["tokens"],
+                        cumulative_cost_usd=cumulative["cost_usd"],
+                        cumulative_tokens=cumulative["tokens"],
+                        cumulative_api_calls=cumulative["api_calls"],
+                        status=trace_status.value if isinstance(trace_status, TraceStepStatus) else str(trace_status),
+                        ts=started_at,
+                        delta_input_tokens=0,
+                        delta_output_tokens=0,
+                        delta_api_calls=incremental["api_calls"],
+                        error_code=error_code,
+                        estimated=incremental["estimated"],
+                        model=incremental.get("pricing_ref"),
+                        provider=None,
+                        duration_ms=duration_ms,
+                    )
+                    # Update run summary with blocked status if applicable
+                    self.cost_storage.upsert_run(
+                        run_id=ctx.run_id,
+                        created_at=ctx.created_at,
+                        total_cost_usd=cumulative["cost_usd"],
+                        total_tokens=cumulative["tokens"],
+                        total_api_calls=cumulative["api_calls"],
+                        total_steps=seq,
+                        last_step_seq=seq,
+                        status="blocked" if trace_status == TraceStepStatus.BLOCKED else "error",
+                        blocked_step_id=step.id if trace_status == TraceStepStatus.BLOCKED else None,
+                        blocked_reason=message if trace_status == TraceStepStatus.BLOCKED else None,
+                        blocked_error_code=error_code if trace_status == TraceStepStatus.BLOCKED else None,
+                    )
+                except Exception as e:
+                    # Don't fail the step if cost storage fails
+                    import sys
+                    print(f"Warning: Failed to record cost to SQLite: {e}", file=sys.stderr)
 
         return StepResult(
             step_id=step.id,
@@ -619,3 +842,91 @@ class Executor:
         if len(s) <= limit:
             return s
         return s[:limit] + f"...(+{len(s)-limit} chars)"
+    
+    # ---- cost tracking ----
+    
+    def _build_cost_metrics(
+        self,
+        run_id: str,
+        step: Step,
+        usage: Optional[Any],
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Build cost metrics for STEP_END event
+        
+        Returns dict with:
+        - incremental: cost for this step only
+        - cumulative: total cost for run so far
+        
+        Args:
+            run_id: Run ID for cumulative tracking
+            step: Current step
+            usage: CostUsage object (or None if cost tracking disabled)
+        
+        Returns:
+            metrics dict or None if cost tracking disabled
+        """
+        if not usage or not self.config.enable_cost_tracking:
+            return None
+        
+        # Incremental (this step only)
+        # v0.1.3 schema compliant: only allowed fields
+        incremental = {
+            "cost_usd": float(usage.cost_usd),
+            "tokens": int(usage.total_tokens),
+            "api_calls": int(usage.api_calls),
+            "estimated": bool(usage.estimated),
+        }
+        
+        # Optional: pricing_ref (format: provider:model:version)
+        if usage.model and usage.provider:
+            incremental["pricing_ref"] = f"{usage.provider}:{usage.model}"
+        
+        # Initialize run cumulative if not exists
+        if run_id not in self._run_cost_cumulative:
+            self._run_cost_cumulative[run_id] = {
+                "cost_usd": 0.0,
+                "tokens": 0,
+                "api_calls": 0,
+            }
+        
+        # Update cumulative
+        self._run_cost_cumulative[run_id]["cost_usd"] += float(usage.cost_usd)
+        self._run_cost_cumulative[run_id]["tokens"] += int(usage.total_tokens)
+        self._run_cost_cumulative[run_id]["api_calls"] += int(usage.api_calls)
+        
+        # Cumulative (entire run so far)
+        cumulative = {
+            "cost_usd": float(self._run_cost_cumulative[run_id]["cost_usd"]),
+            "tokens": int(self._run_cost_cumulative[run_id]["tokens"]),
+            "api_calls": int(self._run_cost_cumulative[run_id]["api_calls"]),
+        }
+        
+        return {
+            "cost": {
+                "incremental": incremental,
+                "cumulative": cumulative,
+            }
+        }
+    
+    def reset_run_cost(self, run_id: str) -> None:
+        """
+        Reset cumulative cost for a run
+        
+        Useful when starting a new run or resetting counters
+        """
+        if run_id in self._run_cost_cumulative:
+            del self._run_cost_cumulative[run_id]
+    
+    def get_run_cost(self, run_id: str) -> Dict[str, Any]:
+        """
+        Get current cumulative cost for a run
+        
+        Returns:
+            Dict with cost_usd, tokens, api_calls
+        """
+        return self._run_cost_cumulative.get(run_id, {
+            "cost_usd": 0.0,
+            "tokens": 0,
+            "api_calls": 0,
+        })

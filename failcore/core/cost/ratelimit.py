@@ -170,9 +170,10 @@ class BurnRateLimiter:
         calls_per_minute = sum(e.api_calls for e in self.events if e.timestamp >= minute_ago)
         calls_per_hour = sum(e.api_calls for e in self.events if e.timestamp >= hour_ago)
         
-        # Check USD limits
+        # Check USD limits (allow equal, only block if strictly greater)
         if self.config.max_usd_per_minute is not None:
-            if usd_per_minute + usage.cost_usd > self.config.max_usd_per_minute:
+            projected = usd_per_minute + usage.cost_usd
+            if projected > self.config.max_usd_per_minute:
                 self._raise_limit_exceeded(
                     "USD per minute",
                     usd_per_minute,
@@ -249,9 +250,16 @@ class BurnRateLimiter:
         unit: str = "USD",
     ) -> None:
         """Raise error for exceeded burn rate"""
+        projected = current + requested
         raise FailCoreError(
-            message=f"Burn rate exceeded: {limit_name} limit",
-            error_code=codes.ECONOMIC_BUDGET_EXCEEDED,
+            message=(
+                f"Burn rate exceeded: {limit_name} limit. "
+                f"Current window: {current:.6f} {unit}, "
+                f"requested: {requested:.6f} {unit}, "
+                f"projected: {projected:.6f} {unit}, "
+                f"limit: {maximum:.6f} {unit}"
+            ),
+            error_code=codes.ECONOMIC_BURN_RATE_EXCEEDED,
             phase="BURN_RATE_CHECK",
             suggestion=(
                 f"Spending too fast. Current rate: {current:.4f} {unit}, "
@@ -261,9 +269,12 @@ class BurnRateLimiter:
             details={
                 "limit_name": limit_name,
                 "current_usage": current,
-                "limit": maximum,
                 "requested": requested,
+                "projected": projected,
+                "limit": maximum,
                 "unit": unit,
+                "window_seconds": 60 if "minute" in limit_name else (3600 if "hour" in limit_name else 86400),
+                "burn_rate_usd_per_min": current if "minute" in limit_name and unit == "USD" else None,
             }
         )
     

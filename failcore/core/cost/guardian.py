@@ -7,11 +7,12 @@ Provides simple facade for comprehensive economic safety.
 
 from typing import Optional, Callable, Dict, Any
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
-from .models import Budget, CostUsage
+from .models import Budget, CostUsage, BudgetScope
 from .pricing import DynamicPriceEngine, PriceProvider
 from .streaming import StreamingTokenWatchdog
-from .ratelimit import BurnRateLimiter
+from .ratelimit import BurnRateLimiter, UsageEvent
 from .alerts import BudgetAlertManager, AlertLevel, BudgetAlert
 
 
@@ -148,7 +149,12 @@ class CostGuardian:
     def _init_budget(self):
         """Initialize budget"""
         if self.config.has_budget_limits():
+            # Guardian-level budget is global (not tied to specific run)
+            # Use ORG scope as it doesn't require run_id
             self.budget = Budget(
+                budget_id="guardian-global",
+                scope=BudgetScope.ORG,
+                org_id="default",  # Default org for global guardian
                 max_cost_usd=self.config.max_cost_usd,
                 max_tokens=self.config.max_tokens,
                 max_api_calls=self.config.max_api_calls,
@@ -201,7 +207,7 @@ class CostGuardian:
         self,
         usage: CostUsage,
         raise_on_exceed: bool = True,
-    ) -> tuple[bool, Optional[str]]:
+    ) -> tuple[bool, Optional[str], Optional[str]]:
         """
         Check if operation is allowed
         
@@ -215,7 +221,8 @@ class CostGuardian:
             raise_on_exceed: Raise error if exceeded
         
         Returns:
-            (allowed, reason) - True if allowed, False + reason if blocked
+            (allowed, reason, error_code) - True if allowed, False + reason + error_code if blocked
+            error_code: "BURN_RATE_EXCEEDED", "BUDGET_COST_EXCEEDED", "BUDGET_TOKENS_EXCEEDED", etc.
         
         Raises:
             FailCoreError: If raise_on_exceed=True and limits exceeded
@@ -224,7 +231,7 @@ class CostGuardian:
         
         self.operations_checked += 1
         
-        # 1. Check burn rate
+        # 1. Check burn rate (BEFORE budget check)
         if self.burn_limiter:
             try:
                 self.burn_limiter.check_and_record(usage)
@@ -234,37 +241,93 @@ class CostGuardian:
                     self.on_burn_rate_exceeded(e.message)
                 if raise_on_exceed:
                     raise
-                return (False, f"Burn rate exceeded: {e.message}")
+                # Return with specific burn rate message
+                return (False, str(e.message), "BURN_RATE_EXCEEDED")
         
         # 2. Check budget
         if self.budget:
-            would_exceed, reason = self.budget.would_exceed(usage)
+            would_exceed, reason, error_code = self.budget.would_exceed(usage)
             if would_exceed:
                 self.operations_blocked += 1
                 if self.on_budget_exceeded:
                     self.on_budget_exceeded(reason)
                 if raise_on_exceed:
+                    # Map specific error codes
+                    if error_code == "BUDGET_COST_EXCEEDED":
+                        code = codes.ECONOMIC_BUDGET_EXCEEDED
+                    elif error_code == "BUDGET_TOKENS_EXCEEDED":
+                        code = codes.ECONOMIC_TOKEN_LIMIT
+                    elif error_code == "BUDGET_API_CALLS_EXCEEDED":
+                        code = codes.ECONOMIC_BUDGET_EXCEEDED  # Use generic for now
+                    else:
+                        code = codes.ECONOMIC_BUDGET_EXCEEDED
+                    
                     raise FailCoreError(
                         message=f"Budget exceeded: {reason}",
-                        error_code=codes.ECONOMIC_BUDGET_EXCEEDED,
+                        error_code=code,
                         phase="COST_GUARDIAN",
                         suggestion="Increase budget or reduce operation scope",
                         details={
                             "usage": usage.to_dict(),
                             "budget": self.budget.to_dict(),
+                            "budget_error_code": error_code,
                         }
                     )
-                return (False, reason)
+                return (False, reason, error_code)
         
         # 3. Check alerts (non-blocking)
         if self.alert_manager:
             self.alert_manager.check_budget(usage)
         
-        # 4. Record usage
+        return (True, None, None)
+    
+    def add_usage(self, usage: CostUsage) -> None:
+        """
+        Record actual usage after operation completes successfully.
+        
+        This updates:
+        - Budget counters (used_cost_usd, used_tokens, used_api_calls)
+        - Burn rate limiter history (for sliding window calculations)
+        
+        CRITICAL: This is called AFTER execution, using actual_usage (if extracted)
+        or estimated_usage (if actual not available). This ensures budget counters
+        and burn rate limiter reflect what was actually spent, not just what was estimated.
+        
+        IMPORTANT: Burn limiter records are updated here with actual cost, replacing
+        the estimated value recorded during pre-check. This ensures burn rate calculations
+        use the same cost source as budget and storage (final_usage).
+        
+        Args:
+            usage: Actual usage from completed operation (final_usage from executor)
+        """
         if self.budget:
             self.budget.add_usage(usage)
         
-        return (True, None)
+        # CRITICAL: Record actual usage to burn rate limiter
+        # This replaces the estimated value recorded during pre-check (check_operation)
+        # We use the same final_usage that budget and storage use, ensuring consistency
+        if self.burn_limiter:
+            now = datetime.now(timezone.utc)
+            with self.burn_limiter._lock:
+                # Remove the last event if it's from pre-check (very recent, < 2 seconds)
+                # This ensures we replace estimated cost with actual cost
+                if self.burn_limiter.events:
+                    last_event = self.burn_limiter.events[-1]
+                    # If last event is very recent, it's likely from pre-check
+                    # Remove it and replace with actual usage
+                    time_since_last = (now - last_event.timestamp).total_seconds()
+                    if time_since_last < 2.0:  # Within 2 seconds, assume it's from pre-check
+                        self.burn_limiter.events.pop()
+                
+                # Record actual usage with current timestamp
+                # This ensures burn rate calculations use actual cost, not estimated
+                event = UsageEvent(
+                    timestamp=now,
+                    cost_usd=usage.cost_usd,
+                    tokens=usage.total_tokens,
+                    api_calls=usage.api_calls,
+                )
+                self.burn_limiter.events.append(event)
     
     def create_streaming_watchdog(
         self,

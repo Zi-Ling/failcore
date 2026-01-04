@@ -1,0 +1,487 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://failcore.dev/trace/v0.1.3.schema.json",
+  "title": "FailCore Trace Event v0.1.3",
+  "description": "Trace event schema for FailCore execution traces with provenance tracking, resource usage, deterministic replay fingerprinting, enhanced contract validation, and standardized STEP_END cost metrics contract",
+  "type": "object",
+  "required": ["schema", "seq", "ts", "level", "event", "run"],
+  "properties": {
+    "schema": {
+      "type": "string",
+      "const": "failcore.trace.v0.1.3",
+      "description": "Schema version identifier"
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Monotonic sequence number within run"
+    },
+    "ts": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO8601 timestamp with timezone (recommend microsecond precision for concurrent tool call ordering)"
+    },
+    "level": {
+      "type": "string",
+      "enum": ["DEBUG", "INFO", "WARN", "ERROR"],
+      "description": "Log level for observability (not enforcement severity)"
+    },
+    "event": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "RUN_START",
+            "RUN_END",
+            "STEP_START",
+            "STEP_END",
+            "FINGERPRINT_COMPUTED",
+            "REPLAY_HIT",
+            "REPLAY_MISS",
+            "CONTRACT_DRIFT",
+            "VALIDATION_FAILED",
+            "POLICY_DENIED",
+            "OUTPUT_NORMALIZED",
+            "ARTIFACT_WRITTEN",
+            "SIDE_EFFECT_APPLIED"
+          ]
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["ok", "warn", "block"],
+          "description": "Enforcement severity (ok=passed, warn=soft violation/drift, block=hard failure/termination)"
+        },
+        "step": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": { "type": "string" },
+            "tool": { "type": "string" },
+            "attempt": { "type": "integer", "minimum": 1 },
+            "depends_on": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Step IDs this step depends on"
+            },
+            "fingerprint": {
+              "type": "object",
+              "description": "Replay matching fingerprint (critical for deterministic replay)",
+              "additionalProperties": false,
+              "required": ["hash"],
+              "properties": {
+                "hash": {
+                  "type": "string",
+                  "pattern": "^(sha256|md5):[a-f0-9]+$",
+                  "description": "Fingerprint hash for replay matching"
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "Fingerprint algorithm version"
+                },
+                "components": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "Components included in fingerprint (e.g., ['tool', 'params', 'env'])"
+                },
+                "contract_hash": {
+                  "type": "string",
+                  "pattern": "^(sha256|md5):[a-f0-9]+$",
+                  "description": "Optional contract hash to include contract in fingerprint"
+                }
+              }
+            },
+            "contract": { "type": "object" },
+            "meta": {
+              "type": "object",
+              "description": "Reserved for future step-level extensions (e.g., tags, annotations)"
+            },
+            "provenance": {
+              "type": "object",
+              "description": "Source tracking: where did this step come from?",
+              "additionalProperties": false,
+              "properties": {
+                "source": {
+                  "type": "string",
+                  "enum": ["user", "memory", "planner", "repair", "cache", "retry", "fallback"],
+                  "description": "Origin type of this step"
+                },
+                "ref": {
+                  "type": "string",
+                  "description": "Reference to source location (strongly recommended for non-user sources). Examples: 'msg:7#char120-210', 'trace:seq12', 'plan:s3'"
+                },
+                "hash": {
+                  "type": "string",
+                  "pattern": "^(sha256|md5):[a-f0-9]+$",
+                  "description": "Optional hash of source content for integrity verification"
+                }
+              },
+              "required": ["source"]
+            },
+            "usage": {
+              "type": "object",
+              "description": "Resource consumption for this step",
+              "additionalProperties": false,
+              "properties": {
+                "input_tokens": { "type": "integer", "minimum": 0 },
+                "output_tokens": { "type": "integer", "minimum": 0 },
+                "tool_ms": { "type": "integer", "minimum": 0 },
+                "billing": {
+                  "type": "object",
+                  "description": "Optional cost estimation (provider-specific, unstable)",
+                  "additionalProperties": false,
+                  "properties": {
+                    "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+                    "estimated_cost": { "type": "number", "minimum": 0 },
+                    "pricing_ref": { "type": "string" }
+                  },
+                  "required": ["currency", "estimated_cost"]
+                }
+              }
+            }
+          }
+        },
+        "data": {
+          "type": "object",
+          "description": "Event-specific payload (structure depends on event.type)"
+        }
+      },
+      "oneOf": [
+        {
+          "description": "STEP_START must have step identity",
+          "required": ["type", "step"],
+          "properties": {
+            "type": { "enum": ["STEP_START"] },
+            "step": { "required": ["id", "tool"] }
+          }
+        },
+        {
+          "description": "STEP_END must have step identity, result status, and (optionally) standardized metrics.cost",
+          "required": ["type", "step", "data"],
+          "properties": {
+            "type": { "enum": ["STEP_END"] },
+            "step": { "required": ["id", "tool"] },
+            "data": {
+              "type": "object",
+              "additionalProperties": true,
+              "required": ["result"],
+              "properties": {
+                "result": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "required": ["status"],
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": ["OK", "ERROR", "BLOCKED"],
+                      "description": "Step end status (OK=completed, ERROR=execution failure, BLOCKED=policy/guardrail denial)"
+                    },
+                    "phase": { "type": "string" },
+                    "duration_ms": { "type": "integer", "minimum": 0 },
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "code": { "type": "string" },
+                        "message": { "type": "string" }
+                      }
+                    }
+                  }
+                },
+                "metrics": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "cost": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["incremental", "cumulative"],
+                      "properties": {
+                        "incremental": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": ["tokens", "api_calls", "estimated"],
+                          "properties": {
+                            "cost_usd": {
+                              "type": "number",
+                              "description": "Convenience USD cost (legacy/compat). If currency!=USD, prefer cost.amount+cost.currency."
+                            },
+                            "cost": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": ["amount", "currency"],
+                              "properties": {
+                                "amount": { "type": "number" },
+                                "currency": {
+                                  "type": "string",
+                                  "pattern": "^[A-Z]{3}$",
+                                  "description": "ISO 4217 currency code (e.g., USD, CNY)"
+                                }
+                              },
+                              "description": "General multi-currency representation"
+                            },
+                            "pricing_ref": {
+                              "type": "string",
+                              "description": "Price table reference used to compute cost (e.g., openai:gpt-4o:2024-05-13)"
+                            },
+                            "tokens": { "type": "integer", "minimum": 0 },
+                            "api_calls": { "type": "integer", "minimum": 0 },
+                            "cached_api_calls": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "description": "Calls served from cache (api_calls may be 0 while tokens>0 if replay/caching is used)"
+                            },
+                            "estimated": { "type": "boolean" }
+                          },
+                          "allOf": [
+                            {
+                              "anyOf": [
+                                { "required": ["cost_usd"] },
+                                { "required": ["cost"] }
+                              ]
+                            }
+                          ]
+                        },
+                        "cumulative": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": ["tokens", "api_calls"],
+                          "properties": {
+                            "cost_usd": {
+                              "type": "number",
+                              "description": "Convenience USD cumulative cost (legacy/compat). If currency!=USD, prefer cost.amount+cost.currency."
+                            },
+                            "cost": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": ["amount", "currency"],
+                              "properties": {
+                                "amount": { "type": "number" },
+                                "currency": {
+                                  "type": "string",
+                                  "pattern": "^[A-Z]{3}$",
+                                  "description": "ISO 4217 currency code (e.g., USD, CNY)"
+                                }
+                              },
+                              "description": "General multi-currency representation"
+                            },
+                            "pricing_ref": {
+                              "type": "string",
+                              "description": "Price table reference used to compute cumulative cost"
+                            },
+                            "tokens": { "type": "integer", "minimum": 0 },
+                            "api_calls": { "type": "integer", "minimum": 0 },
+                            "cached_api_calls": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "description": "Cumulative cached calls served from cache"
+                            }
+                          },
+                          "allOf": [
+                            {
+                              "anyOf": [
+                                { "required": ["cost_usd"] },
+                                { "required": ["cost"] }
+                              ]
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                "payload": {
+                  "type": "object",
+                  "description": "Optional tool output payload (structured by renderers), may include output summary/hash/etc."
+                }
+              }
+            }
+          }
+        },
+        {
+          "description": "FINGERPRINT_COMPUTED must carry step.fingerprint (queryable ground truth for replay tooling)",
+          "required": ["type", "step"],
+          "properties": {
+            "type": { "enum": ["FINGERPRINT_COMPUTED"] },
+            "step": { "required": ["id", "tool", "fingerprint"] }
+          }
+        },
+        {
+          "description": "REPLAY_HIT and REPLAY_MISS must carry replay metadata for cost/benefit analysis",
+          "required": ["type", "data"],
+          "properties": {
+            "type": { "enum": ["REPLAY_HIT", "REPLAY_MISS"] },
+            "data": {
+              "required": ["replay"],
+              "properties": {
+                "replay": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["hit_key", "cache_source"],
+                  "properties": {
+                    "hit_key": { "type": "string" },
+                    "cache_source": { "type": "string", "enum": ["memory", "disk", "remote", "other"] },
+                    "saved_tokens": { "type": "integer", "minimum": 0 },
+                    "saved_ms": { "type": "integer", "minimum": 0 }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "description": "CONTRACT_DRIFT must specify drift details",
+          "required": ["type", "severity", "data"],
+          "properties": {
+            "type": { "enum": ["CONTRACT_DRIFT"] },
+            "severity": { "enum": ["warn", "block"] },
+            "data": {
+              "required": ["contract"],
+              "properties": {
+                "contract": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["drift_type"],
+                  "properties": {
+                    "drift_type": { "type": "string" },
+                    "expected_kind": { "type": "string" },
+                    "observed_kind": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "description": "OUTPUT_NORMALIZED must specify normalization details",
+          "required": ["type", "severity", "data"],
+          "properties": {
+            "type": { "enum": ["OUTPUT_NORMALIZED"] },
+            "severity": { "enum": ["warn", "block"] },
+            "data": {
+              "required": ["normalization"],
+              "properties": {
+                "normalization": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["from_kind", "to_kind", "reason"],
+                  "properties": {
+                    "from_kind": { "type": "string" },
+                    "to_kind": { "type": "string" },
+                    "reason": { "type": "string" },
+                    "policy": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "description": "VALIDATION_FAILED must specify validation error details",
+          "required": ["type", "severity", "data"],
+          "properties": {
+            "type": { "enum": ["VALIDATION_FAILED"] },
+            "severity": { "enum": ["warn", "block"] },
+            "data": {
+              "required": ["validation_error"],
+              "properties": {
+                "validation_error": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["kind", "message"],
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": ["schema_violation", "parse_error", "missing_required", "unexpected_field", "type_mismatch"]
+                    },
+                    "message": { "type": "string" },
+                    "path": { "type": "string" },
+                    "details": { "type": "object" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "description": "POLICY_DENIED must specify denial reason and category",
+          "required": ["type", "severity", "data"],
+          "properties": {
+            "type": { "enum": ["POLICY_DENIED"] },
+            "severity": { "const": "block" },
+            "data": {
+              "required": ["policy"],
+              "properties": {
+                "policy": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["rule_id", "category"],
+                  "properties": {
+                    "rule_id": { "type": "string" },
+                    "category": {
+                      "type": "string",
+                      "enum": ["SECURITY", "COMPLIANCE", "BUDGET", "RATE_LIMIT", "CAPABILITY", "OTHER"]
+                    },
+                    "category_detail": { "type": "string" },
+                    "reason": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "data": {
+                    "properties": {
+                      "policy": { "properties": { "category": { "const": "OTHER" } } }
+                    }
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "data": {
+                    "properties": {
+                      "policy": { "required": ["category_detail"] }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "description": "Other event types (minimal constraints). ARTIFACT_WRITTEN/SIDE_EFFECT_APPLIED payloads should live in event.data (recommend: data.artifact={kind,ref,hash}).",
+          "required": ["type"],
+          "properties": {
+            "type": {
+              "enum": [
+                "RUN_START",
+                "RUN_END",
+                "ARTIFACT_WRITTEN",
+                "SIDE_EFFECT_APPLIED"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "run": {
+      "$ref": "https://failcore.dev/schemas/common/base.v1.schema.json#/definitions/Run"
+    },
+    "host": {
+      "$ref": "https://failcore.dev/schemas/common/base.v1.schema.json#/definitions/Host"
+    },
+    "actor": {
+      "$ref": "https://failcore.dev/schemas/common/base.v1.schema.json#/definitions/Actor"
+    },
+    "security": {
+      "$ref": "https://failcore.dev/schemas/common/base.v1.schema.json#/definitions/Security"
+    }
+  }
+}

@@ -50,10 +50,11 @@ class TraceValidator:
     SCHEMA_MAP = {
         "failcore.trace.v0.1.1": "failcore.trace.v0.1.1.schema.json",
         "failcore.trace.v0.1.2": "failcore.trace.v0.1.2.schema.json",
+        "failcore.trace.v0.1.3": "failcore.trace.v0.1.3.schema.json",
     }
     
     # Current write version
-    CURRENT_SCHEMA_VERSION = "failcore.trace.v0.1.2"
+    CURRENT_SCHEMA_VERSION = "failcore.trace.v0.1.3"
     
     VALID_LEVELS = {"DEBUG", "INFO", "WARN", "ERROR"}
     VALID_EVENT_TYPES = {

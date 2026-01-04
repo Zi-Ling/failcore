@@ -182,41 +182,57 @@ class Budget:
             return None
         return max(0, self.max_api_calls - self.used_api_calls)
 
-    def would_exceed(self, usage: CostUsage) -> Tuple[bool, str]:
+    def would_exceed(self, usage: CostUsage) -> Tuple[bool, str, Optional[str]]:
         """
         Check if adding usage would exceed budget.
 
         Returns:
-            (would_exceed, reason)
+            (would_exceed, reason, error_code)
+            error_code: "BUDGET_COST_EXCEEDED", "BUDGET_TOKENS_EXCEEDED", "BUDGET_API_CALLS_EXCEEDED", or None
         """
-        # USD
+        from decimal import Decimal, ROUND_DOWN
+        
+        # USD - Use Decimal for precision, allow equal (closed interval)
         if self.max_cost_usd is not None:
-            if self.used_cost_usd + usage.cost_usd > self.max_cost_usd:
+            used_decimal = Decimal(str(self.used_cost_usd))
+            usage_decimal = Decimal(str(usage.cost_usd))
+            max_decimal = Decimal(str(self.max_cost_usd))
+            projected = used_decimal + usage_decimal
+            
+            # Only block if strictly greater (allow equal)
+            if projected > max_decimal:
                 remaining = self.remaining_cost_usd()
                 rem_str = "0.0000" if remaining is None else f"{remaining:.4f}"
                 return True, (
-                    f"Would exceed USD budget: ${usage.cost_usd:.4f} needed, ${rem_str} remaining"
-                )
+                    f"Would exceed USD budget: ${usage.cost_usd:.6f} needed, ${rem_str} remaining. "
+                    f"Used: ${self.used_cost_usd:.6f}, projected: ${float(projected):.6f}, limit: ${self.max_cost_usd:.6f}"
+                ), "BUDGET_COST_EXCEEDED"
 
-        # Tokens
-        if self.max_tokens is not None:
-            if self.used_tokens + usage.total_tokens > self.max_tokens:
+        # Tokens - Only check if max_tokens is set AND usage has tokens
+        if self.max_tokens is not None and usage.total_tokens > 0:
+            projected_tokens = self.used_tokens + usage.total_tokens
+            # Only block if strictly greater (allow equal)
+            if projected_tokens > self.max_tokens:
                 remaining = self.remaining_tokens()
                 rem_str = "0" if remaining is None else str(remaining)
                 return True, (
-                    f"Would exceed token budget: {usage.total_tokens} needed, {rem_str} remaining"
-                )
+                    f"Would exceed token budget: {usage.total_tokens} needed, {rem_str} remaining. "
+                    f"Used: {self.used_tokens}, projected: {projected_tokens}, limit: {self.max_tokens}"
+                ), "BUDGET_TOKENS_EXCEEDED"
 
         # API calls
         if self.max_api_calls is not None:
-            if self.used_api_calls + usage.api_calls > self.max_api_calls:
+            projected_calls = self.used_api_calls + usage.api_calls
+            # Only block if strictly greater (allow equal)
+            if projected_calls > self.max_api_calls:
                 remaining = self.remaining_api_calls()
                 rem_str = "0" if remaining is None else str(remaining)
                 return True, (
-                    f"Would exceed API call budget: {usage.api_calls} needed, {rem_str} remaining"
-                )
+                    f"Would exceed API call budget: {usage.api_calls} needed, {rem_str} remaining "
+                    f"(used: {self.used_api_calls}, limit: {self.max_api_calls})"
+                ), "BUDGET_API_CALLS_EXCEEDED"
 
-        return False, ""
+        return False, "", None
 
     def add_usage(self, usage: CostUsage) -> None:
         """Add usage to budget counters."""
