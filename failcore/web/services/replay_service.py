@@ -106,6 +106,19 @@ class ReplayService:
                 if error:
                     steps[seq]["error_code"] = error.get("code")
                     steps[seq]["error_message"] = error.get("message")
+                    # Extract side-effect crossing info if present
+                    error_type = error.get("type")
+                    if error_type == "SIDE_EFFECT_BOUNDARY_CROSSED":
+                        details = error.get("details", {})
+                        steps[seq]["side_effect_crossing"] = {
+                            "crossing_type": details.get("crossing_type"),
+                            "observed_category": details.get("observed_category"),
+                            "target": details.get("target"),
+                            "tool": details.get("tool"),
+                            "step_id": details.get("step_id"),
+                            "step_seq": details.get("step_seq"),
+                            "allowed_categories": details.get("allowed_categories", []),
+                        }
                 
                 # Extract metrics
                 metrics = data.get("metrics", {})
@@ -230,6 +243,12 @@ class ReplayService:
         # Extract events (blocked steps, etc.)
         incident_events = self._extract_events(frames)
         
+        # Compute drift and inject into frames
+        self._inject_drift_into_frames(frames, events)
+        
+        # Inject side-effect crossings into frames
+        self._inject_side_effect_crossings(frames, events)
+        
         # Load cost data
         cost_data = self.cost_service.get_run_cost(run_id)
         budget = None
@@ -263,6 +282,130 @@ class ReplayService:
             budget=budget,
             cost_curve=cost_curve,
         )
+    
+    def _inject_drift_into_frames(
+        self,
+        frames: List[StepFrame],
+        events: List[Dict[str, Any]],
+    ) -> None:
+        """
+        Compute drift and inject into frames
+        
+        Args:
+            frames: List of StepFrame objects (modified in place)
+            events: List of trace events
+        """
+        try:
+            from failcore.core.replay.drift import compute_drift, annotate_drift
+            
+            # Compute drift from events
+            drift_result = compute_drift(events)
+            
+            # Create lookup maps
+            drift_by_seq = {dp.seq: dp for dp in drift_result.drift_points}
+            
+            # Inject drift data into frames
+            for frame in frames:
+                drift_point = drift_by_seq.get(frame.seq)
+                if drift_point and drift_point.drift_delta > 0:
+                    # Add drift data
+                    frame.drift = {
+                        "delta": drift_point.drift_delta,
+                        "cumulative": drift_point.drift_cumulative,
+                    }
+                    
+                    # Generate annotation for this drift point
+                    annotation = annotate_drift(
+                        drift_point,
+                        drift_result.inflection_points,
+                    )
+                    if annotation:
+                        frame.drift_annotations = [annotation.to_dict()]
+                    else:
+                        frame.drift_annotations = []
+                else:
+                    # No drift for this frame
+                    frame.drift = None
+                    frame.drift_annotations = []
+        except Exception as e:
+            # If drift computation fails, continue without drift data
+            # This ensures replay still works even if drift engine has issues
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to compute drift: {e}", exc_info=True)
+            # Set drift to None for all frames if computation fails
+            for frame in frames:
+                frame.drift = None
+                frame.drift_annotations = []
+    
+    def _inject_side_effect_crossings(
+        self,
+        frames: List[StepFrame],
+        events: List[Dict[str, Any]],
+    ) -> None:
+        """
+        Extract side-effect crossings from trace events and inject into frames
+        
+        Args:
+            frames: List of StepFrame objects (modified in place)
+            events: List of trace events
+        """
+        try:
+            # Extract crossings from events
+            crossings_by_seq = {}
+            for event in events:
+                evt = event.get("event", {})
+                evt_type = evt.get("type")
+                seq = event.get("seq", 0)
+                
+                if evt_type == "STEP_END":
+                    data = evt.get("data", {})
+                    result = data.get("result", {})
+                    error = result.get("error")
+                    if error and error.get("type") == "SIDE_EFFECT_BOUNDARY_CROSSED":
+                        details = error.get("details", {})
+                        crossings_by_seq[seq] = {
+                            "crossing_type": details.get("crossing_type"),
+                            "observed_category": details.get("observed_category"),
+                            "target": details.get("target"),
+                            "tool": details.get("tool"),
+                            "step_id": details.get("step_id"),
+                            "step_seq": details.get("step_seq"),
+                            "allowed_categories": details.get("allowed_categories", []),
+                        }
+            
+            # Inject crossings into frames
+            for frame in frames:
+                crossing_data = crossings_by_seq.get(frame.seq)
+                if crossing_data:
+                    # Create annotation from crossing data
+                    annotation_dict = {
+                        "badge": "BOUNDARY CROSSED",
+                        "severity": "high",
+                        "crossing_type": crossing_data.get("crossing_type", ""),
+                        "target": crossing_data.get("target"),
+                        "tool": crossing_data.get("tool"),
+                        "step_seq": frame.seq,
+                        "allowed_categories": crossing_data.get("allowed_categories", []),
+                    }
+                    
+                    # Generate summary
+                    crossing_type = crossing_data.get("crossing_type", "unknown")
+                    target_str = f" -> {crossing_data.get('target')}" if crossing_data.get("target") else ""
+                    allowed_str = ", ".join(crossing_data.get("allowed_categories", [])) or "none"
+                    annotation_dict["summary"] = f"Boundary crossed: {crossing_type}{target_str}. Allowed: {allowed_str}"
+                    
+                    frame.side_effect_crossings = [annotation_dict]
+                else:
+                    frame.side_effect_crossings = []
+        except Exception as e:
+            # If crossing extraction fails, continue without crossing data
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to extract side-effect crossings: {e}", exc_info=True)
+            # Set crossings to empty for all frames if extraction fails
+            for frame in frames:
+                frame.side_effect_crossings = []
     
     def get_incident_tape(self, run_id: str) -> IncidentTape:
         """

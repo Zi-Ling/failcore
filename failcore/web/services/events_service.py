@@ -146,6 +146,44 @@ class EventsService:
             events = events[:limit]
         
         return events
+    
+    def get_side_effect_findings(self, run_id: str) -> List[Dict[str, Any]]:
+        """
+        Get side-effect boundary crossings for a run
+        
+        Args:
+            run_id: Run ID
+        
+        Returns:
+            List of side-effect crossing findings
+        """
+        findings = []
+        trace_events = self.trace_repo.load_trace_events(run_id)
+        
+        for event in trace_events:
+            evt = event.get("event", {})
+            evt_type = evt.get("type")
+            seq = event.get("seq", 0)
+            ts = event.get("ts", "")
+            
+            if evt_type == "STEP_END":
+                data = evt.get("data", {})
+                result = data.get("result", {})
+                error = result.get("error")
+                if error and error.get("type") == "SIDE_EFFECT_BOUNDARY_CROSSED":
+                    details = error.get("details", {})
+                    findings.append({
+                        "crossing_type": details.get("crossing_type"),
+                        "observed_category": details.get("observed_category"),
+                        "target": details.get("target"),
+                        "tool": details.get("tool"),
+                        "step_id": details.get("step_id"),
+                        "step_seq": details.get("step_seq", seq),
+                        "ts": ts,
+                        "allowed_categories": details.get("allowed_categories", []),
+                    })
+        
+        return findings
 
 
 # Singleton instance

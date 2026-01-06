@@ -116,4 +116,32 @@ async def get_run_events(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/{run_id}/side_effect_findings")
+async def get_side_effect_findings(run_id: str):
+    """
+    Get side-effect boundary crossings for a run
+    
+    Args:
+        run_id: Run ID
+    
+    Returns:
+        {
+            "run_id": str,
+            "side_effect_findings": List[Dict[str, Any]],
+            "count": int
+        }
+    """
+    events_service = get_events_service()
+    
+    try:
+        findings = events_service.get_side_effect_findings(run_id)
+        return {
+            "run_id": run_id,
+            "side_effect_findings": findings,
+            "count": len(findings),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 __all__ = ["router"]

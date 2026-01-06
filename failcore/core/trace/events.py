@@ -295,6 +295,22 @@ class ReplayInfo:
 
 
 @dataclass
+class SideEffectInfo:
+    """
+    Side-effect information
+    
+    Records what side-effect occurred during execution.
+    This is a fact-only record - no judgment, no blocking, just observation.
+    """
+    type: str  # Side-effect type (e.g., "filesystem.write", "network.egress")
+    target: Optional[str] = None  # Target of the side-effect (e.g., "/etc/passwd", "api.example.com")
+    category: Optional[str] = None  # Side-effect category (e.g., "filesystem", "network")
+    tool: Optional[str] = None  # Tool that caused the side-effect
+    step_id: Optional[str] = None  # Step ID where side-effect occurred
+    metadata: Dict[str, Any] = field(default_factory=dict)  # Additional metadata
+
+
+@dataclass
 class TraceEvent:
     """
     Trace event following failcore.trace.v0.1.1 specification

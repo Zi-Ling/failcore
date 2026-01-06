@@ -50,12 +50,30 @@ function initReplayTimeline(frames) {
             riskBadge = '<span class="frame-badge risk risk-low">LOW RISK</span>';
         }
         
+        // Drift badges
+        const driftAnnotations = frame.drift_annotations || [];
+        let driftBadges = '';
+        driftAnnotations.forEach(ann => {
+            const badgeClass = `drift-badge drift-${ann.severity || 'info'}`;
+            const badgeText = ann.badge || 'DRIFT';
+            driftBadges += `<span class="${badgeClass}" title="${escapeHtml(ann.summary || '')}">${badgeText}</span>`;
+        });
+        
+        // Side-effect crossing badges
+        const sideEffectCrossings = frame.side_effect_crossings || [];
+        let crossingBadges = '';
+        sideEffectCrossings.forEach(crossing => {
+            crossingBadges += `<span class="frame-badge crossing crossing-high" title="${escapeHtml(crossing.summary || '')}">${crossing.badge || 'BOUNDARY CROSSED'}</span>`;
+        });
+        const hasCrossing = sideEffectCrossings.length > 0;
+        
         // High-risk or blocked frames get special styling
-        const isHighlighted = isHighRisk || isBlocked;
+        const isHighlighted = isHighRisk || isBlocked || hasCrossing;
+        const hasDrift = driftAnnotations.length > 0;
         
         html += `
             <div 
-                class="replay-timeline-item status-${status} ${hasAnomalies ? 'has-anomalies' : ''} ${hasError ? 'has-error' : ''} ${isHighRisk ? 'high-risk' : ''} ${isBlocked ? 'blocked-frame' : ''}"
+                class="replay-timeline-item status-${status} ${hasAnomalies ? 'has-anomalies' : ''} ${hasError ? 'has-error' : ''} ${isHighRisk ? 'high-risk' : ''} ${isBlocked ? 'blocked-frame' : ''} ${hasDrift ? 'has-drift' : ''} ${hasCrossing ? 'has-crossing' : ''}"
                 data-frame-index="${index}"
                 onclick="selectFrame(${index})"
             >
@@ -67,6 +85,8 @@ function initReplayTimeline(frames) {
                 <div class="frame-badges">
                     ${sideEffectBadge}
                     ${riskBadge}
+                    ${driftBadges}
+                    ${crossingBadges}
                     ${hasAnomalies ? `<span class="frame-badge anomalies">${frame.anomalies.length} anomalies</span>` : ''}
                     ${hasError ? `<span class="frame-badge error">${escapeHtml(frame.error_code || 'ERROR')}</span>` : ''}
                 </div>
@@ -166,8 +186,17 @@ function escapeHtml(text) {
     font-weight: 600;
 }
 
-.replay-timeline-item.blocked-frame .frame-tool {
+.replay-timeline-item.blocked-frame .frame-tool,
+.replay-timeline-item.has-crossing .frame-tool {
     color: var(--red-500);
+    font-weight: 600;
+}
+
+.replay-timeline-item.has-crossing {
+    border-left-width: 4px;
+    border-left-color: var(--red-500);
+    background: rgba(239, 68, 68, 0.1);
+    box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.3);
     font-weight: 600;
 }
 
@@ -299,6 +328,20 @@ function escapeHtml(text) {
     background: rgba(239, 68, 68, 0.1);
     color: var(--red-500);
     border: 1px solid var(--red-600);
+}
+
+.frame-badge.crossing {
+    font-weight: 700;
+    text-transform: uppercase;
+    font-size: 0.625rem;
+    letter-spacing: 0.05em;
+}
+
+.frame-badge.crossing-high {
+    background: rgba(239, 68, 68, 0.2);
+    color: var(--red-500);
+    border: 2px solid var(--red-600);
+    animation: pulse 2s infinite;
 }
 
 .frame-decision-preview {

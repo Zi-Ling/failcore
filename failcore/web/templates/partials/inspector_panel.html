@@ -90,6 +90,30 @@ function renderSummaryTab(frame) {
         `;
     }
     
+    // Side-effect crossings (high priority)
+    if (frame.side_effect_crossings && frame.side_effect_crossings.length > 0) {
+        html += `
+            <div class="inspector-section crossing-section crossing-high">
+                <h5>BOUNDARY CROSSED</h5>
+                ${frame.side_effect_crossings.map(crossing => `
+                    <div class="crossing-item">
+                        <div class="crossing-header">
+                            <span class="crossing-type">${escapeHtml(crossing.crossing_type || 'unknown')}</span>
+                            <span class="crossing-severity severity-${crossing.severity || 'high'}">${(crossing.severity || 'high').toUpperCase()}</span>
+                        </div>
+                        <div class="crossing-summary">${escapeHtml(crossing.summary || '')}</div>
+                        ${crossing.target ? `<div class="crossing-target"><strong>Target:</strong> ${escapeHtml(crossing.target)}</div>` : ''}
+                        ${crossing.allowed_categories && crossing.allowed_categories.length > 0 ? `
+                            <div class="crossing-boundary">
+                                <strong>Allowed categories:</strong> ${escapeHtml(crossing.allowed_categories.join(', '))}
+                            </div>
+                        ` : ''}
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    }
+    
     // Anomalies summary
     if (frame.anomalies && frame.anomalies.length > 0) {
         const critical = frame.anomalies.filter(a => a.severity === 'critical').length;
@@ -161,6 +185,16 @@ function renderSummaryTab(frame) {
 function renderParamsTab(frame) {
     let html = '';
     
+    // Get drift changes for highlighting
+    const driftChanges = [];
+    if (frame.drift_annotations && frame.drift_annotations.length > 0) {
+        frame.drift_annotations.forEach(ann => {
+            if (ann.changes) {
+                driftChanges.push(...ann.changes);
+            }
+        });
+    }
+    
     // Args diff (default view: only show changes)
     if (frame.args_diff && hasArgsDiffChanges(frame.args_diff)) {
         html += `
@@ -173,7 +207,7 @@ function renderParamsTab(frame) {
                     Show Full Arguments
                 </button>
                 <div id="full-args-${frame.seq}" class="full-args-view" style="display: none;">
-                    <pre><code>${escapeHtml(JSON.stringify(frame.args_raw || frame.args, null, 2))}</code></pre>
+                    ${renderParamsWithDrift(frame.args_raw || frame.args, driftChanges, frame.seq)}
                 </div>
             </div>
         `;
@@ -181,7 +215,7 @@ function renderParamsTab(frame) {
         html += `
             <div class="inspector-section args-section">
                 <h5>ARGUMENTS</h5>
-                <pre class="inspector-code"><code>${escapeHtml(JSON.stringify(frame.args_raw || frame.args, null, 2))}</code></pre>
+                ${renderParamsWithDrift(frame.args_raw || frame.args, driftChanges, frame.seq)}
             </div>
         `;
     }
@@ -296,6 +330,47 @@ function renderEvidenceTab(frame) {
     `;
     
     return html || '<div class="inspector-placeholder">No evidence available</div>';
+}
+
+function renderParamsWithDrift(params, driftChanges, seq) {
+    if (!params) {
+        return '<pre class="inspector-code"><code></code></pre>';
+    }
+    
+    const jsonStr = JSON.stringify(params, null, 2);
+    
+    if (!driftChanges || driftChanges.length === 0) {
+        return `<pre class="inspector-code"><code>${escapeHtml(jsonStr)}</code></pre>`;
+    }
+    
+    // Build field path map for highlighting
+    const fieldMap = new Map();
+    driftChanges.forEach(change => {
+        if (change.field_path) {
+            fieldMap.set(change.field_path, {
+                severity: change.severity || 'info',
+                change_type: change.change_type || 'value_changed',
+                reason: change.reason || '',
+            });
+        }
+    });
+    
+    // Simple highlighting: wrap lines containing drifted field names
+    const lines = jsonStr.split('\n');
+    const highlightedLines = lines.map(line => {
+        for (const [fieldPath, info] of fieldMap.entries()) {
+            const fieldName = fieldPath.split('.').pop();
+            // Check if line contains the field name as a key
+            const keyPattern = new RegExp(`"${fieldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"\\s*:`, 'g');
+            if (keyPattern.test(line)) {
+                const title = `${fieldPath}: ${info.reason}`;
+                return `<span class="drift-field drift-${info.severity}" data-field="${escapeHtml(fieldPath)}" title="${escapeHtml(title)}">${escapeHtml(line)}</span>`;
+            }
+        }
+        return escapeHtml(line);
+    });
+    
+    return `<pre class="inspector-code"><code>${highlightedLines.join('\n')}</code></pre>`;
 }
 
 function switchInspectorTab(tabName, seq) {
@@ -498,6 +573,69 @@ window.switchInspectorTab = switchInspectorTab;
 
 .decision-section {
     border-left: 3px solid var(--border);
+}
+
+.crossing-section {
+    border-left: 3px solid var(--red-500);
+    background: rgba(239, 68, 68, 0.05);
+}
+
+.crossing-section.crossing-high {
+    border-left-width: 4px;
+    background: rgba(239, 68, 68, 0.1);
+}
+
+.crossing-item {
+    padding: 0.5rem;
+    margin-bottom: 0.5rem;
+    background: var(--bg-secondary);
+    border-radius: 2px;
+}
+
+.crossing-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.crossing-type {
+    font-weight: 600;
+    color: var(--red-500);
+    font-family: monospace;
+    font-size: 0.875rem;
+}
+
+.crossing-severity {
+    padding: 0.125rem 0.5rem;
+    font-size: 0.625rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    border-radius: 2px;
+}
+
+.crossing-severity.severity-high {
+    background: rgba(239, 68, 68, 0.2);
+    color: var(--red-500);
+    border: 1px solid var(--red-600);
+}
+
+.crossing-summary {
+    font-size: 0.875rem;
+    color: var(--text-primary);
+    margin-bottom: 0.5rem;
+}
+
+.crossing-target,
+.crossing-boundary {
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+    margin-top: 0.25rem;
+}
+
+.crossing-target strong,
+.crossing-boundary strong {
+    color: var(--text-primary);
 }
 
 .decision-section.decision-blocked {
@@ -907,5 +1045,49 @@ window.switchInspectorTab = switchInspectorTab;
 .trace-ref-value {
     color: var(--text-primary);
     font-family: monospace;
+}
+
+/* Drift field highlighting */
+.drift-field {
+    display: inline-block;
+    padding: 0.125rem 0.25rem;
+    border-radius: 2px;
+    position: relative;
+}
+
+.drift-field.drift-info {
+    background: rgba(59, 130, 246, 0.1);
+    border-left: 2px solid var(--blue-500);
+    padding-left: 0.5rem;
+}
+
+.drift-field.drift-warn {
+    background: rgba(245, 158, 11, 0.1);
+    border-left: 2px solid var(--yellow-500);
+    padding-left: 0.5rem;
+}
+
+.drift-field.drift-high {
+    background: rgba(239, 68, 68, 0.15);
+    border-left: 2px solid var(--red-500);
+    padding-left: 0.5rem;
+    font-weight: 500;
+}
+
+.drift-field:hover {
+    background-color: rgba(59, 130, 246, 0.2);
+}
+
+.drift-field.drift-warn:hover {
+    background-color: rgba(245, 158, 11, 0.2);
+}
+
+.drift-field.drift-high:hover {
+    background-color: rgba(239, 68, 68, 0.25);
+}
+
+.inspector-code .drift-field {
+    display: block;
+    margin: 0.125rem 0;
 }
 </style>

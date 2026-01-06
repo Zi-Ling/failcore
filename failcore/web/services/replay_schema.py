@@ -34,6 +34,9 @@ class StepFrame:
     evidence: List[Dict[str, Any]] = field(default_factory=list)  # Evidence items (logs, errors, etc.)
     error_code: Optional[str] = None  # Error code if failed/blocked
     error_message: Optional[str] = None  # Error message if failed/blocked
+    drift: Optional[Dict[str, Any]] = None  # Drift data: {delta, cumulative}
+    drift_annotations: List[Dict[str, Any]] = field(default_factory=list)  # Drift annotations for UI
+    side_effect_crossings: List[Dict[str, Any]] = field(default_factory=list)  # Side-effect boundary crossings
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary"""

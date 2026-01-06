@@ -160,6 +160,26 @@ class Snapshot:
 
 
 @dataclass(frozen=True)
+class AuditFinding:
+    """
+    Side-effect boundary crossing finding (for audit reports)
+    
+    Represents a crossing event as an audit finding.
+    This converts security logic into audit evidence.
+    """
+    finding_id: str
+    ts: str  # ISO8601 timestamp
+    crossing_type: str  # Side-effect type that crossed boundary (e.g., "filesystem.write")
+    observed_category: str  # Observed category
+    target: Optional[str] = None  # Target of the side-effect (path/host/command)
+    tool: Optional[str] = None  # Tool that caused the crossing
+    step_seq: Optional[int] = None  # Step sequence number
+    step_id: Optional[str] = None  # Step ID
+    allowed_categories: List[str] = field(default_factory=list)  # Allowed categories in boundary
+    boundary: Optional[Dict[str, Any]] = None  # Boundary configuration snapshot
+
+
+@dataclass(frozen=True)
 class Finding:
     """
     One incident/finding derived from trace events.

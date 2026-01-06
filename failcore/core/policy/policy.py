@@ -10,6 +10,16 @@ from pathlib import Path
 import os
 import time
 
+from ..audit.side_effect_auditor import SideEffectAuditor, CrossingRecord
+from ..audit.boundary import SideEffectBoundary
+from ..audit.side_effects import SideEffectType
+from ..executor.side_effect_probe import (
+    detect_filesystem_side_effect,
+    detect_network_side_effect,
+    detect_exec_side_effect,
+)
+from ..errors.side_effect import SideEffectBoundaryCrossedError
+
 
 @dataclass
 class PolicyResult:
@@ -273,6 +283,129 @@ class CostPolicy:
 
 
 @dataclass
+class SideEffectPolicy:
+    """
+    Side-Effect Policy
+    
+    Enforces side-effect boundaries by checking predicted side-effects
+    before tool execution. This is a direct blocking authority.
+    """
+    name: str = "side_effect_policy"
+    auditor: Optional[SideEffectAuditor] = None
+    
+    def allow(self, step: Any, ctx: Any) -> tuple[bool, str] | PolicyResult:
+        """
+        Check if side-effects are allowed
+        
+        Predicts side-effects from tool and params, then checks against boundary.
+        If crossing detected, raises SideEffectBoundaryCrossedError.
+        """
+        if self.auditor is None:
+            return True, ""
+        
+        tool_name = step.tool if hasattr(step, 'tool') else getattr(step, 'name', '')
+        params = step.params if hasattr(step, 'params') else getattr(step, 'args', {})
+        
+        # Predict possible side-effects from tool and params
+        predicted_side_effects = self._predict_side_effects(tool_name, params)
+        
+        # Check each predicted side-effect against boundary
+        for side_effect_type in predicted_side_effects:
+            if side_effect_type is None:
+                continue
+            
+            # Check if this side-effect crosses the boundary
+            if self.auditor.check_crossing(side_effect_type):
+                # Crossing detected - create crossing record
+                step_id = getattr(step, 'id', None)
+                step_seq = getattr(ctx, 'step_seq', None) if ctx else None
+                ts = getattr(ctx, 'ts', None) if ctx else None
+                
+                # Extract target from params
+                target = self._extract_target(side_effect_type, params)
+                
+                crossing_record = CrossingRecord(
+                    crossing_type=side_effect_type,
+                    boundary=self.auditor.boundary,
+                    step_seq=step_seq,
+                    ts=ts,
+                    target=target,
+                    tool=tool_name,
+                    step_id=step_id,
+                )
+                
+                # Raise error - this is a direct failure
+                raise SideEffectBoundaryCrossedError(crossing_record)
+        
+        return True, ""
+    
+    def _predict_side_effects(
+        self,
+        tool_name: str,
+        params: Dict[str, Any],
+    ) -> List[Optional[SideEffectType]]:
+        """
+        Predict possible side-effects from tool name and parameters
+        
+        Uses heuristics to predict what side-effects might occur.
+        This is a pre-execution check, so we predict based on tool signature.
+        """
+        side_effects = []
+        
+        # Check filesystem side-effects
+        # Try different operations (read, write, delete)
+        for op in ["read", "write", "delete"]:
+            fs_effect = detect_filesystem_side_effect(tool_name, params, operation=op)
+            if fs_effect:
+                side_effects.append(fs_effect)
+                break  # Only one filesystem operation per tool call
+        
+        # Check network side-effects
+        # Try different directions
+        for direction in ["egress", "ingress", "private"]:
+            net_effect = detect_network_side_effect(tool_name, params, direction=direction)
+            if net_effect:
+                side_effects.append(net_effect)
+                break  # Only one network operation per tool call
+        
+        # Check exec side-effects
+        exec_effect = detect_exec_side_effect(tool_name, params)
+        if exec_effect:
+            side_effects.append(exec_effect)
+        
+        return side_effects
+    
+    def _extract_target(
+        self,
+        side_effect_type: SideEffectType,
+        params: Dict[str, Any],
+    ) -> Optional[str]:
+        """
+        Extract target from params based on side-effect type
+        
+        Args:
+            side_effect_type: Type of side-effect
+            params: Tool parameters
+        
+        Returns:
+            Target string (path, host, command, etc.) or None
+        """
+        type_str = side_effect_type.value if isinstance(side_effect_type, SideEffectType) else str(side_effect_type)
+        
+        if type_str.startswith("filesystem."):
+            # Extract path
+            return params.get("path") or params.get("file") or params.get("filepath") or params.get("source") or params.get("destination")
+        elif type_str.startswith("network."):
+            # Extract URL or host
+            return params.get("url") or params.get("host") or params.get("hostname")
+        elif type_str.startswith("exec.") or type_str.startswith("process."):
+            # Extract command
+            return params.get("command") or params.get("cmd") or params.get("script")
+        
+        return None
+
+
+@dataclass
 class CompositePolicy:
     """
     组合策略。
@@ -281,13 +414,36 @@ class CompositePolicy:
     """
     name: str = "composite_policy"
     policies: List[Policy] = field(default_factory=list)
+    side_effect_auditor: Optional[SideEffectAuditor] = None
+    
+    def __post_init__(self):
+        """Initialize side-effect policy if auditor is provided"""
+        if self.side_effect_auditor is not None:
+            # Add side-effect policy as first policy (highest priority)
+            side_effect_policy = SideEffectPolicy(auditor=self.side_effect_auditor)
+            self.policies.insert(0, side_effect_policy)
     
     def allow(self, step: Any, ctx: Any) -> tuple[bool, str]:
         """检查所有策略"""
         for policy in self.policies:
-            allowed, reason = policy.allow(step, ctx)
-            if not allowed:
-                return False, f"{policy.__class__.__name__}: {reason}"
+            try:
+                result = policy.allow(step, ctx)
+                # Handle both tuple and PolicyResult return types
+                if isinstance(result, tuple):
+                    allowed, reason = result
+                elif isinstance(result, PolicyResult):
+                    allowed, reason = result.allowed, result.reason
+                else:
+                    allowed, reason = True, ""
+                
+                if not allowed:
+                    return False, f"{policy.__class__.__name__}: {reason}"
+            except SideEffectBoundaryCrossedError as e:
+                # Re-raise side-effect boundary crossing errors
+                raise
+            except Exception as e:
+                # Other policy errors are treated as denial
+                return False, f"{policy.__class__.__name__}: {str(e)}"
         
         return True, ""
     

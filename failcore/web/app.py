@@ -30,7 +30,7 @@ def create_app() -> FastAPI:
     
     # Register routes
     from .routes.pages import overview, runs, run_detail, jobs, replay
-    from .routes.api import actions_api, jobs_api, artifacts_api, cost_api, events_api, replay_api, export_api
+    from .routes.api import actions_api, jobs_api, artifacts_api, cost_api, events_api, replay_api, export_api, drift_api
     
     # Page routes
     app.include_router(overview.router)
@@ -47,6 +47,7 @@ def create_app() -> FastAPI:
     app.include_router(events_api.router)
     app.include_router(replay_api.router)
     app.include_router(export_api.router)
+    app.include_router(drift_api.router)
     
     return app
 
