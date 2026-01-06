@@ -8,8 +8,8 @@ Converts side-effect boundary crossings into replay-friendly annotations.
 from typing import Dict, Any, Optional
 from dataclasses import dataclass, field
 
-from ..audit.side_effect_auditor import CrossingRecord
-from ..audit.side_effects import SideEffectType
+from failcore.core.guards.effects.side_effect_auditor import CrossingRecord
+from failcore.core.guards.effects.side_effects import SideEffectType
 
 
 @dataclass

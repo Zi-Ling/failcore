@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any, Callable, Dict, Optional
 from pathlib import Path
 from datetime import datetime
-from ..core.step import Step, RunContext, StepResult, generate_step_id, generate_run_id
+from failcore.core.types.step import Step, RunContext, StepResult, generate_run_id
 from ..core.executor.executor import Executor, ExecutorConfig
 from ..core.tools.registry import ToolRegistry
 from ..core.tools.spec import ToolSpec
@@ -19,7 +19,6 @@ from ..core.tools.invoker import ToolInvoker
 from ..core.trace.recorder import JsonlTraceRecorder, NullTraceRecorder, TraceRecorder
 from ..core.validate.validator import ValidatorRegistry
 from ..core.validate.rules import ValidationRuleSet
-from ..core.validate.presets import ValidationPreset
 from ..core.policy.policy import Policy
 from ..utils.paths import get_failcore_root, get_database_path
 

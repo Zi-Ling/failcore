@@ -7,8 +7,8 @@ Provides predefined boundary configurations for common use cases.
 
 from typing import Dict, Optional
 
-from ..audit.boundary import SideEffectBoundary
-from ..audit.side_effects import SideEffectCategory, SideEffectType
+from failcore.core.guards.effects.boundary import SideEffectBoundary
+from failcore.core.guards.effects.side_effects import SideEffectCategory, SideEffectType
 
 
 # Preset boundary configurations

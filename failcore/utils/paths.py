@@ -22,7 +22,7 @@ import hashlib
 import os
 import sys
 
-from failcore.core.step import generate_run_id
+from failcore.core.types.step import generate_run_id
 
 
 # Markers that indicate a project root directory

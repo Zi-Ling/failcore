@@ -8,7 +8,7 @@ Must run real subprocess with:
 
 import pytest
 import time
-from failcore.core.executor.process_executor import ProcessExecutor
+from failcore.core.executor.process import ProcessExecutor
 from failcore.core.errors import codes
 
 

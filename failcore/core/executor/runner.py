@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Optional, Protocol, Union
 
 from .executor import Executor
-from ..step import Step, RunContext, StepResult, StepStatus
+from failcore.core.types.step import Step, RunContext, StepResult, StepStatus
 
 
 # ---------------------------

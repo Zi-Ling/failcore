@@ -4,12 +4,12 @@ Core replay engine for deterministic execution simulation
 """
 
 from enum import Enum
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 from dataclasses import dataclass
 
 from .loader import TraceLoader
 from .matcher import FingerprintMatcher, MatchResult, MatchInfo
-from ..step import StepResult, StepStatus, StepError, StepOutput, OutputKind
+from failcore.core.types.step import StepResult, StepStatus, StepError, StepOutput, OutputKind
 
 
 class ReplayMode(str, Enum):

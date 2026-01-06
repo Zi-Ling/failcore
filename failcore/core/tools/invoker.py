@@ -13,8 +13,8 @@ Adapters should NEVER implement their own execution logic.
 """
 
 from __future__ import annotations
-from typing import Any, TYPE_CHECKING
-from ..step import Step, StepResult, RunContext
+from typing import TYPE_CHECKING
+from failcore.core.types.step import Step, StepResult, RunContext
 from .spec import ToolSpec
 
 if TYPE_CHECKING:

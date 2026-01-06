@@ -37,7 +37,7 @@ class Span:
     call_id: str = ""
     
     # Status
-    status: str = "OK"  # OK, ERROR
+    status: str = "ok"  # ok, fail, blocked, etc. (lowercase to match TraceStepStatus enum)
     status_message: str = ""
     
     # Attributes (OTEL conventions)

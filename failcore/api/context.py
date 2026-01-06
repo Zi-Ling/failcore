@@ -5,19 +5,17 @@ Run context manager
 
 from __future__ import annotations
 from contextvars import ContextVar
-from typing import Optional, Any, Callable, Dict
+from typing import Optional, Any, Callable, Dict, List
 from pathlib import Path
 from datetime import datetime
 
-from ..core.step import Step, RunContext, StepResult, generate_step_id, generate_run_id
+from failcore.core.types.step import Step, RunContext, generate_run_id
 from ..core.executor.executor import Executor, ExecutorConfig
 from ..core.tools.registry import ToolRegistry
 from ..core.tools.spec import ToolSpec
 from ..core.tools.metadata import ToolMetadata
 from ..core.trace.recorder import JsonlTraceRecorder, NullTraceRecorder, TraceRecorder
 from ..core.validate.validator import ValidatorRegistry
-from ..core.validate.presets import ValidationPreset
-from ..core.policy.policy import Policy
 from ..utils.paths import get_failcore_root, get_database_path, find_project_root
 from ..utils.path_resolver import PathResolver
 
@@ -65,6 +63,8 @@ class RunCtx:
         max_cost_usd: Optional[float] = None,
         max_tokens: Optional[int] = None,
         max_usd_per_minute: Optional[float] = None,
+        # Guard configuration (per-run)
+        guard_config: Optional[Any] = None,  # Optional GuardConfig
     ):
         """
         Create a new run context with intelligent path resolution.
@@ -121,6 +121,9 @@ class RunCtx:
         
         # Store auto_ingest flag
         self._auto_ingest = auto_ingest
+        
+        # Store guard_config (per-run guard configuration)
+        self._guard_config = guard_config
         
         # Handle trace path with security constraints
         if trace == "auto":
@@ -186,6 +189,7 @@ class RunCtx:
         # Note: CostStorage is created inside Executor when cost tracking is enabled
         policy_obj = None  # TODO: create Policy object from policy parameter
         self._executor = Executor(
+            guard_config=self._guard_config,
             tools=self._tools,
             recorder=self._recorder,
             validator=self._validator,
@@ -317,7 +321,7 @@ class RunCtx:
         result = self._executor.execute(step, self._ctx)
         
         # Raise error on failure
-        from ..core.step import StepStatus
+        from failcore.core.types.step import StepStatus
         if result.status == StepStatus.OK:
             return result.output.value if result.output else None
         
@@ -402,9 +406,9 @@ class RunCtx:
         If auto_ingest=True, automatically ingest trace to database
         """
         # Update run status to 'completed' before closing
-        if hasattr(self, '_executor') and self._executor.cost_storage:
+        if hasattr(self, '_executor') and hasattr(self._executor, 'services') and self._executor.services.cost_storage:
             try:
-                self._executor.cost_storage.upsert_run(
+                self._executor.services.cost_storage.upsert_run(
                     run_id=self._run_id,
                     status="completed",
                 )
@@ -418,6 +422,49 @@ class RunCtx:
                 self._recorder.close()
             except Exception:
                 pass
+        
+        # Analysis features (drift, optimizer) - controlled by config
+        from ..core.config.analysis import is_drift_enabled, is_optimizer_enabled
+        
+        if self._trace_path and Path(self._trace_path).exists():
+            # Drift analysis (if enabled by config)
+            if is_drift_enabled():
+                # Idempotent: only compute if not already computed
+                if not hasattr(self, '_drift_result') or self._drift_result is None:
+                    try:
+                        from ..core.replay.drift import compute_drift
+                        # compute_drift() extracts baseline from the trace itself:
+                        # - Baseline = first occurrence of each tool's parameters
+                        # - Drift = comparison of subsequent steps against baseline
+                        drift_result = compute_drift(self._trace_path)
+                        # Store drift result in context (can be accessed via property if needed)
+                        self._drift_result = drift_result
+                    except Exception:
+                        # Don't fail cleanup if drift computation fails
+                        self._drift_result = None
+                        pass
+            
+            # Optimizer analysis (if enabled by config)
+            if is_optimizer_enabled():
+                # Idempotent: only compute if not already computed
+                if not hasattr(self, '_optimization_result') or self._optimization_result is None:
+                    try:
+                        from ..core.optimizer import OptimizationAdvisor
+                        advisor = OptimizationAdvisor()
+                        # Extract call records from trace
+                        calls = self._extract_calls_from_trace()
+                        if calls:
+                            suggestions = advisor.analyze_trace(calls)
+                            self._optimization_result = {
+                                "suggestions": [s.to_dict() for s in suggestions],
+                                "report": advisor.generate_report(calls),
+                            }
+                        else:
+                            self._optimization_result = None
+                    except Exception:
+                        # Don't fail cleanup if optimizer computation fails
+                        self._optimization_result = None
+                        pass
         
         # Auto-ingest trace to database
         if self._auto_ingest and self._trace_path:
@@ -488,14 +535,150 @@ class RunCtx:
     @property
     def cost_storage(self):
         """Get the cost storage instance used by this context"""
-        if hasattr(self, '_executor') and self._executor:
-            return self._executor.cost_storage
+        if hasattr(self, '_executor') and self._executor and hasattr(self._executor, 'services'):
+            return self._executor.services.cost_storage
+        return None
+    
+    @property
+    def cost_guardian(self):
+        """Get the cost guardian instance used by this context"""
+        if hasattr(self, '_executor') and self._executor and hasattr(self._executor, 'services'):
+            return self._executor.services.cost_guardian
         return None
     
     @property
     def run_id(self) -> str:
         """Get run ID"""
         return self._run_id
+    
+    @property
+    def drift_result(self) -> Optional[Any]:
+        """Get the drift analysis result for this run"""
+        return getattr(self, '_drift_result', None)
+    
+    @property
+    def optimization_result(self) -> Optional[Dict[str, Any]]:
+        """Get the optimization analysis result for this run"""
+        return getattr(self, '_optimization_result', None)
+    
+    def _extract_calls_from_trace(self) -> List[Dict[str, Any]]:
+        """
+        Extract call records from trace file for optimizer analysis
+        
+        Returns:
+            List of call records with format:
+            {
+                "step_id": str,
+                "tool_name": str,
+                "params": Dict[str, Any],
+                "result": Any (optional),
+            }
+        """
+        import json
+        
+        if not self._trace_path or not Path(self._trace_path).exists():
+            return []
+        
+        calls = []
+        step_results = {}  # step_id -> result
+        
+        try:
+            with open(self._trace_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    if not line.strip():
+                        continue
+                    
+                    try:
+                        event = json.loads(line)
+                        evt = event.get("event", {})
+                        evt_type = evt.get("type")
+                        
+                        # Extract from STEP_START events
+                        if evt_type == "STEP_START":
+                            step = evt.get("step", {})
+                            tool_name = step.get("tool", "")
+                            step_id = step.get("id", "")
+                            
+                            if not tool_name:
+                                continue
+                            
+                            # Extract parameters (similar to drift extractor)
+                            params = self._extract_params_from_event(evt, step)
+                            
+                            # Create call record (result will be filled from STEP_END)
+                            call = {
+                                "step_id": step_id,
+                                "tool_name": tool_name,
+                                "params": params,
+                                "result": None,  # Will be filled from STEP_END
+                            }
+                            calls.append(call)
+                        
+                        # Extract results from STEP_END events
+                        elif evt_type == "STEP_END":
+                            step = evt.get("step", {})
+                            step_id = step.get("id", "")
+                            data = evt.get("data", {})
+                            output = data.get("output")
+                            
+                            # Store result for later matching
+                            if step_id and output:
+                                step_results[step_id] = output
+                    
+                    except (json.JSONDecodeError, KeyError):
+                        # Skip malformed events
+                        continue
+            
+            # Match results with calls
+            for call in calls:
+                step_id = call["step_id"]
+                if step_id in step_results:
+                    call["result"] = step_results[step_id]
+        
+        except Exception:
+            # Return empty list on any error
+            return []
+        
+        return calls
+    
+    def _extract_params_from_event(self, event: Dict[str, Any], step: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Extract parameters from event data (similar to drift extractor)
+        
+        Tries multiple paths to find parameters:
+        1. event.data.payload.input.summary (v0.1.2 format)
+        2. event.data.payload.input (fallback)
+        3. step.params (legacy format)
+        4. step.data (alternative)
+        """
+        data = event.get("data", {})
+        payload = data.get("payload", {})
+        input_data = payload.get("input", {})
+        
+        # Try summary first (v0.1.2 format)
+        if "summary" in input_data:
+            params = input_data["summary"]
+            if isinstance(params, dict):
+                return params
+        
+        # Try direct input
+        if isinstance(input_data, dict) and input_data:
+            # Check if it looks like params (not just metadata)
+            if not all(k in ("mode", "hash", "summary") for k in input_data.keys()):
+                return input_data
+        
+        # Try step.params (legacy format)
+        if "params" in step:
+            params = step["params"]
+            if isinstance(params, dict):
+                return params
+        
+        # Try step.data
+        step_data = step.get("data", {})
+        if isinstance(step_data, dict) and step_data:
+            return step_data
+        
+        return {}
 
 
 def get_current_context() -> Optional[RunCtx]:

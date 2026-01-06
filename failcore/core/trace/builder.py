@@ -12,7 +12,7 @@ from .events import (
     TraceEvent,
     EventType,
     LogLevel,
-    StepStatus,
+    TraceStepStatus,
     ExecutionPhase,
     StepInfo,
     PayloadInfo,
@@ -23,6 +23,7 @@ from .events import (
     ReplayInfo,
     utc_now_iso,
 )
+from .status_mapping import map_step_status_to_trace
 
 # Version constants
 SCHEMA_VERSION = "failcore.trace.v0.1.3"
@@ -262,7 +263,7 @@ def build_step_end_event(
     step_id: str,
     tool: str,
     attempt: int,
-    status: StepStatus,
+    status: TraceStepStatus,  # Use TraceStepStatus for trace events
     phase: ExecutionPhase,
     duration_ms: int,
     output: Optional[Any] = None,
@@ -300,18 +301,18 @@ def build_step_end_event(
         }
     
     # v0.1.2: Determine severity based on status
-    if status == StepStatus.OK:
+    if status == TraceStepStatus.OK:
         severity = "ok"
-    elif status == StepStatus.BLOCKED:
+    elif status == TraceStepStatus.BLOCKED:
         severity = "block"
-    else:  # FAIL, SKIPPED, etc.
+    else:  # FAIL, SKIPPED, REPLAYED, etc.
         severity = "block" if error else "warn"
     
     return TraceEvent(
         schema=SCHEMA_VERSION,
         seq=seq,
         ts=utc_now_iso(),
-        level=LogLevel.INFO if status == StepStatus.OK else LogLevel.ERROR,
+        level=LogLevel.INFO if status == TraceStepStatus.OK else LogLevel.ERROR,
         event={
             "type": EventType.STEP_END.value,
             "severity": severity,  # v0.1.2: required severity

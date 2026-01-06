@@ -6,13 +6,13 @@ Converts SideEffectBoundaryCrossed into standard FailCore errors.
 Crossing = direct failure (no severity grading, no soft warnings).
 """
 
-from typing import Optional, Dict, Any
+from typing import Optional
 
 from . import codes
 from .exceptions import FailCoreError
 
-from ..audit.side_effect_auditor import CrossingRecord
-from ..audit.side_effects import SideEffectType
+from failcore.core.guards.effects.side_effect_auditor import CrossingRecord
+from failcore.core.guards.effects.side_effects import SideEffectType
 
 
 class SideEffectBoundaryCrossedError(FailCoreError):

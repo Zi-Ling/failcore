@@ -1,10 +1,8 @@
 # tests/unit/test_failure_matrix.py
 from __future__ import annotations
 
-import pytest
-
 from failcore.core.executor.executor import Executor, ExecutorConfig
-from failcore.core.step.step import Step, RunContext
+from failcore.core.types.step.step import Step, RunContext
 from failcore.core.trace.recorder import NullTraceRecorder
 from failcore.core.tools.registry import ToolRegistry
 from failcore.core.executor.executor import Policy

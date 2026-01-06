@@ -11,7 +11,7 @@ import pytest
 import tempfile
 from pathlib import Path
 from failcore.core.receipt.receipt import Receipt, ReceiptStore
-from failcore.core.step.step import StepResult, StepError, StepStatus
+from failcore.core.types.step.step import StepResult, StepError, StepStatus
 
 
 class TestReceiptGeneration:
@@ -20,7 +20,7 @@ class TestReceiptGeneration:
     def test_create_receipt_from_success(self):
         """Should create receipt from successful tool call"""
         
-        from failcore.core.step.step import StepOutput, OutputKind
+        from failcore.core.types.step.step import StepOutput, OutputKind
         
         # Mock a successful StepResult
         step_result = StepResult(

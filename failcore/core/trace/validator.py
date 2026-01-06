@@ -69,7 +69,7 @@ class TraceValidator:
         "ARTIFACT_WRITTEN",
         "SIDE_EFFECT_APPLIED"
     }
-    VALID_STATUSES = {"OK", "FAIL", "BLOCKED", "SKIPPED", "REPLAYED"}
+    VALID_STATUSES = {"ok", "fail", "blocked", "skipped", "replayed"}  # TraceStepStatus values
     VALID_PHASES = {"validate", "policy", "execute", "commit", "replay", "normalize"}
     
     def __init__(self):

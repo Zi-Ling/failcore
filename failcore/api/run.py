@@ -3,7 +3,7 @@
 Run API - run context manager entry point
 """
 
-from typing import Optional, Dict
+from typing import Optional, Dict, Any
 from .context import RunCtx
 
 
@@ -22,6 +22,8 @@ def run(
     max_cost_usd: Optional[float] = None,
     max_tokens: Optional[int] = None,
     max_usd_per_minute: Optional[float] = None,
+    # Guard configuration (per-run)
+    guards: Optional[Any] = None,  # Optional GuardConfig
 ) -> RunCtx:
     r"""
     Create a run context manager with intelligent path resolution.
@@ -167,4 +169,5 @@ def run(
         max_cost_usd=max_cost_usd,
         max_tokens=max_tokens,
         max_usd_per_minute=max_usd_per_minute,
+        guards=guards,
     )

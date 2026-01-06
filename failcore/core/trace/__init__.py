@@ -3,7 +3,7 @@ from .events import (
     TraceEvent,
     EventType,
     LogLevel,
-    StepStatus,
+    TraceStepStatus,  # Trace-specific status (event-level)
     ExecutionPhase,
     RunContext,
     StepInfo,
@@ -16,6 +16,7 @@ from .events import (
     ReplayInfo,
     utc_now_iso,
 )
+from .status_mapping import map_step_status_to_trace
 from .recorder import TraceRecorder, JsonlTraceRecorder, NullTraceRecorder
 from .builder import (
     build_run_start_event,
@@ -39,8 +40,10 @@ __all__ = [
     "TraceEvent",
     "EventType",
     "LogLevel",
-    "StepStatus",
+    "TraceStepStatus",  # Trace-specific status
     "ExecutionPhase",
+    # Status mapping
+    "map_step_status_to_trace",
     # Data models
     "RunContext",
     "StepInfo",

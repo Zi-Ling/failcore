@@ -8,10 +8,10 @@ When crossing occurs, auditor becomes direct blocking reason.
 
 from typing import Optional, List
 
-from ..audit.boundary import SideEffectBoundary
-from ..audit.side_effect_auditor import SideEffectAuditor, CrossingRecord
-from ..audit.side_effects import SideEffectType
-from ..executor.side_effect_probe import SideEffectProbe, SideEffectEvent
+from failcore.core.guards.effects.boundary import SideEffectBoundary
+from failcore.core.guards.effects.side_effect_auditor import SideEffectAuditor, CrossingRecord
+from failcore.core.guards.effects.side_effects import SideEffectType
+from failcore.core.guards.effects.events import SideEffectEvent
 from ..errors.side_effect import SideEffectBoundaryCrossedError
 from .policy import PolicyResult
 
@@ -63,7 +63,7 @@ class SideEffectPolicyEnforcer:
         # Check if crossing
         if self.auditor.check_crossing(side_effect_type):
             # Crossing detected - create crossing record
-            from ..audit.side_effects import get_category_for_type
+            from failcore.core.guards.effects.side_effects import get_category_for_type
             category = get_category_for_type(side_effect_type)
             
             crossing = CrossingRecord(

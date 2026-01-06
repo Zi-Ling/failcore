@@ -13,15 +13,14 @@ Cost Integration Comprehensive Test
 """
 
 import json
-import time
 from pathlib import Path
 from datetime import datetime, timezone
 
 from failcore.core.executor import Executor, ExecutorConfig
 from failcore.core.tools import ToolRegistry
-from failcore.core.step import Step, RunContext
+from failcore.core.types.step import Step, RunContext
 from failcore.core.trace import TraceRecorder
-from failcore.core.cost import CostGuardian, CostEstimator, CostUsage
+from failcore.core.cost import CostGuardian, CostEstimator
 
 
 class RealTraceRecorder(TraceRecorder):

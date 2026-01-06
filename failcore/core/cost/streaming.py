@@ -98,7 +98,7 @@ class StreamingTokenWatchdog:
         )
         
         # Check against budget
-        would_exceed, reason = self.budget.would_exceed(usage)
+        would_exceed, reason, error_code = self.budget.would_exceed(usage)
         
         # Also check if we're approaching limit (safety margin)
         usage_pct = self.budget.usage_percentage()

@@ -5,15 +5,13 @@ Policy core implementation with LLM-friendly suggestions.
 
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Protocol
-from pathlib import Path
+from typing import Any, Dict, List, Optional, Protocol
 import os
 import time
 
-from ..audit.side_effect_auditor import SideEffectAuditor, CrossingRecord
-from ..audit.boundary import SideEffectBoundary
-from ..audit.side_effects import SideEffectType
-from ..executor.side_effect_probe import (
+from failcore.core.guards.effects.side_effect_auditor import SideEffectAuditor, CrossingRecord
+from failcore.core.guards.effects.side_effects import SideEffectType
+from failcore.core.guards.effects.detection import (
     detect_filesystem_side_effect,
     detect_network_side_effect,
     detect_exec_side_effect,

@@ -71,7 +71,7 @@ class BudgetGuardMiddleware:
         estimated_usage.step_id = context.get("step_id", "")
         
         # Check if would exceed budget
-        would_exceed, reason = self.budget.would_exceed(estimated_usage)
+        would_exceed, reason, error_code = self.budget.would_exceed(estimated_usage)
         
         if would_exceed:
             # Circuit breaker: block execution

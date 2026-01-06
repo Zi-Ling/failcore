@@ -1,0 +1,10 @@
+{"type":"STEP_START","step_id":"s0001","tool":"write_file","timestamp":"2024-01-01T00:00:00Z","run_id":"test-run-001"}
+{"type":"STEP_END","step_id":"s0001","tool":"write_file","status":"SUCCESS","duration_ms":150,"timestamp":"2024-01-01T00:00:01Z","run_id":"test-run-001"}
+{"type":"STEP_START","step_id":"s0002","tool":"read_file","timestamp":"2024-01-01T00:00:02Z","run_id":"test-run-001"}
+{"type":"STEP_END","step_id":"s0002","tool":"read_file","status":"FAIL","duration_ms":50,"error":{"code":"FILE_NOT_FOUND","message":"File not found"},"timestamp":"2024-01-01T00:00:03Z","run_id":"test-run-001"}
+{"type":"STEP_START","step_id":"s0003","tool":"write_file","timestamp":"2024-01-01T00:00:04Z","run_id":"test-run-001","attempt":1}
+{"type":"STEP_END","step_id":"s0003","tool":"write_file","status":"BLOCKED","error":{"code":"SANDBOX_VIOLATION","message":"Path traversal detected"},"timestamp":"2024-01-01T00:00:05Z","run_id":"test-run-001","attempt":1}
+{"type":"STEP_START","step_id":"s0004","tool":"write_file","timestamp":"2024-01-01T00:00:06Z","run_id":"test-run-001","attempt":2}
+{"type":"STEP_END","step_id":"s0004","tool":"write_file","status":"SUCCESS","duration_ms":120,"timestamp":"2024-01-01T00:00:07Z","run_id":"test-run-001","attempt":2}
+{"type":"STEP_START","step_id":"s0005","tool":"process_data","timestamp":"2024-01-01T00:00:08Z","run_id":"test-run-001"}
+{"type":"STEP_END","step_id":"s0005","tool":"process_data","status":"SUCCESS","duration_ms":200,"timestamp":"2024-01-01T00:00:09Z","run_id":"test-run-001"}
