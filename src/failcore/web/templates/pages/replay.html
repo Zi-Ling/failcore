@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+
+{% block title %}Replay: {{ run_id }} - FailCore{% endblock %}
+
+{% block content %}
+<div class="replay-page" data-run-id="{{ run_id }}">
+    {# Header #}
+    <div class="replay-header">
+        <div>
+            <h1>INCIDENT REPLAY</h1>
+            <div class="replay-meta">
+                <span class="run-id">{{ run_id }}</span>
+                {% if incident_tape.meta.command %}
+                <span class="badge">{{ incident_tape.meta.command }}</span>
+                {% endif %}
+                {% if incident_tape.meta.created_at %}
+                <span>{{ incident_tape.meta.created_at }}</span>
+                {% endif %}
+            </div>
+        </div>
+        <div class="replay-actions">
+            {% if '_' in run_id %}
+            <a href="/run/{{ run_id.split('_')[0] }}/{{ run_id.split('_', 1)[1] }}" class="btn btn-secondary">← BACK TO RUN</a>
+            {% else %}
+            <a href="/runs" class="btn btn-secondary">← BACK TO RUNS</a>
+            {% endif %}
+            <button onclick="exportReplay('{{ run_id }}')" class="btn btn-primary">EXPORT</button>
+        </div>
+    </div>
+    
+    {# Three-column layout: Timeline | Inspector | Narrative/Evidence/Cost #}
+    <div class="replay-workspace">
+        {# Left: Timeline (frame list) #}
+        <div class="replay-left">
+            {% include "partials/replay_timeline.html" %}
+        </div>
+        
+        {# Center: Inspector (diff + highlights) #}
+        <div class="replay-center">
+            {% include "partials/inspector_panel.html" %}
+        </div>
+        
+        {# Right: Narrative / Evidence / Cost #}
+        <div class="replay-right">
+            {% include "partials/replay_sidebar.html" %}
+        </div>
+    </div>
+</div>
+
+<script src="/static/js/drift_params_diff.js"></script>
+<script>
+// Replay page initialization
+document.addEventListener('DOMContentLoaded', function() {
+    const runId = '{{ run_id }}';
+    const incidentTape = {{ incident_tape | tojson | safe }};
+    
+    // Initialize timeline with frames
+    if (window.initReplayTimeline) {
+        window.initReplayTimeline(incidentTape.frames || []);
+    }
+    
+    // Initialize sidebar with narrative, evidence, cost
+    if (window.initReplaySidebar) {
+        window.initReplaySidebar(incidentTape);
+    }
+    
+    // Auto-select first frame
+    if (incidentTape.frames && incidentTape.frames.length > 0) {
+        selectFrame(0);
+    }
+});
+
+// Frame selection handler
+function selectFrame(index) {
+    const incidentTape = {{ incident_tape | tojson | safe }};
+    const frame = incidentTape.frames[index];
+    
+    if (!frame) return;
+    
+    // Update timeline selection
+    document.querySelectorAll('.replay-timeline-item').forEach((el, i) => {
+        el.classList.toggle('selected', i === index);
+    });
+    
+    // Update inspector panel
+    if (window.renderFrameInspector) {
+        const inspectorContent = document.getElementById('inspector-content');
+        if (inspectorContent) {
+            inspectorContent.innerHTML = window.renderFrameInspector(frame);
+        }
+    }
+    
+    // Update sidebar
+    if (window.updateReplaySidebar) {
+        window.updateReplaySidebar(frame, incidentTape);
+    }
+}
+
+// Make selectFrame available globally
+window.selectFrame = selectFrame;
+
+// Export replay function
+function exportReplay(runId) {
+    const exportUrl = `/api/runs/${encodeURIComponent(runId)}/export/replay`;
+    
+    // Create a temporary link to trigger download
+    const link = document.createElement('a');
+    link.href = exportUrl;
+    link.download = `replay_${runId}.html`;
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
+
+// Make exportReplay available globally
+window.exportReplay = exportReplay;
+</script>
+
+<style>
+.replay-page {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    min-height: 100vh;
+}
+
+.replay-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 1rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+}
+
+.replay-header h1 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin: 0;
+    color: var(--text-primary);
+}
+
+.replay-meta {
+    display: flex;
+    gap: 1rem;
+    margin-top: 0.5rem;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.run-id {
+    font-family: monospace;
+    color: var(--text-primary);
+}
+
+.replay-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.replay-workspace {
+    display: grid;
+    grid-template-columns: 300px 1fr 350px;
+    gap: 1rem;
+    min-height: calc(100vh - 200px);
+}
+
+.replay-left,
+.replay-center,
+.replay-right {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    overflow-y: auto;
+    max-height: calc(100vh - 200px);
+}
+
+.replay-left {
+    padding: 1rem;
+}
+
+.replay-center {
+    padding: 1rem;
+}
+
+.replay-right {
+    padding: 1rem;
+}
+
+@media (max-width: 1400px) {
+    .replay-workspace {
+        grid-template-columns: 250px 1fr 300px;
+    }
+}
+
+@media (max-width: 1024px) {
+    .replay-workspace {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto auto auto;
+    }
+    
+    .replay-left,
+    .replay-center,
+    .replay-right {
+        max-height: 400px;
+    }
+}
+</style>
+{% endblock %}

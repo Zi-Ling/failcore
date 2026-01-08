@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Dict, Optional
 
 from .codec import JsonRpcCodec, JsonRpcCodecConfig, McpCodecError
+from .egress_integration import McpEgressIntegration
 
 
 class McpSessionError(RuntimeError):
@@ -84,12 +85,13 @@ class McpSession:
       - Optional notification handler for server->client messages
     """
 
-    def __init__(self, cfg: McpSessionConfig, *, on_notification: Optional[NotificationHandler] = None) -> None:
+    def __init__(self, cfg: McpSessionConfig, *, on_notification: Optional[NotificationHandler] = None, egress_engine: Any = None) -> None:
         self._cfg = cfg
         self._codec = JsonRpcCodec(
             JsonRpcCodecConfig(mode=cfg.codec_mode, max_message_bytes=cfg.max_message_bytes)
         )
         self._on_notification = on_notification
+        self._egress = McpEgressIntegration(egress_engine)
 
         self._proc: Optional[asyncio.subprocess.Process] = None
         self._reader_task: Optional[asyncio.Task[None]] = None
@@ -202,6 +204,12 @@ class McpSession:
         params_desc = "null" if params is None else f"keys={list(params.keys())}" if isinstance(params, dict) else "non-dict"
         print(f"[MCP_RX] method={method} id={req_id} params={params_desc}", file=sys.stderr)
 
+        # Egress: Pre-call event
+        step_id = f"mcp_{req_id}"
+        run_id = f"mcp_session_{id(self)}"
+        start_time = time.time()
+        self._egress.emit_pre_call(method, params, run_id, step_id)
+
         # MCP SDK >= 1.2.0: strictly follow JSON-RPC 2.0
         # - If params is None, omit the "params" field entirely (not send null)
         # - If params is dict, send as-is
@@ -221,6 +229,11 @@ class McpSession:
                 result = await asyncio.wait_for(self._wait_future_or_crash(fut), timeout=t)
                 # Observability: MCP_TX (success)
                 print(f"[MCP_TX] id={req_id} ok=True", file=sys.stderr)
+                
+                # Egress: Post-call event (success)
+                duration_ms = (time.time() - start_time) * 1000
+                self._egress.emit_post_call(method, result, run_id, step_id, duration_ms)
+                
                 return result
             except asyncio.TimeoutError:
                 self._pending.pop(req_id, None)
@@ -228,13 +241,25 @@ class McpSession:
                     fut.cancel()
                 # Observability: MCP_TX (timeout)
                 print(f"[MCP_TX] id={req_id} ok=False error=timeout", file=sys.stderr)
+                
+                # Egress: Post-call event (timeout)
+                duration_ms = (time.time() - start_time) * 1000
+                self._egress.emit_post_call(method, None, run_id, step_id, duration_ms, 
+                                           error={"type": "timeout", "message": f"timeout after {t:.1f}s"})
+                
                 raise McpTimeout(f"timeout calling {method} after {t:.1f}s")
-        except Exception:
+        except Exception as e:
             self._pending.pop(req_id, None)
             if not fut.done():
                 fut.cancel()
             # Observability: MCP_TX (error)
             print(f"[MCP_TX] id={req_id} ok=False error=exception", file=sys.stderr)
+            
+            # Egress: Post-call event (error)
+            duration_ms = (time.time() - start_time) * 1000
+            self._egress.emit_post_call(method, None, run_id, step_id, duration_ms,
+                                       error={"type": type(e).__name__, "message": str(e)})
+            
             raise
 
     async def _wait_future_or_crash(self, fut: asyncio.Future[Any]) -> Any:

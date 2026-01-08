@@ -1,54 +1,102 @@
 # failcore/core/policy/policy.py
 """
-策略核心实现。
+Policy core implementation with LLM-friendly suggestions.
 """
 
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Protocol
-from pathlib import Path
+from typing import Any, Dict, List, Optional, Protocol
 import os
 import time
+
+from failcore.core.guards.effects.side_effect_auditor import SideEffectAuditor, CrossingRecord
+from failcore.core.guards.effects.side_effects import SideEffectType
+from failcore.core.guards.effects.detection import (
+    detect_filesystem_side_effect,
+    detect_network_side_effect,
+    detect_exec_side_effect,
+)
+from ..errors.side_effect import SideEffectBoundaryCrossedError
 
 
 @dataclass
 class PolicyResult:
-    """策略检查结果"""
+    """
+    Policy check result (LLM-Friendly Design)
+    
+    The suggestion field is a first-class citizen, providing actionable fix guidance.
+    """
     allowed: bool
     reason: str = ""
     details: Dict[str, Any] = field(default_factory=dict)
     
+    # LLM-friendly fields
+    error_code: Optional[str] = None      # Specific error code (e.g., PATH_TRAVERSAL)
+    suggestion: Optional[str] = None      # Actionable fix suggestion
+    remediation: Optional[Dict[str, Any]] = None  # Structured fix with template vars
+    
     @classmethod
-    def allow(cls, reason: str = "允许") -> PolicyResult:
-        """创建允许结果"""
+    def allow(cls, reason: str = "Allowed") -> PolicyResult:
+        """Create allow result"""
         return cls(allowed=True, reason=reason)
     
     @classmethod
-    def deny(cls, reason: str, details: Optional[Dict[str, Any]] = None) -> PolicyResult:
-        """创建拒绝结果"""
-        return cls(allowed=False, reason=reason, details=details or {})
+    def deny(
+        cls, 
+        reason: str, 
+        error_code: Optional[str] = None,
+        details: Optional[Dict[str, Any]] = None,
+        suggestion: Optional[str] = None,
+        remediation: Optional[Dict[str, Any]] = None,
+    ) -> PolicyResult:
+        """
+        Create deny result with fix suggestion
+        
+        Args:
+            reason: Denial reason
+            error_code: Specific error code (e.g., PATH_TRAVERSAL, SSRF_BLOCKED)
+            details: Detailed information
+            suggestion: Actionable fix suggestion (for LLM/human)
+            remediation: Structured fix instructions (with template variables)
+        """
+        return cls(
+            allowed=False, 
+            reason=reason,
+            error_code=error_code,
+            details=details or {},
+            suggestion=suggestion,
+            remediation=remediation,
+        )
 
 
 class PolicyDeny(Exception):
-    """策略拒绝异常"""
+    """Policy denial exception"""
     def __init__(self, message: str, result: PolicyResult):
         super().__init__(message)
         self.result = result
 
 
 class Policy(Protocol):
-    """策略协议"""
+    """
+    Policy protocol (Enhanced with LLM-Friendly Suggestions)
     
-    def allow(self, step: Any, ctx: Any) -> tuple[bool, str]:
+    Return value can be:
+    - tuple[bool, str]: Legacy compatible (allowed, reason)
+    - PolicyResult: Modern recommended (includes suggestion)
+    """
+    
+    def allow(self, step: Any, ctx: Any) -> tuple[bool, str] | PolicyResult:
         """
-        检查是否允许执行。
+        Check if execution is allowed.
         
         Args:
-            step: Step 对象
-            ctx: RunContext 对象
+            step: Step object
+            ctx: RunContext object
             
         Returns:
-            (allowed, reason) 元组
+            tuple[bool, str] or PolicyResult
+            - Legacy: (allowed, reason)
+            - Modern: PolicyResult(allowed, reason, suggestion, remediation)
         """
         ...
 
@@ -56,27 +104,27 @@ class Policy(Protocol):
 @dataclass
 class ResourcePolicy:
     """
-    资源访问策略。
+    Resource access policy.
     
-    控制文件系统、网络等资源的访问权限。
+    Controls access to filesystem, network, and other resources.
     """
     name: str = "resource_policy"
     
-    # 文件系统策略
-    allowed_paths: List[str] = field(default_factory=list)  # 允许访问的路径
-    denied_paths: List[str] = field(default_factory=list)   # 禁止访问的路径
+    # Filesystem policy
+    allowed_paths: List[str] = field(default_factory=list)  # Allowed paths
+    denied_paths: List[str] = field(default_factory=list)   # Denied paths
     
-    # 网络策略
+    # Network policy
     allow_network: bool = True
-    allowed_domains: List[str] = field(default_factory=list)  # 允许访问的域名
-    denied_domains: List[str] = field(default_factory=list)   # 禁止访问的域名
+    allowed_domains: List[str] = field(default_factory=list)  # Allowed domains
+    denied_domains: List[str] = field(default_factory=list)   # Denied domains
     
     def allow(self, step: Any, ctx: Any) -> tuple[bool, str]:
-        """检查资源访问权限"""
+        """Check resource access permissions"""
         tool_name = step.tool
         params = step.params
         
-        # 检查文件操作
+        # Check file operations
         if tool_name.startswith(("file.", "dir.")):
             path_param = params.get("path") or params.get("source") or params.get("destination")
             if path_param:
@@ -84,7 +132,7 @@ class ResourcePolicy:
                 if not result.allowed:
                     return False, result.reason
         
-        # 检查网络操作
+        # Check network operations
         if tool_name.startswith("http."):
             url = params.get("url", "")
             result = self._check_network_access(url)
@@ -94,19 +142,19 @@ class ResourcePolicy:
         return True, ""
     
     def _check_file_access(self, path: str) -> PolicyResult:
-        """检查文件访问权限"""
+        """Check file access permissions"""
         abs_path = os.path.abspath(path)
         
-        # 检查黑名单
+        # Check deny list
         for denied in self.denied_paths:
             denied_abs = os.path.abspath(denied)
             if abs_path.startswith(denied_abs):
                 return PolicyResult.deny(
-                    f"禁止访问路径: {path}",
+                    f"Access denied to path: {path}",
                     {"path": abs_path, "denied": denied_abs}
                 )
         
-        # 如果有白名单，检查是否在白名单中
+        # If allow list exists, check if path is in allow list
         if self.allowed_paths:
             allowed = False
             for allowed_path in self.allowed_paths:
@@ -117,7 +165,7 @@ class ResourcePolicy:
             
             if not allowed:
                 return PolicyResult.deny(
-                    f"路径不在允许列表中: {path}",
+                    f"Path not in allow list: {path}",
                     {"path": abs_path, "allowed_paths": self.allowed_paths}
                 )
         
@@ -233,6 +281,129 @@ class CostPolicy:
 
 
 @dataclass
+class SideEffectPolicy:
+    """
+    Side-Effect Policy
+    
+    Enforces side-effect boundaries by checking predicted side-effects
+    before tool execution. This is a direct blocking authority.
+    """
+    name: str = "side_effect_policy"
+    auditor: Optional[SideEffectAuditor] = None
+    
+    def allow(self, step: Any, ctx: Any) -> tuple[bool, str] | PolicyResult:
+        """
+        Check if side-effects are allowed
+        
+        Predicts side-effects from tool and params, then checks against boundary.
+        If crossing detected, raises SideEffectBoundaryCrossedError.
+        """
+        if self.auditor is None:
+            return True, ""
+        
+        tool_name = step.tool if hasattr(step, 'tool') else getattr(step, 'name', '')
+        params = step.params if hasattr(step, 'params') else getattr(step, 'args', {})
+        
+        # Predict possible side-effects from tool and params
+        predicted_side_effects = self._predict_side_effects(tool_name, params)
+        
+        # Check each predicted side-effect against boundary
+        for side_effect_type in predicted_side_effects:
+            if side_effect_type is None:
+                continue
+            
+            # Check if this side-effect crosses the boundary
+            if self.auditor.check_crossing(side_effect_type):
+                # Crossing detected - create crossing record
+                step_id = getattr(step, 'id', None)
+                step_seq = getattr(ctx, 'step_seq', None) if ctx else None
+                ts = getattr(ctx, 'ts', None) if ctx else None
+                
+                # Extract target from params
+                target = self._extract_target(side_effect_type, params)
+                
+                crossing_record = CrossingRecord(
+                    crossing_type=side_effect_type,
+                    boundary=self.auditor.boundary,
+                    step_seq=step_seq,
+                    ts=ts,
+                    target=target,
+                    tool=tool_name,
+                    step_id=step_id,
+                )
+                
+                # Raise error - this is a direct failure
+                raise SideEffectBoundaryCrossedError(crossing_record)
+        
+        return True, ""
+    
+    def _predict_side_effects(
+        self,
+        tool_name: str,
+        params: Dict[str, Any],
+    ) -> List[Optional[SideEffectType]]:
+        """
+        Predict possible side-effects from tool name and parameters
+        
+        Uses heuristics to predict what side-effects might occur.
+        This is a pre-execution check, so we predict based on tool signature.
+        """
+        side_effects = []
+        
+        # Check filesystem side-effects
+        # Try different operations (read, write, delete)
+        for op in ["read", "write", "delete"]:
+            fs_effect = detect_filesystem_side_effect(tool_name, params, operation=op)
+            if fs_effect:
+                side_effects.append(fs_effect)
+                break  # Only one filesystem operation per tool call
+        
+        # Check network side-effects
+        # Try different directions
+        for direction in ["egress", "ingress", "private"]:
+            net_effect = detect_network_side_effect(tool_name, params, direction=direction)
+            if net_effect:
+                side_effects.append(net_effect)
+                break  # Only one network operation per tool call
+        
+        # Check exec side-effects
+        exec_effect = detect_exec_side_effect(tool_name, params)
+        if exec_effect:
+            side_effects.append(exec_effect)
+        
+        return side_effects
+    
+    def _extract_target(
+        self,
+        side_effect_type: SideEffectType,
+        params: Dict[str, Any],
+    ) -> Optional[str]:
+        """
+        Extract target from params based on side-effect type
+        
+        Args:
+            side_effect_type: Type of side-effect
+            params: Tool parameters
+        
+        Returns:
+            Target string (path, host, command, etc.) or None
+        """
+        type_str = side_effect_type.value if isinstance(side_effect_type, SideEffectType) else str(side_effect_type)
+        
+        if type_str.startswith("filesystem."):
+            # Extract path
+            return params.get("path") or params.get("file") or params.get("filepath") or params.get("source") or params.get("destination")
+        elif type_str.startswith("network."):
+            # Extract URL or host
+            return params.get("url") or params.get("host") or params.get("hostname")
+        elif type_str.startswith("exec.") or type_str.startswith("process."):
+            # Extract command
+            return params.get("command") or params.get("cmd") or params.get("script")
+        
+        return None
+
+
+@dataclass
 class CompositePolicy:
     """
     组合策略。
@@ -241,13 +412,36 @@ class CompositePolicy:
     """
     name: str = "composite_policy"
     policies: List[Policy] = field(default_factory=list)
+    side_effect_auditor: Optional[SideEffectAuditor] = None
+    
+    def __post_init__(self):
+        """Initialize side-effect policy if auditor is provided"""
+        if self.side_effect_auditor is not None:
+            # Add side-effect policy as first policy (highest priority)
+            side_effect_policy = SideEffectPolicy(auditor=self.side_effect_auditor)
+            self.policies.insert(0, side_effect_policy)
     
     def allow(self, step: Any, ctx: Any) -> tuple[bool, str]:
         """检查所有策略"""
         for policy in self.policies:
-            allowed, reason = policy.allow(step, ctx)
-            if not allowed:
-                return False, f"{policy.__class__.__name__}: {reason}"
+            try:
+                result = policy.allow(step, ctx)
+                # Handle both tuple and PolicyResult return types
+                if isinstance(result, tuple):
+                    allowed, reason = result
+                elif isinstance(result, PolicyResult):
+                    allowed, reason = result.allowed, result.reason
+                else:
+                    allowed, reason = True, ""
+                
+                if not allowed:
+                    return False, f"{policy.__class__.__name__}: {reason}"
+            except SideEffectBoundaryCrossedError as e:
+                # Re-raise side-effect boundary crossing errors
+                raise
+            except Exception as e:
+                # Other policy errors are treated as denial
+                return False, f"{policy.__class__.__name__}: {str(e)}"
         
         return True, ""
     

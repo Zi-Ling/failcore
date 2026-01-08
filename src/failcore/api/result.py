@@ -3,7 +3,7 @@
 Result types - user-friendly aliases for step execution results
 """
 
-from ..core.step import (
+from failcore.core.types.step import (
     StepResult,
     StepStatus,
     StepError,

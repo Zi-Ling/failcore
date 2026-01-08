@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% block title %}Trace: {{ run_info.run_id }} - FailCore{% endblock %}
+
+{% block content %}
+<div class="trace-page">
+    <div class="trace-header">
+        <h1>Trace Analysis</h1>
+        <a href="/runs" class="btn btn-secondary">← BACK TO RUNS</a>
+    </div>
+    
+    <div class="trace-info-card">
+        <h2>Run Information</h2>
+        <dl class="info-grid">
+            <dt>Run ID</dt>
+            <dd><code>{{ run_info.run_id }}</code></dd>
+            
+            <dt>Command</dt>
+            <dd><span class="badge">{{ run_info.command }}</span></dd>
+            
+            <dt>Date</dt>
+            <dd>{{ run_info.date }}</dd>
+            
+            <dt>Timestamp</dt>
+            <dd>{{ run_info.timestamp }}</dd>
+            
+            <dt>Total Events</dt>
+            <dd>{{ run_info.total_events }}</dd>
+        </dl>
+    </div>
+    
+    <h2>Event Timeline</h2>
+    <div class="events-timeline">
+        {% for event in events %}
+        {# Use timeline_step partial for unified rendering (step + cost + status) #}
+        {% set event_dict = event if event is mapping else event.__dict__ %}
+        {% set event_seq = event_dict.get('seq') or event_dict.get('event', {}).get('step', {}).get('seq') %}
+        {% set cost_info = cost_points.get(event_seq) if cost_points and event_seq is defined else None %}
+        {% include "partials/timeline_step.html" %}
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

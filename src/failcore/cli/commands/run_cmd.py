@@ -41,13 +41,50 @@ def register_command(subparsers):
     run_p.add_argument("--cwd", help="Working directory for the server process")
     run_p.add_argument("--trace", help="Trace output path (default: .failcore/runs/<date>/<run_id>_<HHMMSS>_mcp/trace.jsonl)")
     run_p.add_argument("--startup-timeout", type=float, default=None, help="Override MCP startup timeout (seconds)")
+    run_p.add_argument("--with-hooks", action="store_true", help="Enable all hooks (httpx/requests/subprocess/os)")
     run_p.set_defaults(func=run_adapter)
 
 
 def run_adapter(args):
     """Dispatch to adapter-specific implementation."""
-    if args.adapter == "mcp":
-        return asyncio.run(_run_mcp(args))
+    # Enable hooks if requested
+    if args.with_hooks:
+        _enable_hooks()
+    
+    try:
+        if args.adapter == "mcp":
+            return asyncio.run(_run_mcp(args))
+    finally:
+        # Clean up hooks
+        if args.with_hooks:
+            _disable_hooks()
+
+
+def _enable_hooks():
+    """Enable all hooks with egress engine"""
+    from failcore.hooks import enable_all_hooks
+    from failcore.core.egress import EgressEngine, TraceSink, UsageEnricher, DLPEnricher, TaintEnricher
+    from pathlib import Path
+    import time
+    
+    # Create egress engine for hooks
+    trace_dir = Path(".failcore/hooks")
+    trace_dir.mkdir(parents=True, exist_ok=True)
+    trace_path = trace_dir / f"hooks_{int(time.time())}.jsonl"
+    
+    trace_sink = TraceSink(trace_path, async_mode=True)
+    enrichers = [UsageEnricher(), DLPEnricher(), TaintEnricher()]
+    egress_engine = EgressEngine(trace_sink=trace_sink, enrichers=enrichers)
+    
+    enable_all_hooks(egress_engine)
+    print(f"✓ Hooks enabled (trace: {trace_path})")
+
+
+def _disable_hooks():
+    """Disable all hooks"""
+    from failcore.hooks import disable_all_hooks
+    disable_all_hooks()
+    print("✓ Hooks disabled")
     print(f"Error: Adapter '{args.adapter}' not implemented", file=sys.stderr)
     return 1
 

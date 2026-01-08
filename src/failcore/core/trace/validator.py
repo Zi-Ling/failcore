@@ -50,10 +50,11 @@ class TraceValidator:
     SCHEMA_MAP = {
         "failcore.trace.v0.1.1": "failcore.trace.v0.1.1.schema.json",
         "failcore.trace.v0.1.2": "failcore.trace.v0.1.2.schema.json",
+        "failcore.trace.v0.1.3": "failcore.trace.v0.1.3.schema.json",
     }
     
     # Current write version
-    CURRENT_SCHEMA_VERSION = "failcore.trace.v0.1.2"
+    CURRENT_SCHEMA_VERSION = "failcore.trace.v0.1.3"
     
     VALID_LEVELS = {"DEBUG", "INFO", "WARN", "ERROR"}
     VALID_EVENT_TYPES = {
@@ -68,7 +69,7 @@ class TraceValidator:
         "ARTIFACT_WRITTEN",
         "SIDE_EFFECT_APPLIED"
     }
-    VALID_STATUSES = {"OK", "FAIL", "BLOCKED", "SKIPPED", "REPLAYED"}
+    VALID_STATUSES = {"ok", "fail", "blocked", "skipped", "replayed"}  # TraceStepStatus values
     VALID_PHASES = {"validate", "policy", "execute", "commit", "replay", "normalize"}
     
     def __init__(self):

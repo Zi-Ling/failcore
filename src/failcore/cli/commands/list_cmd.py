@@ -26,7 +26,8 @@ def list_runs(args):
     - Status (OK/FAIL/BLOCKED counts)
     - Tool calls
     """
-    db_path = ".failcore/failcore.db"
+    from failcore.utils.paths import get_database_path
+    db_path = str(get_database_path())
     
     if not Path(db_path).exists():
         print(f"Error: Database not found: {db_path}")

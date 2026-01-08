@@ -13,9 +13,9 @@ Philosophy:
 
 from abc import ABC, abstractmethod
 from typing import Any
-from ..core.tools.spec import ToolSpec
-from ..core.tools.invoker import ToolInvoker
-from ..api.session import Session
+from failcore.core.tools.spec import ToolSpec
+from failcore.core.tools.invoker import ToolInvoker
+from failcore.api.session import Session
 
 
 class BaseAdapter(ABC):

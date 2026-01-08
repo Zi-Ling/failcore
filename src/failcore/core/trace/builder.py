@@ -12,7 +12,7 @@ from .events import (
     TraceEvent,
     EventType,
     LogLevel,
-    StepStatus,
+    TraceStepStatus,
     ExecutionPhase,
     StepInfo,
     PayloadInfo,
@@ -23,9 +23,10 @@ from .events import (
     ReplayInfo,
     utc_now_iso,
 )
+from .status_mapping import map_step_status_to_trace
 
 # Version constants
-SCHEMA_VERSION = "failcore.trace.v0.1.2"
+SCHEMA_VERSION = "failcore.trace.v0.1.3"
 FAILCORE_VERSION = "0.1.0"
 
 
@@ -57,18 +58,30 @@ def build_run_context(
     tags: Optional[Dict[str, str]] = None,
     flags: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Build run context object"""
+    """
+    Build run context object with normalized relative paths.
+    
+    All paths are converted to be relative to .failcore directory for portability.
+    """
+    from pathlib import Path
+    from failcore.utils.paths import to_failcore_relative
+    
     ctx = {
         "run_id": run_id,
         "created_at": created_at,
     }
     
+    # Normalize all paths to be relative to .failcore directory
     if workspace:
-        ctx["workspace"] = workspace
+        ctx["workspace"] = to_failcore_relative(Path(workspace))
     if sandbox_root:
-        ctx["sandbox_root"] = sandbox_root
+        ctx["sandbox_root"] = to_failcore_relative(Path(sandbox_root))
     if cwd:
-        ctx["cwd"] = cwd
+        # cwd might be outside .failcore, so handle gracefully
+        try:
+            ctx["cwd"] = to_failcore_relative(Path(cwd))
+        except:
+            ctx["cwd"] = str(Path(cwd)).replace("\\", "/")
     if tags:
         ctx["tags"] = tags
     if flags:
@@ -92,7 +105,11 @@ def build_run_start_event(
     tags: Optional[Dict[str, str]] = None,
     flags: Optional[Dict[str, Any]] = None,
 ) -> TraceEvent:
-    """Build RUN_START event"""
+    """
+    Build RUN_START event with normalized relative paths.
+    
+    Adds 'kind': 'run' to distinguish from proxy mode.
+    """
     run_ctx = build_run_context(
         run_id=run_id,
         created_at=created_at,
@@ -102,6 +119,9 @@ def build_run_start_event(
         tags=tags,
         flags=flags,
     )
+    
+    # Add 'kind' field to distinguish SDK run from proxy
+    run_ctx["kind"] = "run"
     
     return TraceEvent(
         schema=SCHEMA_VERSION,
@@ -262,14 +282,15 @@ def build_step_end_event(
     step_id: str,
     tool: str,
     attempt: int,
-    status: StepStatus,
+    status: TraceStepStatus,  # Use TraceStepStatus for trace events
     phase: ExecutionPhase,
     duration_ms: int,
     output: Optional[Any] = None,
     error: Optional[Dict[str, Any]] = None,
     warnings: Optional[list] = None,
+    metrics: Optional[Dict[str, Any]] = None,
 ) -> TraceEvent:
-    """Build STEP_END event"""
+    """Build STEP_END event with optional cost metrics"""
     result = {
         "status": status.value,
         "phase": phase.value,
@@ -283,6 +304,10 @@ def build_step_end_event(
     
     event_data = {"result": result}
     
+    # Add metrics (cost tracking)
+    if metrics:
+        event_data["metrics"] = metrics
+    
     # Add output payload if present
     if output:
         event_data["payload"] = {
@@ -295,18 +320,18 @@ def build_step_end_event(
         }
     
     # v0.1.2: Determine severity based on status
-    if status == StepStatus.OK:
+    if status == TraceStepStatus.OK:
         severity = "ok"
-    elif status == StepStatus.BLOCKED:
+    elif status == TraceStepStatus.BLOCKED:
         severity = "block"
-    else:  # FAIL, SKIPPED, etc.
+    else:  # FAIL, SKIPPED, REPLAYED, etc.
         severity = "block" if error else "warn"
     
     return TraceEvent(
         schema=SCHEMA_VERSION,
         seq=seq,
         ts=utc_now_iso(),
-        level=LogLevel.INFO if status == StepStatus.OK else LogLevel.ERROR,
+        level=LogLevel.INFO if status == TraceStepStatus.OK else LogLevel.ERROR,
         event={
             "type": EventType.STEP_END.value,
             "severity": severity,  # v0.1.2: required severity

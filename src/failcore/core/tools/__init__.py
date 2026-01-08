@@ -17,7 +17,7 @@ from .registry import ToolRegistry
 from .schema import ToolSchema, ParamSchema, ParamType, SchemaRegistry, extract_schema_from_function
 from .spec import ToolSpec
 from .invoker import ToolInvoker
-from .metadata import ToolMetadata, RiskLevel, SideEffect, DefaultPolicy, DEFAULT_METADATA_PROFILES, validate_metadata_runtime
+from .metadata import ToolMetadata, RiskLevel, SideEffect, DefaultAction, DEFAULT_METADATA_PROFILES, validate_metadata_runtime
 
 
 __all__ = [
@@ -32,7 +32,7 @@ __all__ = [
     "ToolInvoker",
     "RiskLevel",
     "SideEffect",
-    "DefaultPolicy",
+    "DefaultAction",
     "ToolMetadata",
     "DEFAULT_METADATA_PROFILES",
     "validate_metadata_runtime",

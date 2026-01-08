@@ -1,32 +1,68 @@
-# /failcore/adapters/langchain/base.py
+# failcore/adapters/integrations/langchain/__init__.py
 """
-LangChain Adapter - Thin translation layer
+LangChain integration for FailCore - Core Gateway Architecture
 
-This adapter ONLY translates LangChain tools to FailCore's ToolSpec.
-Execution is handled by FailCore core, not by this adapter.
+Architecture:
+- Main path: guard() auto-detects LangChain tools → maps to ToolSpec → executes via Invoker
+- Optional path: guard_tool() wraps FailCore tools as BaseTool for Agent compatibility
+- All execution flows through FailCore's Invoker - single execution gateway
 
 Philosophy:
-- Adapter = Translator (not Executor)
-- Execution stays in FailCore core
-- LangChain-specific code isolated here
+- Execution sovereignty belongs to FailCore Invoker (not LangChain internals)
+- LangChain tools are just another input format (like native Python functions)
+- Adapter is pure translator, not executor
+- Optional facade layer for Agent compatibility
 
-Usage:
-    from failcore import Session, presets
-    from failcore.adapters.langchain import langchain_tool_to_spec
+Usage (Main Path - Recommended):
+    from failcore import run, guard
     from langchain_core.tools import tool
     
     @tool
     def my_tool(x: int) -> int:
+        '''Multiply by 2'''
         return x * 2
     
+    with run(policy="safe") as ctx:
+        # guard() auto-detects and adapts LangChain tool
+        safe_tool = guard(my_tool, risk="low", effect="read")
+        result = safe_tool(x=5)
+
+Usage (Optional Path - Agent Compatibility):
+    from failcore import run, guard
+    from failcore.adapters.langchain import guard_tool
+    
+    with run(policy="safe") as ctx:
+        safe_tool = guard(my_tool, risk="low", effect="read")
+        
+        # Wrap as BaseTool for Agent
+        lc_tool = guard_tool("my_tool", description="Protected tool")
+        agent = create_agent(tools=[lc_tool])
+
+Legacy Usage (Session API):
+    from failcore import Session
+    from failcore.adapters.integrations.langchain import map_langchain_tool
+    
     session = Session(validator=presets.fs_safe())
-    schemas = langchain_tool_to_spec(my_tool)
-    session.invoker.register_spec(schemas)
+    spec = map_langchain_tool(my_tool, risk="low", effect="read")
+    session.invoker.register_spec(spec)
     result = session.invoker.invoke("my_tool", x=5)
 """
 
+from .detector import is_langchain_tool, is_langchain_available
 from .mapper import map_langchain_tool
+from .wrapper import to_langchain_tool, guard_tool
+
+
 
 __all__ = [
-    "map_langchain_tool",
+    # Type detection
+    "is_langchain_tool",
+    "is_langchain_available",
+    
+    # Core adapter (main path)
+    "map_langchain_tool",  # Low-level mapper
+    
+    # Optional facade (for Agent compatibility)
+    "guard_tool",         # Recommended public API
+    "to_langchain_tool",  # Internal name (kept for compatibility)
 ]

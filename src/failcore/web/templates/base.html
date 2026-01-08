@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}FailCore Web UI{% endblock %}</title>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="/static/js/events_stream.js"></script>
+</head>
+<body>
+    <header>
+        <nav class="navbar">
+            <div class="container">
+                <a href="/" class="brand">⚡ FailCore</a>
+                <ul class="nav-links">
+                    <li><a href="/">Overview</a></li>
+                    <li><a href="/runs">Runs</a></li>
+                    <li><a href="/jobs">Jobs</a></li>
+                    <li><button id="theme-toggle" class="theme-toggle" title="Toggle theme"><span id="theme-icon">☀️</span></button></li>
+                </ul>
+            </div>
+        </nav>
+    </header>
+    
+    <main class="container">
+        {% block content %}{% endblock %}
+    </main>
+    
+    {# Toast notifications #}
+    {% include "partials/toast.html" %}
+    
+    <footer>
+        <div class="container">
+            <p>FailCore v0.1.2 | Observable and replayable tool execution engine</p>
+        </div>
+    </footer>
+    <script>
+        // Theme toggle
+        (function() {
+            const THEME_KEY = "failcore-theme";
+            const currentTheme = localStorage.getItem(THEME_KEY) || "dark";
+            document.documentElement.dataset.theme = currentTheme;
+            
+            function updateThemeIcon(theme) {
+                const icon = document.getElementById("theme-icon");
+                if (icon) {
+                    icon.textContent = theme === "dark" ? "☀️" : "🌙";
+                }
+            }
+            
+            // Set initial icon
+            updateThemeIcon(currentTheme);
+            
+            // Add click handler
+            const toggleBtn = document.getElementById("theme-toggle");
+            if (toggleBtn) {
+                toggleBtn.addEventListener("click", function() {
+                    const current = document.documentElement.dataset.theme;
+                    const next = current === "dark" ? "light" : "dark";
+                    document.documentElement.dataset.theme = next;
+                    localStorage.setItem(THEME_KEY, next);
+                    updateThemeIcon(next);
+                });
+            }
+        })();
+    </script>
+    </body>
+</html>

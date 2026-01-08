@@ -1,0 +1,309 @@
+{# Cost Panel - displays cost tracking data #}
+<div class="cost-panel">
+    <h3>COST TRACKING</h3>
+    
+    <div id="cost-content" class="cost-content">
+        <div class="cost-loading">Loading cost data...</div>
+    </div>
+</div>
+
+{# Include Chart.js from CDN #}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="/static/js/cost_chart.js"></script>
+
+<style>
+.cost-panel {
+    margin-top: 1rem;
+    padding: 1rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+}
+
+.cost-panel h3 {
+    font-size: 0.875rem;
+    margin-bottom: 1rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+
+.cost-content {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.cost-loading {
+    padding: 1rem;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.875rem;
+}
+
+.cost-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1rem;
+    padding: 1rem;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+}
+
+.cost-summary-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.cost-summary-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.cost-summary-value {
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.cost-budget {
+    padding: 0.75rem;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+}
+
+.cost-budget-title {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.5rem;
+}
+
+.cost-budget-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.cost-budget-item {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.875rem;
+}
+
+.cost-budget-label {
+    color: var(--text-muted);
+}
+
+.cost-budget-value {
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.cost-chart {
+    padding: 1rem;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+}
+
+.cost-chart-title {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 1rem;
+}
+
+.cost-chart-container {
+    position: relative;
+    width: 100%;
+    height: 300px;
+}
+
+.cost-chart-container canvas {
+    max-height: 300px;
+}
+
+.cost-events {
+    padding: 0.75rem;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+}
+
+.cost-events-title {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.5rem;
+}
+
+.cost-events-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.cost-event-item {
+    padding: 0.5rem;
+    background: var(--bg-secondary);
+    border-left: 3px solid var(--error);
+    border-radius: 2px;
+    font-size: 0.875rem;
+}
+
+.cost-event-reason {
+    color: var(--text-primary);
+    margin-bottom: 0.25rem;
+}
+
+.cost-event-meta {
+    display: flex;
+    gap: 1rem;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.cost-error {
+    padding: 1rem;
+    text-align: center;
+    color: var(--error);
+    font-size: 0.875rem;
+}
+</style>
+
+<script>
+// Load cost summary data
+document.addEventListener('DOMContentLoaded', function() {
+    const costPanel = document.querySelector('.cost-panel');
+    if (!costPanel) return;
+    
+    const runId = document.querySelector('.run-detail-page')?.dataset?.runId;
+    if (!runId) {
+        document.getElementById('cost-content').innerHTML = '<div class="cost-error">No run ID found</div>';
+        return;
+    }
+    
+    // Load cost data for summary
+    fetch(`/api/runs/${encodeURIComponent(runId)}/cost`)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            renderCostSummary(data);
+        })
+        .catch(error => {
+            console.error('Error loading cost data:', error);
+            document.getElementById('cost-content').innerHTML = 
+                `<div class="cost-error">Error loading cost data: ${error.message}</div>`;
+        });
+});
+
+function renderCostSummary(data) {
+    const content = document.getElementById('cost-content');
+    if (!content) return;
+    
+    const { points, budget, events } = data;
+    
+    let html = '';
+    
+    // Summary
+    if (points && points.length > 0) {
+        const lastPoint = points[points.length - 1];
+        html += `
+            <div class="cost-summary">
+                <div class="cost-summary-item">
+                    <div class="cost-summary-label">Total Cost</div>
+                    <div class="cost-summary-value">$${lastPoint.cum_cost_usd.toFixed(6)}</div>
+                </div>
+                <div class="cost-summary-item">
+                    <div class="cost-summary-label">Total Tokens</div>
+                    <div class="cost-summary-value">${lastPoint.cum_tokens.toLocaleString()}</div>
+                </div>
+                <div class="cost-summary-item">
+                    <div class="cost-summary-label">API Calls</div>
+                    <div class="cost-summary-value">${lastPoint.cum_api_calls}</div>
+                </div>
+                <div class="cost-summary-item">
+                    <div class="cost-summary-label">Steps</div>
+                    <div class="cost-summary-value">${points.length}</div>
+                </div>
+            </div>
+        `;
+    }
+    
+    // Budget
+    if (budget && (budget.max_cost_usd || budget.max_tokens || budget.max_usd_per_minute)) {
+        html += `
+            <div class="cost-budget">
+                <div class="cost-budget-title">Budget Limits</div>
+                <div class="cost-budget-list">
+                    ${budget.max_cost_usd ? `<div class="cost-budget-item"><span class="cost-budget-label">Max Cost</span><span class="cost-budget-value">$${budget.max_cost_usd.toFixed(2)}</span></div>` : ''}
+                    ${budget.max_tokens ? `<div class="cost-budget-item"><span class="cost-budget-label">Max Tokens</span><span class="cost-budget-value">${budget.max_tokens.toLocaleString()}</span></div>` : ''}
+                    ${budget.max_usd_per_minute ? `<div class="cost-budget-item"><span class="cost-budget-label">Burn Rate</span><span class="cost-budget-value">$${budget.max_usd_per_minute.toFixed(2)}/min</span></div>` : ''}
+                </div>
+            </div>
+        `;
+    }
+    
+    // Chart container (Chart.js will render here)
+    if (points && points.length > 0) {
+        html += `
+            <div class="cost-chart">
+                <div class="cost-chart-title">Cost Curve</div>
+                <div class="cost-chart-container">
+                    <canvas id="cost-chart-canvas"></canvas>
+                </div>
+            </div>
+        `;
+    }
+    
+    // Events
+    if (events && events.length > 0) {
+        html += `
+            <div class="cost-events">
+                <div class="cost-events-title">Blocked Events</div>
+                <div class="cost-events-list">
+                    ${events.map(event => `
+                        <div class="cost-event-item">
+                            <div class="cost-event-reason">${escapeHtml(event.reason)}</div>
+                            <div class="cost-event-meta">
+                                <span>Step ${event.seq}</span>
+                                <span>${new Date(event.ts).toLocaleString()}</span>
+                                ${event.error_code ? `<span>${escapeHtml(event.error_code)}</span>` : ''}
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    }
+    
+    content.innerHTML = html || '<div class="cost-loading">No cost data available</div>';
+    
+    // Initialize Chart.js chart if canvas exists
+    const canvas = document.getElementById('cost-chart-canvas');
+    if (canvas && typeof Chart !== 'undefined') {
+        const runId = document.querySelector('.run-detail-page')?.dataset?.runId;
+        if (runId) {
+            initCostChart(runId, canvas);
+        }
+    }
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+</script>

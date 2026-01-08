@@ -50,13 +50,27 @@ class LogLevel(str, Enum):
     ERROR = "ERROR"
 
 
-class StepStatus(str, Enum):
-    """Step execution status"""
-    OK = "OK"
-    FAIL = "FAIL"
-    BLOCKED = "BLOCKED"
-    SKIPPED = "SKIPPED"
-    REPLAYED = "REPLAYED"
+# Trace-specific step status (event-level semantics)
+# Separated from execution-level StepStatus to maintain clear boundaries
+class TraceStepStatus(str, Enum):
+    """
+    Trace event step status (event-level semantics)
+    
+    This enum represents the status of a step as recorded in trace events.
+    It extends execution-level StepStatus with trace-specific states like
+    REPLAYED and SKIPPED, which are event-level observations rather than
+    execution results.
+    
+    Design principle:
+    - Execution status (StepStatus): ok/fail/blocked (execution result)
+    - Event status (TraceStepStatus): ok/fail/blocked/skipped/replayed (trace observation)
+    - Use map_step_status_to_trace() to convert StepStatus → TraceStepStatus
+    """
+    OK = "ok"
+    FAIL = "fail"
+    BLOCKED = "blocked"
+    SKIPPED = "skipped"  # Event-level: step was skipped in trace
+    REPLAYED = "replayed"  # Event-level: step was replayed from history
 
 
 class ExecutionPhase(str, Enum):
@@ -220,7 +234,7 @@ class ResultInfo:
     """
     Step execution result (enhanced with required fields)
     """
-    status: StepStatus
+    status: TraceStepStatus  # Use TraceStepStatus for trace events
     phase: ExecutionPhase  # REQUIRED: execution phase
     duration_ms: int
     severity: EventSeverity  # REQUIRED: event severity
@@ -292,6 +306,22 @@ class ReplayInfo:
     historical_value: Optional[Any] = None
     current_value: Optional[Any] = None
     reason: Optional[str] = None
+
+
+@dataclass
+class SideEffectInfo:
+    """
+    Side-effect information
+    
+    Records what side-effect occurred during execution.
+    This is a fact-only record - no judgment, no blocking, just observation.
+    """
+    type: str  # Side-effect type (e.g., "filesystem.write", "network.egress")
+    target: Optional[str] = None  # Target of the side-effect (e.g., "/etc/passwd", "api.example.com")
+    category: Optional[str] = None  # Side-effect category (e.g., "filesystem", "network")
+    tool: Optional[str] = None  # Tool that caused the side-effect
+    step_id: Optional[str] = None  # Step ID where side-effect occurred
+    metadata: Dict[str, Any] = field(default_factory=dict)  # Additional metadata
 
 
 @dataclass

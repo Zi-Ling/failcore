@@ -43,7 +43,8 @@ def generate_report(args):
         return _generate_report_from_trace(trace_path)
     
     # Otherwise, get the last run from database
-    db_path = ".failcore/failcore.db"
+    from failcore.utils.paths import get_database_path
+    db_path = str(get_database_path())
     
     if not Path(db_path).exists():
         print(f"Error: Database not found: {db_path}")

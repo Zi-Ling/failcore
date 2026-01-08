@@ -1,13 +1,16 @@
 # failcore/api/session.py
 """
-Session API - recommended main entry point for real usage
+Session API - legacy API for backward compatibility
+
+Note: For new code, prefer using run() API instead.
+Session is kept for backward compatibility with existing codebases.
 """
 
 from __future__ import annotations
 from typing import Any, Callable, Dict, Optional
 from pathlib import Path
 from datetime import datetime
-from ..core.step import Step, RunContext, StepResult, generate_step_id, generate_run_id
+from failcore.core.types.step import Step, RunContext, StepResult, generate_run_id
 from ..core.executor.executor import Executor, ExecutorConfig
 from ..core.tools.registry import ToolRegistry
 from ..core.tools.spec import ToolSpec
@@ -16,19 +19,19 @@ from ..core.tools.invoker import ToolInvoker
 from ..core.trace.recorder import JsonlTraceRecorder, NullTraceRecorder, TraceRecorder
 from ..core.validate.validator import ValidatorRegistry
 from ..core.validate.rules import ValidationRuleSet
-from ..core.validate.presets import ValidationPreset
 from ..core.policy.policy import Policy
-
+from ..utils.paths import get_failcore_root, get_database_path
 
 class Session:
     """
-    Session API - multiple calls within a single session
+    Session API - multiple tool calls within a single session
     
-    Users can execute tools like running a script/workflow.
+    Legacy API: This class is kept for backward compatibility.
+    For new code, prefer using run() API which provides better ergonomics.
     
     Features:
-    - session.call("tool", **params): execute one step
-    - session.register("tool_name", fn): register a tool
+    - session.call("tool", **params): Execute one step
+    - session.register("tool_name", fn): Register a tool
     - Decorator-style tool registration supported
     - Failures don't raise exceptions: always returns structured result
     
@@ -44,6 +47,10 @@ class Session:
         ... def add(a: int, b: int) -> int:
         ...     return a + b
         >>> result = session.call("add", a=1, b=2)
+    
+    Note:
+        Session API returns StepResult objects, not direct values.
+        For exception-based error handling, use run() API instead.
     """
     
     def __init__(
@@ -84,41 +91,25 @@ class Session:
             >>> # Disable auto ingest
             >>> session = Session(auto_ingest=False)
         """
-        # Generate run_id first (needed for auto trace path and sandbox)
+        # Generate run_id first (needed for auto trace path)
         self._run_id = run_id or generate_run_id()
-        
-        # Handle auto trace path (must be done before sandbox to get run_dir)
-        if trace == "auto":
-            # Use unified path management
-            from failcore.utils.paths import init_run, create_run_directory
-            run_ctx = init_run(command_name="session", run_id=self._run_id)
-            run_dir = create_run_directory(run_ctx)
-            trace_path = str(run_ctx.trace_path)
-            self._recorder: TraceRecorder = JsonlTraceRecorder(trace_path)
-            self._trace_path = trace_path
-            self._run_ctx = run_ctx  # Store for sandbox creation
-        elif trace is None:
-            self._recorder: TraceRecorder = NullTraceRecorder()
-            self._trace_path = None
-            self._run_ctx = None
-        else:
-            # Custom trace path - ensure directory exists
-            trace_path = trace
-            Path(trace_path).parent.mkdir(parents=True, exist_ok=True)
-            self._recorder: TraceRecorder = JsonlTraceRecorder(trace_path)
-            self._trace_path = trace_path
-            self._run_ctx = None
         
         # Sandbox validation (v0.1.2: enforce explicit sandbox for security)
         if sandbox is None:
-            # Default to per-run sandbox for isolation
-            if hasattr(self, '_run_ctx') and self._run_ctx:
-                from failcore.utils.paths import create_sandbox
-                sandbox = str(create_sandbox(self._run_ctx))
-            else:
-                # Fallback for custom trace paths (no run_ctx available)
-                sandbox = ".failcore/sandbox"
-                Path(sandbox).mkdir(parents=True, exist_ok=True)
+            # Default to .failcore/sandbox for safety
+            sandbox = str(get_failcore_root() / "sandbox")
+        
+        # Initialize Janitor and ProcessRegistry (阶段一：Session 中心化)
+        from failcore.infra.lifecycle.janitor import ResourceJanitor
+        from failcore.core.process import ProcessRegistry
+        
+        self._janitor = ResourceJanitor()
+        self._process_registry = ProcessRegistry(auto_cleanup=True)
+        self._session_manifest = None  # Will be created in __enter__
+        self._session_resources = None  # Will be created when needed  
+        
+        # Store sandbox root
+        self._sandbox_root = Path(sandbox)
         
         # Tool registry with sandbox support
         self._tools = ToolRegistry(sandbox_root=sandbox)
@@ -131,10 +122,47 @@ class Session:
         # Store auto_ingest flag
         self._auto_ingest = auto_ingest
         
-        # Create executor
+        # Handle auto trace path
+        # Use POSIX format (forward slashes) for cross-platform compatibility
+        if trace == "auto":
+            # Generate: <project_root>/.failcore/runs/<date>/<run_id>_<time>/trace.jsonl
+            # Group by date to avoid too many directories in one folder
+            failcore_root = get_failcore_root()
+            now = datetime.now()
+            date = now.strftime("%Y%m%d")
+            time = now.strftime("%H%M%S")
+            run_dir = failcore_root / "runs" / date / f"{self._run_id}_{time}"
+            run_dir.mkdir(parents=True, exist_ok=True)
+            trace_path = (run_dir / "trace.jsonl").as_posix()
+            self._recorder: TraceRecorder = JsonlTraceRecorder(trace_path)
+            self._trace_path = trace_path
+        elif trace is None:
+            self._recorder: TraceRecorder = NullTraceRecorder()
+            self._trace_path = None
+        else:
+            # Custom trace path - ensure directory exists
+            trace_dir = Path(trace).parent
+            if trace_dir != Path('.'):
+                trace_dir.mkdir(parents=True, exist_ok=True)
+            # Store path in POSIX format
+            self._recorder: TraceRecorder = JsonlTraceRecorder(trace)
+            self._trace_path = Path(trace).as_posix()
+        
+        # Create SessionResources (阶段一 Step 1: 统一资源容器)
+        from failcore.core.executor.resources import SessionResources
+        
+        self._session_resources = SessionResources.create(
+            session_id=self._run_id,
+            sandbox_root=self._sandbox_root,
+            process_registry=self._process_registry,
+            trace_recorder=self._recorder,
+            janitor=self._janitor,
+        )
+        
+        # Create executor with SessionResources (阶段一 Step 2: 强制使用 SessionResources)
         self._executor = Executor(
             tools=self._tools,
-            recorder=self._recorder,
+            session_resources=self._session_resources,  # 使用 SessionResources
             validator=self._validator,
             policy=policy,
             config=ExecutorConfig()
@@ -165,10 +193,6 @@ class Session:
         # Create invoker (unified tool execution interface)
         # This is the entry point for all adapters
         self.invoker = ToolInvoker(self._executor, self._ctx)
-        
-        # Auto-register as the watch session
-        from .watch import set_watch_session
-        set_watch_session(self)
     
     def register(
         self,
@@ -193,14 +217,14 @@ class Session:
             >>> session.register("divide", lambda a, b: a / b)
             
             >>> # With metadata
-            >>> from failcore.core.tools.metadata import ToolMetadata, RiskLevel, SideEffect, DefaultPolicy
+            >>> from failcore.core.tools.metadata import ToolMetadata, RiskLevel, SideEffect, DefaultAction
             >>> session.register(
             ...     "write_file",
             ...     write_file_fn,
             ...     metadata=ToolMetadata(
             ...         risk_level=RiskLevel.HIGH,
-            ...         side_effect=SideEffect.WRITE,
-            ...         default_policy=DefaultPolicy.BLOCK,
+            ...         side_effect=SideEffect.FS,
+            ...         default_action=DefaultAction.BLOCK,
             ...     )
             ... )
         """
@@ -343,11 +367,11 @@ class Session:
             if file_size == 0:
                 return
             
-            # Default database path
-            db_path = ".failcore/failcore.db"
+            # Default database path (uses project root detection)
+            db_path = str(get_database_path())
             
             # Ensure directory exists
-            Path(".failcore").mkdir(exist_ok=True)
+            Path(db_path).parent.mkdir(parents=True, exist_ok=True)
             
             # Ingest trace
             with SQLiteStore(db_path) as store:
@@ -368,12 +392,90 @@ class Session:
                 print(f"Warning: Failed to auto-ingest trace: {e}", file=sys.stderr)
     
     def __enter__(self) -> Session:
-        """Support context manager"""
+        """
+        Enter session context - cleanup stale resources and register session
+        
+        阶段一 Step 3: Session 生命周期管理
+        - 清理历史孤儿资源
+        - 注册当前 session
+        """
+        # Step 3.1: Cleanup stale sessions from previous runs
+        try:
+            cleanup_results = self._janitor.cleanup_stale_sessions(
+                max_age_hours=24.0,
+                force=False
+            )
+            if cleanup_results:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.info(f"Cleaned up {len(cleanup_results)} stale sessions on startup")
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to cleanup stale sessions: {e}")
+        
+        # Step 3.2: Register current session
+        try:
+            from failcore.infra.lifecycle.janitor import SessionManifest
+            import time
+            
+            self._session_manifest = SessionManifest(
+                session_id=self._run_id,
+                sandbox_root=str(self._sandbox_root),
+                created_at=time.time(),
+                pgid=self._process_registry.get_process_group(),
+                pids=list(self._process_registry.get_owned_pids()),
+            )
+            
+            self._janitor.register_session(self._session_manifest)
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to register session: {e}")
+        
         return self
     
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        """Support context manager"""
-        self.close()
+        """
+        Exit session context - cleanup resources and unregister session
+        
+        阶段一 Step 3: Session 生命周期管理
+        - 清理所有拥有的进程
+        - 注销 session
+        - 关闭 trace
+        """
+        try:
+            # Step 3.3: Cleanup owned processes
+            import logging
+            logger = logging.getLogger(__name__)
+            
+            if self._process_registry:
+                try:
+                    cleanup_results = self._process_registry.cleanup(
+                        timeout=10.0,
+                        force=True,
+                        use_process_group=True
+                    )
+                    
+                    if cleanup_results:
+                        failed = [pid for pid, ok in cleanup_results.items() if not ok]
+                        if failed:
+                            logger.warning(f"Failed to cleanup PIDs: {failed}")
+                        else:
+                            logger.debug(f"Successfully cleaned up {len(cleanup_results)} processes")
+                except Exception as e:
+                    logger.error(f"Error during process cleanup: {e}", exc_info=True)
+            
+            # Step 3.4: Unregister session
+            if self._janitor and self._run_id:
+                try:
+                    self._janitor.unregister_session(self._run_id)
+                except Exception as e:
+                    logger.warning(f"Failed to unregister session: {e}")
+        
+        finally:
+            # Always call close to flush trace and ingest
+            self.close()
     
     @property
     def run_id(self) -> str:

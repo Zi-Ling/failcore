@@ -1,0 +1,220 @@
+{# Toast/Notification Container - placeholder for real-time event notifications #}
+<div id="toast-container" class="toast-container"></div>
+
+<style>
+.toast-container {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    pointer-events: none;
+}
+
+.toast {
+    min-width: 300px;
+    max-width: 500px;
+    padding: 1rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--error);
+    border-radius: 4px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    pointer-events: auto;
+    animation: slideIn 0.3s ease-out;
+}
+
+.toast.toast-blocked {
+    border-left-color: var(--red-500);
+}
+
+.toast.toast-budget-exceeded {
+    border-left-color: var(--red-500);
+}
+
+.toast.toast-burn-rate-exceeded {
+    border-left-color: var(--yellow-500);
+}
+
+.toast.toast-token-limit-exceeded {
+    border-left-color: var(--yellow-500);
+}
+
+.toast-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.toast-title {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.toast-close {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 1.25rem;
+    line-height: 1;
+    padding: 0;
+    width: 1.5rem;
+    height: 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.toast-close:hover {
+    color: var(--text-primary);
+}
+
+.toast-message {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.5rem;
+}
+
+.toast-meta {
+    display: flex;
+    gap: 1rem;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.toast-error-code {
+    font-family: monospace;
+    color: var(--error);
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+@keyframes slideOut {
+    from {
+        transform: translateX(0);
+        opacity: 1;
+    }
+    to {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+}
+
+.toast.closing {
+    animation: slideOut 0.3s ease-out;
+}
+
+.toast-actions {
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border);
+}
+
+.toast-link {
+    display: inline-block;
+    padding: 0.5rem 1rem;
+    background: var(--blue-500);
+    color: white;
+    text-decoration: none;
+    border-radius: 4px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    transition: background 0.15s;
+}
+
+.toast-link:hover {
+    background: var(--blue-600);
+}
+</style>
+
+<script>
+// Toast notification system (placeholder for real-time events)
+(function() {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+    
+    /**
+     * Show a toast notification
+     * @param {Object} event - Event object { type, seq, ts, reason, error_code }
+     * @param {number} duration - Auto-hide duration in ms (0 = never auto-hide)
+     */
+    window.showToast = function(event, duration = 5000) {
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${event.type}`;
+        
+        const title = event.type === 'blocked' ? 'BLOCKED' :
+                     event.type === 'budget_exceeded' ? 'BUDGET EXCEEDED' :
+                     event.type === 'burn_rate_exceeded' ? 'BURN RATE EXCEEDED' :
+                     event.type === 'token_limit_exceeded' ? 'TOKEN LIMIT EXCEEDED' :
+                     'EVENT';
+        
+        // Build View Replay link if run_id is available
+        const runId = event.run_id || '';
+        const viewReplayLink = runId ? 
+            `<div class="toast-actions">
+                <a href="/runs/${encodeURIComponent(runId)}/replay" class="toast-link">View Replay</a>
+            </div>` : '';
+        
+        toast.innerHTML = `
+            <div class="toast-header">
+                <span class="toast-title">${title}</span>
+                <button class="toast-close" onclick="this.closest('.toast').remove()">×</button>
+            </div>
+            <div class="toast-message">${escapeHtml(event.reason)}</div>
+            <div class="toast-meta">
+                <span>Step ${event.seq}</span>
+                <span>${new Date(event.ts).toLocaleTimeString()}</span>
+                ${event.error_code ? `<span class="toast-error-code">${escapeHtml(event.error_code)}</span>` : ''}
+            </div>
+            ${viewReplayLink}
+        `;
+        
+        container.appendChild(toast);
+        
+        // Auto-hide after duration
+        if (duration > 0) {
+            setTimeout(() => {
+                toast.classList.add('closing');
+                setTimeout(() => toast.remove(), 300);
+            }, duration);
+        }
+        
+        return toast;
+    };
+    
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+    
+    /**
+     * Connect to SSE event stream (placeholder)
+     * TODO: Replace with actual SSE implementation
+     */
+    window.connectEventStream = function(runId) {
+        // Placeholder: no-op
+        // Real implementation would:
+        // 1. Create EventSource('/api/runs/' + runId + '/events')
+        // 2. Listen for 'message' events
+        // 3. Parse event data and call showToast()
+        console.log('Event stream connection placeholder for run:', runId);
+    };
+})();
+</script>

@@ -1,0 +1,566 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://failcore.dev/trace/v0.1.3.schema.json",
+  "title": "FailCore Trace Event v0.1.3",
+  "description": "Trace event schema for FailCore execution traces with provenance tracking, resource usage, deterministic replay fingerprinting, enhanced contract validation, timeout enforcement, and standardized cost metrics.",
+  "type": "object",
+  "required": ["schema", "seq", "ts", "level", "event", "run"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "type": "string",
+      "const": "failcore.trace.v0.1.3",
+      "description": "Schema version identifier"
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Monotonic sequence number within run"
+    },
+    "ts": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO8601 timestamp with timezone (recommend microsecond precision for concurrent ordering)"
+    },
+    "level": {
+      "type": "string",
+      "enum": ["DEBUG", "INFO", "WARN", "ERROR"],
+      "description": "Log level for observability (not enforcement severity)"
+    },
+
+    "event": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "RUN_START",
+            "RUN_END",
+            "STEP_START",
+            "STEP_END",
+
+            "STEP_TIMEOUT",
+            "TIMEOUT_CLAMPED",
+
+            "FINGERPRINT_COMPUTED",
+            "REPLAY_HIT",
+            "REPLAY_MISS",
+
+            "CONTRACT_DRIFT",
+            "VALIDATION_FAILED",
+            "POLICY_DENIED",
+
+            "OUTPUT_NORMALIZED",
+            "ARTIFACT_WRITTEN",
+            "SIDE_EFFECT_APPLIED",
+
+            "EGRESS_EVENT"
+          ]
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["ok", "warn", "block"],
+          "description": "Enforcement severity (ok=passed, warn=soft violation/drift, block=hard failure/termination)"
+        },
+
+        "step": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": { "type": "string" },
+            "tool": { "type": "string" },
+            "attempt": { "type": "integer", "minimum": 1 },
+            "depends_on": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Step IDs this step depends on"
+            },
+            "fingerprint": {
+              "type": "object",
+              "description": "Replay matching fingerprint (critical for deterministic replay)",
+              "additionalProperties": false,
+              "required": ["hash"],
+              "properties": {
+                "hash": {
+                  "type": "string",
+                  "pattern": "^(sha256|md5):[a-f0-9]+$",
+                  "description": "Fingerprint hash for replay matching"
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "Fingerprint algorithm version"
+                },
+                "components": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "Components included in fingerprint (e.g., ['tool', 'params', 'env'])"
+                },
+                "contract_hash": {
+                  "type": "string",
+                  "pattern": "^(sha256|md5):[a-f0-9]+$",
+                  "description": "Optional contract hash to include contract in fingerprint"
+                }
+              }
+            },
+            "contract": { "type": "object" },
+            "meta": {
+              "type": "object",
+              "description": "Reserved for future step-level extensions (e.g., tags, annotations)"
+            },
+            "provenance": {
+              "type": "object",
+              "description": "Source tracking: where did this step come from?",
+              "additionalProperties": false,
+              "properties": {
+                "source": {
+                  "type": "string",
+                  "enum": ["user", "memory", "planner", "repair", "cache", "retry", "fallback"],
+                  "description": "Origin type of this step"
+                },
+                "ref": {
+                  "type": "string",
+                  "description": "Reference to source location (recommended for non-user sources). Examples: 'msg:7#char120-210', 'trace:seq12', 'plan:s3'"
+                },
+                "hash": {
+                  "type": "string",
+                  "pattern": "^(sha256|md5):[a-f0-9]+$",
+                  "description": "Optional hash of source content for integrity verification"
+                }
+              },
+              "required": ["source"]
+            },
+            "usage": {
+              "type": "object",
+              "description": "Resource consumption for this step",
+              "additionalProperties": false,
+              "properties": {
+                "input_tokens": { "type": "integer", "minimum": 0 },
+                "output_tokens": { "type": "integer", "minimum": 0 },
+                "tool_ms": { "type": "integer", "minimum": 0 },
+                "billing": {
+                  "type": "object",
+                  "description": "Optional cost estimation (provider-specific, unstable)",
+                  "additionalProperties": false,
+                  "properties": {
+                    "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+                    "estimated_cost": { "type": "number", "minimum": 0 },
+                    "pricing_ref": { "type": "string" }
+                  },
+                  "required": ["currency", "estimated_cost"]
+                }
+              }
+            }
+          }
+        },
+
+        "data": {
+          "type": "object",
+          "description": "Event-specific payload (structure depends on event.type)",
+          "additionalProperties": true
+        }
+      },
+
+      "oneOf": [
+        {
+          "description": "STEP_START must have step identity",
+          "required": ["type", "step"],
+          "properties": {
+            "type": { "enum": ["STEP_START"] },
+            "step": { "required": ["id", "tool"] }
+          }
+        },
+        {
+          "description": "STEP_END must have step identity and result status (optionally cost metrics)",
+          "required": ["type", "step", "data"],
+          "properties": {
+            "type": { "enum": ["STEP_END"] },
+            "step": { "required": ["id", "tool"] },
+            "data": {
+              "type": "object",
+              "required": ["result"],
+              "properties": {
+                "result": {
+                  "type": "object",
+                  "required": ["status"],
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": ["OK", "ERROR", "BLOCKED", "TIMEOUT"],
+                      "description": "Step end status"
+                    },
+                    "phase": { "type": "string" },
+                    "duration_ms": { "type": "integer", "minimum": 0 },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": { "type": "string" },
+                        "message": { "type": "string" },
+                        "detail": { "type": "object" }
+                      },
+                      "additionalProperties": true
+                    }
+                  },
+                  "additionalProperties": true
+                },
+                "metrics": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "cost": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["incremental", "cumulative"],
+                      "properties": {
+                        "incremental": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": ["tokens", "api_calls", "estimated"],
+                          "properties": {
+                            "cost_usd": { "type": "number" },
+                            "cost": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": ["amount", "currency"],
+                              "properties": {
+                                "amount": { "type": "number" },
+                                "currency": { "type": "string", "pattern": "^[A-Z]{3}$" }
+                              }
+                            },
+                            "pricing_ref": { "type": "string" },
+                            "tokens": { "type": "integer", "minimum": 0 },
+                            "api_calls": { "type": "integer", "minimum": 0 },
+                            "cached_api_calls": { "type": "integer", "minimum": 0 },
+                            "estimated": { "type": "boolean" }
+                          },
+                          "allOf": [
+                            { "anyOf": [{ "required": ["cost_usd"] }, { "required": ["cost"] }] }
+                          ]
+                        },
+                        "cumulative": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": ["tokens", "api_calls"],
+                          "properties": {
+                            "cost_usd": { "type": "number" },
+                            "cost": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": ["amount", "currency"],
+                              "properties": {
+                                "amount": { "type": "number" },
+                                "currency": { "type": "string", "pattern": "^[A-Z]{3}$" }
+                              }
+                            },
+                            "pricing_ref": { "type": "string" },
+                            "tokens": { "type": "integer", "minimum": 0 },
+                            "api_calls": { "type": "integer", "minimum": 0 },
+                            "cached_api_calls": { "type": "integer", "minimum": 0 }
+                          },
+                          "allOf": [
+                            { "anyOf": [{ "required": ["cost_usd"] }, { "required": ["cost"] }] }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                "payload": {
+                  "type": "object",
+                  "description": "Optional tool output payload (structured by renderers), may include summary/hash/etc."
+                }
+              },
+              "additionalProperties": true
+            }
+          }
+        },
+
+        {
+          "description": "STEP_TIMEOUT event (timeout enforcement) must carry timeout_seconds",
+          "required": ["type", "severity", "data"],
+          "properties": {
+            "type": { "enum": ["STEP_TIMEOUT"] },
+            "severity": { "enum": ["warn", "block"] },
+            "data": {
+              "type": "object",
+              "required": ["timeout_seconds"],
+              "properties": {
+                "timeout_seconds": { "type": "number", "minimum": 0 },
+                "process_group": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "pgid": { "type": ["integer", "null"] },
+                    "killed": { "type": "boolean" },
+                    "kill_error": { "type": ["string", "null"] }
+                  }
+                }
+              },
+              "additionalProperties": true
+            }
+          }
+        },
+
+        {
+          "description": "TIMEOUT_CLAMPED event must carry original and effective timeout",
+          "required": ["type", "severity", "data"],
+          "properties": {
+            "type": { "enum": ["TIMEOUT_CLAMPED"] },
+            "severity": { "enum": ["warn"] },
+            "data": {
+              "type": "object",
+              "required": ["original_seconds", "effective_seconds", "reason"],
+              "properties": {
+                "source": { "type": "string" },
+                "original_seconds": { "type": "number", "minimum": 0 },
+                "effective_seconds": { "type": "number", "minimum": 0 },
+                "reason": { "type": "string" }
+              },
+              "additionalProperties": true
+            }
+          }
+        },
+
+        {
+          "description": "FINGERPRINT_COMPUTED must carry step.fingerprint",
+          "required": ["type", "step"],
+          "properties": {
+            "type": { "enum": ["FINGERPRINT_COMPUTED"] },
+            "step": { "required": ["id", "tool", "fingerprint"] }
+          }
+        },
+
+        {
+          "description": "REPLAY_HIT/REPLAY_MISS must carry replay metadata",
+          "required": ["type", "data"],
+          "properties": {
+            "type": { "enum": ["REPLAY_HIT", "REPLAY_MISS"] },
+            "data": {
+              "type": "object",
+              "required": ["replay"],
+              "properties": {
+                "replay": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["hit_key", "cache_source"],
+                  "properties": {
+                    "hit_key": { "type": "string" },
+                    "cache_source": { "type": "string", "enum": ["memory", "disk", "remote", "other"] },
+                    "saved_tokens": { "type": "integer", "minimum": 0 },
+                    "saved_ms": { "type": "integer", "minimum": 0 }
+                  }
+                }
+              },
+              "additionalProperties": true
+            }
+          }
+        },
+
+        {
+          "description": "CONTRACT_DRIFT must specify drift details",
+          "required": ["type", "severity", "data"],
+          "properties": {
+            "type": { "enum": ["CONTRACT_DRIFT"] },
+            "severity": { "enum": ["warn", "block"] },
+            "data": {
+              "type": "object",
+              "required": ["contract"],
+              "properties": {
+                "contract": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["drift_type"],
+                  "properties": {
+                    "drift_type": { "type": "string" },
+                    "expected_kind": { "type": "string" },
+                    "observed_kind": { "type": "string" }
+                  }
+                }
+              },
+              "additionalProperties": true
+            }
+          }
+        },
+
+        {
+          "description": "OUTPUT_NORMALIZED must specify normalization details",
+          "required": ["type", "severity", "data"],
+          "properties": {
+            "type": { "enum": ["OUTPUT_NORMALIZED"] },
+            "severity": { "enum": ["warn", "block"] },
+            "data": {
+              "type": "object",
+              "required": ["normalization"],
+              "properties": {
+                "normalization": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["from_kind", "to_kind", "reason"],
+                  "properties": {
+                    "from_kind": { "type": "string" },
+                    "to_kind": { "type": "string" },
+                    "reason": { "type": "string" },
+                    "policy": { "type": "string" }
+                  }
+                }
+              },
+              "additionalProperties": true
+            }
+          }
+        },
+
+        {
+          "description": "VALIDATION_FAILED must specify validation error details",
+          "required": ["type", "severity", "data"],
+          "properties": {
+            "type": { "enum": ["VALIDATION_FAILED"] },
+            "severity": { "enum": ["warn", "block"] },
+            "data": {
+              "type": "object",
+              "required": ["validation_error"],
+              "properties": {
+                "validation_error": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["kind", "message"],
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": ["schema_violation", "parse_error", "missing_required", "unexpected_field", "type_mismatch"]
+                    },
+                    "message": { "type": "string" },
+                    "path": { "type": "string" },
+                    "details": { "type": "object" }
+                  }
+                }
+              },
+              "additionalProperties": true
+            }
+          }
+        },
+
+        {
+          "description": "POLICY_DENIED must specify denial reason and category",
+          "required": ["type", "severity", "data"],
+          "properties": {
+            "type": { "enum": ["POLICY_DENIED"] },
+            "severity": { "const": "block" },
+            "data": {
+              "type": "object",
+              "required": ["policy"],
+              "properties": {
+                "policy": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["rule_id", "category"],
+                  "properties": {
+                    "rule_id": { "type": "string" },
+                    "category": {
+                      "type": "string",
+                      "enum": ["SECURITY", "COMPLIANCE", "BUDGET", "RATE_LIMIT", "CAPABILITY", "OTHER"]
+                    },
+                    "category_detail": { "type": "string" },
+                    "reason": { "type": "string" }
+                  }
+                }
+              },
+              "additionalProperties": true
+            }
+          }
+        },
+
+        {
+          "description": "EGRESS_EVENT is a generic proxy/network egress audit event (schema is intentionally loose here)",
+          "required": ["type", "data"],
+          "properties": {
+            "type": { "enum": ["EGRESS_EVENT"] },
+            "data": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        },
+
+        {
+          "description": "Other event types (minimal constraints)",
+          "required": ["type"],
+          "properties": {
+            "type": {
+              "enum": [
+                "RUN_START",
+                "RUN_END",
+                "ARTIFACT_WRITTEN",
+                "SIDE_EFFECT_APPLIED"
+              ]
+            }
+          }
+        }
+      ]
+    },
+
+    "run": {
+      "type": "object",
+      "description": "Run metadata (common for run/proxy/mcp)",
+      "additionalProperties": true,
+      "required": ["id", "kind"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Run identifier (folder name / correlation id)"
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["run", "proxy"],
+          "description": "Trace kind: 'run' for task/session/tool execution; 'proxy' for long-running API proxy"
+        },
+        "date": {
+          "type": "string",
+          "pattern": "^[0-9]{8}$",
+          "description": "Run date YYYYMMDD (optional, but useful for indexing)"
+        },
+        "started_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Run start time (optional)"
+        },
+        "command": {
+          "type": "string",
+          "description": "CLI command name (e.g., run, proxy, ui, mcp)"
+        },
+        "tags": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Optional tags for filtering"
+        },
+        "proxy": {
+          "type": "object",
+          "description": "Proxy-specific metadata (present when kind=proxy)",
+          "additionalProperties": true,
+          "properties": {
+            "listen": { "type": "string" },
+            "upstream": { "type": "string" },
+            "mode": { "type": "string", "enum": ["warn", "strict"] }
+          }
+        }
+      }
+    },
+
+    "host": {
+      "type": "object",
+      "description": "Host info (optional)",
+      "additionalProperties": true
+    },
+    "actor": {
+      "type": "object",
+      "description": "Actor info (optional)",
+      "additionalProperties": true
+    },
+    "security": {
+      "type": "object",
+      "description": "Security context (optional)",
+      "additionalProperties": true
+    }
+  }
+}

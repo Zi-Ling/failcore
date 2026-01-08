@@ -31,7 +31,8 @@ def show_trace(args):
     - failcore show --errors           # Only errors/blocked
     - failcore show --step <step_id>   # Show step detail
     """
-    db_path = ".failcore/failcore.db"
+    from failcore.utils.paths import get_database_path
+    db_path = str(get_database_path())
     
     if not Path(db_path).exists():
         print(f"Error: Database not found: {db_path}")

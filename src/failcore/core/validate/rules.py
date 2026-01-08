@@ -133,7 +133,7 @@ class RuleAssembler:
         strict_contract = tool_metadata.requires_strict_mode
 
         # --- side-effect based preconditions (system baseline) ---
-        if side_effect in (SideEffect.WRITE, SideEffect.READ):
+        if side_effect in (SideEffect.FS, SideEffect.FS):
             params = tuple(path_param_names or DEFAULT_PATH_PARAM_NAMES)
             rules.preconditions.append(
                 path_traversal_precondition(*params, sandbox_root=self.sandbox_root)

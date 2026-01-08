@@ -12,7 +12,7 @@ from .events import (
     TraceEvent,
     EventType,
     LogLevel,
-    StepStatus,
+    TraceStepStatus,  # Use TraceStepStatus for trace events
     ExecutionPhase,
     utc_now_iso,
 )
@@ -94,7 +94,7 @@ class TraceWriter:
         >>> writer.run_start(tags={"env": "dev"})
         >>> writer.step_start(step_id="s0001", tool="fetch_data", params={"id": 123})
         >>> writer.policy_denied(step_id="s0001", tool="fetch_data", reason="Access denied")
-        >>> writer.step_end(step_id="s0001", tool="fetch_data", status="BLOCKED", phase="policy", duration_ms=10)
+        >>> writer.step_end(step_id="s0001", tool="fetch_data", status="blocked", phase="policy", duration_ms=10)
         >>> writer.run_end(summary={"steps_total": 1, "blocked": 1})
     """
     
@@ -183,8 +183,9 @@ class TraceWriter:
         """Emit STEP_END event"""
         attempt = self._attempt_counter.get(step_id, 1)
         
-        # Convert string to enum
-        status_enum = StepStatus(status) if isinstance(status, str) else status
+        # Convert string to enum (use TraceStepStatus for trace events)
+        from .events import TraceStepStatus
+        status_enum = TraceStepStatus(status) if isinstance(status, str) else status
         phase_enum = ExecutionPhase(phase) if isinstance(phase, str) else phase
         
         event = build_step_end_event(

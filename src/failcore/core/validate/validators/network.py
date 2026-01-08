@@ -35,18 +35,60 @@ def _find_first_param(params: Dict[str, Any], names: Sequence[str]) -> Tuple[Opt
 
 
 def _match_domain_allowlist(hostname: str, allowlist: Sequence[str]) -> bool:
+    """
+    Match hostname against allowlist.
+    
+    Supports:
+    - Exact domain match: "api.github.com"
+    - Wildcard suffix: "*.openai.com"
+    - IP addresses with optional port: "127.0.0.1", "127.0.0.1:8080"
+    - CIDR notation: "127.0.0.0/8"
+    """
     host = hostname.strip(".").lower()
+    
     for allowed in allowlist:
         a = allowed.strip().strip(".").lower()
         if not a:
             continue
+        
+        # Check if allowed pattern is CIDR notation
+        if "/" in a:
+            try:
+                network = ipaddress.ip_network(a, strict=False)
+                # Try to parse hostname as IP
+                try:
+                    ip = ipaddress.ip_address(host.split(":")[0])  # Strip port if present
+                    if ip in network:
+                        return True
+                except ValueError:
+                    # Not an IP, continue
+                    pass
+            except ValueError:
+                # Not a valid CIDR, treat as literal
+                pass
+        
+        # Check if allowed pattern is IP:port
+        if ":" in a and not a.startswith("["):  # Not IPv6
+            allowed_host_port = a.split(":", 1)
+            if len(allowed_host_port) == 2:
+                allowed_host, allowed_port = allowed_host_port
+                # Match host:port exactly
+                if host == a:
+                    return True
+                # Also match just the host part (port-agnostic)
+                if host == allowed_host:
+                    return True
+                continue
+        
+        # Wildcard suffix match
         if a.startswith("*."):
             suffix = a[2:]
             if host == suffix or host.endswith("." + suffix):
                 return True
-        else:
-            if host == a:
-                return True
+        # Exact match
+        elif host == a:
+            return True
+    
     return False
 
 
@@ -265,12 +307,17 @@ def domain_whitelist_precondition(
     Supports:
     - Exact match: "api.github.com"
     - Wildcard suffix: "*.openai.com"
+    - IP addresses with optional port: "127.0.0.1", "127.0.0.1:8080"
+    - CIDR notation: "127.0.0.0/8"
 
     If allowed_domains is empty/None, this validator will skip.
+    
+    NOTE: If a domain/IP is in the allowlist, it overrides internal IP blocking.
+    This allows whitelisting specific internal IPs for testing/development.
 
     Args:
         *param_names: Parameter names that may contain the URL.
-        allowed_domains: Allowed domain patterns.
+        allowed_domains: Allowed domain patterns (domains, IPs, CIDR).
 
     Returns:
         PreconditionValidator
@@ -316,7 +363,7 @@ def domain_whitelist_precondition(
             return ValidationResult.success(
                 message=f"Domain '{hostname}' is allowed",
                 code="DOMAIN_OK",
-                details={"domain": hostname},
+                details={"domain": hostname, "allowlist_matched": True},
             )
 
         return ValidationResult.failure(
@@ -494,21 +541,28 @@ def ssrf_precondition(
                 details={"url": url, "reason": "userinfo"},
             )
 
-        if block_internal:
+        # Check domain allowlist FIRST - allowlist overrides internal IP blocking
+        # This allows whitelisting specific internal IPs for testing/development
+        if domain_allowlist:
+            if _match_domain_allowlist(hostname, domain_allowlist):
+                # Explicitly allowed - skip internal IP check
+                pass
+            else:
+                # Not in allowlist - deny
+                return ValidationResult.failure(
+                    message=f"Domain '{hostname}' is not allowed",
+                    code="DOMAIN_NOT_ALLOWED",
+                    details={"url": url, "domain": hostname, "allowed": domain_allowlist},
+                )
+        elif block_internal:
+            # No allowlist configured - apply internal IP blocking
             blocked = _block_internal_host(hostname)
             if blocked is not None:
                 blocked.details = dict(blocked.details or {})
                 blocked.details["url"] = url
                 return blocked
 
-        if domain_allowlist:
-            if not _match_domain_allowlist(hostname, domain_allowlist):
-                return ValidationResult.failure(
-                    message=f"Domain '{hostname}' is not allowed",
-                    code="DOMAIN_NOT_ALLOWED",
-                    details={"url": url, "domain": hostname, "allowed": domain_allowlist},
-                )
-
+        # Determine port
         port = parsed.port
         if port is None:
             if scheme == "http":
@@ -516,12 +570,15 @@ def ssrf_precondition(
             elif scheme == "https":
                 port = 443
 
-        if port is not None and port not in ports:
-            return ValidationResult.failure(
-                message=f"Port {port} is not allowed. Allowed: {sorted(ports)}",
-                code="PORT_NOT_ALLOWED",
-                details={"url": url, "port": port, "allowed": sorted(ports)},
-            )
+        # Port check: skip if domain allowlist is configured and matched
+        # (allowlist can include port-specific entries like "127.0.0.1:8080")
+        if not domain_allowlist:
+            if port is not None and port not in ports:
+                return ValidationResult.failure(
+                    message=f"Port {port} is not allowed. Allowed: {sorted(ports)}",
+                    code="PORT_NOT_ALLOWED",
+                    details={"url": url, "port": port, "allowed": sorted(ports)},
+                )
 
         return ValidationResult.success(
             message=f"SSRF checks passed for '{url}'",

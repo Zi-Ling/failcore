@@ -6,7 +6,7 @@ Aggregates logic from former summary.py (execution stats) and timeline.py
 
 import json
 from typing import List
-from ....views.trace_report import TraceReportView, ReportStepView
+from failcore.cli.views.trace_report import TraceReportView, ReportStepView
 from ..utils import (
     format_duration, format_provenance, highlight_json,
     get_status_color, get_risk_color, get_severity_color,

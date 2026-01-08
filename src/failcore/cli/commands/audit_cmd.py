@@ -60,7 +60,8 @@ def generate_audit(args) -> int:
         )
 
     # Otherwise, get the last run from database
-    db_path = ".failcore/failcore.db"
+    from failcore.utils.paths import get_database_path
+    db_path = str(get_database_path())
 
     if not Path(db_path).exists():
         print(f"Error: Database not found: {db_path}")

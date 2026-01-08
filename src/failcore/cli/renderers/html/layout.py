@@ -3,7 +3,7 @@
 HTML document layout and structure
 """
 
-from ...views.trace_report import TraceReportView
+from failcore.cli.views.trace_report import TraceReportView
 from .styles import get_css, get_javascript
 
 

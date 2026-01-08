@@ -36,7 +36,7 @@ class ToolSpec:
         # safe default: medium/read/warn
         risk_level="medium",   # type: ignore[arg-type]
         side_effect="read",    # type: ignore[arg-type]
-        default_policy="warn", # type: ignore[arg-type]
+        default_action="warn", # type: ignore[arg-type]
     ))
 
     def invoke(self, **params: Any) -> Any:

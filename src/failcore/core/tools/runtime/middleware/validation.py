@@ -6,7 +6,7 @@ from typing import Any, Optional
 
 from .base import Middleware
 from ..types import CallContext, ToolEvent, ToolResult, ToolSpecRef
-from ....validate.validator import ValidatorRegistry
+from failcore.core.validate.validator import ValidatorRegistry
 
 
 @dataclass

@@ -1,0 +1,228 @@
+{% extends "base.html" %}
+
+{% block title %}Run Inspector: {{ run_info.run_id }} - FailCore{% endblock %}
+
+{% block content %}
+<div class="run-detail-page" 
+     data-run-id="{{ run_info.run_id }}"
+     data-run-date="{{ run_info.date }}"
+     data-run-name="{{ run_info.name }}">
+    {# Header with run info #}
+    <div class="run-detail-header">
+        <div>
+            <h1>RUN INSPECTOR</h1>
+            <div class="run-meta">
+                <span class="run-id">{{ run_info.run_id }}</span>
+                <span class="badge">{{ run_info.command }}</span>
+                <span>{{ run_info.date }} {{ run_info.timestamp }}</span>
+            </div>
+        </div>
+        <div class="run-detail-actions">
+            <a href="/runs" class="btn btn-secondary">← BACK TO RUNS</a>
+            <a href="/runs/{{ run_info.date }}_{{ run_info.name }}/replay" class="btn btn-primary">OPEN REPLAY</a>
+        </div>
+    </div>
+    
+    {# Action Bar (extensible) #}
+    <div class="action-bar-container">
+        {% include "partials/action_bar.html" %}
+    </div>
+    
+    {# Three-column layout #}
+    <div class="inspector-workspace">
+        {# Left: Timeline #}
+        <div class="workspace-left">
+            {% include "partials/timeline.html" %}
+        </div>
+        
+        {# Right: Inspector Panel #}
+        <div class="workspace-right">
+            {% include "partials/inspector_panel.html" %}
+        </div>
+    </div>
+    
+    {# Bottom: Cost Panel #}
+    {% include "partials/cost_panel.html" %}
+    
+    {# Bottom: Artifacts Panel #}
+    {% include "partials/artifacts_panel.html" %}
+</div>
+
+<style>
+.run-detail-page {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.run-detail-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 1rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+}
+
+.run-detail-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.run-meta {
+    display: flex;
+    gap: 1rem;
+    margin-top: 0.5rem;
+    font-size: 0.875rem;
+}
+
+.action-bar-container {
+    padding: 1rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-top: 2px solid var(--blue-500);
+}
+
+.action-bar {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.action-btn {
+    padding: 0.5rem 1rem;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-light);
+    color: var(--text-primary);
+    cursor: pointer;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    transition: all 0.15s;
+}
+
+.action-btn:hover:not(:disabled) {
+    background: var(--blue-600);
+    border-color: var(--blue-500);
+}
+
+.action-danger {
+    border-color: var(--red-600);
+}
+
+.action-danger:hover:not(:disabled) {
+    background: var(--red-600);
+}
+
+.action-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.inspector-workspace {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    min-height: 600px;
+}
+
+.workspace-left, .workspace-right {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    padding: 1rem;
+    overflow-y: auto;
+    max-height: 80vh;
+}
+
+.timeline h3, .inspector-panel h3 {
+    font-size: 0.875rem;
+    margin-bottom: 1rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+
+.timeline-events {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.timeline-event {
+    padding: 0.75rem;
+    border-left: 2px solid var(--border-light);
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.timeline-event:hover {
+    background: var(--bg-tertiary);
+}
+
+.timeline-event.selected {
+    background: var(--bg-tertiary);
+    border-left-color: var(--blue-500);
+}
+
+.timeline-event.event-type-start { border-left-color: var(--blue-500); }
+.timeline-event.event-type-error { border-left-color: var(--red-500); }
+.timeline-event.event-type-result { border-left-color: var(--green-500); }
+
+.event-meta {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.25rem;
+}
+
+.event-type-label {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.event-seq {
+    font-size: 0.6875rem;
+    color: var(--text-muted);
+}
+
+.event-message-preview {
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+}
+
+.inspector-content {
+    font-size: 0.875rem;
+}
+
+.inspector-placeholder {
+    padding: 2rem;
+    text-align: center;
+    color: var(--text-muted);
+}
+
+.inspector-section {
+    margin-bottom: 1.5rem;
+}
+
+.inspector-section h5 {
+    font-size: 0.6875rem;
+    color: var(--text-muted);
+    margin-bottom: 0.5rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+
+.inspector-value {
+    color: var(--text-primary);
+}
+
+.inspector-code {
+    padding: 0.75rem;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    overflow-x: auto;
+    font-size: 0.75rem;
+    line-height: 1.5;
+}
+</style>
+{% endblock %}

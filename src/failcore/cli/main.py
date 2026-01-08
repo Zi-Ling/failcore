@@ -10,6 +10,9 @@ from failcore.cli.commands import audit_cmd
 from failcore.cli.commands import trace_cmd
 from failcore.cli.commands import replay_cmd
 from failcore.cli.commands import run_cmd
+from failcore.cli.commands import ui_cmd
+from failcore.cli.commands import proxy_cmd
+from failcore.cli.commands import service_cmd
 
 
 def main():
@@ -27,6 +30,9 @@ def main():
     report_cmd.register_command(sub)
     audit_cmd.register_command(sub)
     run_cmd.register_command(sub)
+    ui_cmd.register_command(sub)
+    proxy_cmd.register_command(sub)
+    service_p = service_cmd.register_command(sub)
     trace_p = trace_cmd.register_command(sub)
     replay_p = replay_cmd.register_command(sub)
 
@@ -44,6 +50,10 @@ def main():
     
     if args.command == "replay" and not args.replay_command:
         replay_p.print_help()
+        return
+    
+    if args.command == "service" and not args.service_command:
+        service_p.print_help()
         return
 
     # Call the registered function

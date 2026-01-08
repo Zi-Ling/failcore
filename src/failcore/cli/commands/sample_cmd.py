@@ -3,7 +3,8 @@ import tempfile
 import json
 from pathlib import Path
 
-from failcore import Session
+from failcore import run, guard
+from failcore.core.errors import FailCoreError
 from failcore.infra.storage import SQLiteStore, TraceIngestor
 from failcore.utils import get_run_directory
 
@@ -28,7 +29,7 @@ def run_sample(args):
     Act 2: Contract validation (schema mismatch)
     Act 3: Blackbox replay (audit evidence)
     """
-    # Setup .failcore/ workspace structure
+    # Setup .failcore/ sandbox structure
     if args.sandbox:
         # Custom sandbox - keep as is
         run_root = Path(args.sandbox)
@@ -36,53 +37,42 @@ def run_sample(args):
         # Use unified path generation
         run_root = get_run_directory("sample")
     
-    sandbox = run_root / "workspace"
+    sandbox = run_root / "sandbox"
     sandbox.mkdir(exist_ok=True)
     trace_path = str(run_root / "trace.jsonl")
     
-    # For display, use relative paths directly (no conversion needed)
-    run_root_rel = run_root
-    sandbox_rel = sandbox
-    trace_rel = Path(trace_path)
+    # Convert to relative paths and use forward slashes
+    try:
+        run_root_rel = run_root.relative_to(Path.cwd()).as_posix()
+        sandbox_rel = sandbox.relative_to(Path.cwd()).as_posix()
+        trace_rel = Path(trace_path).relative_to(Path.cwd()).as_posix()
+    except ValueError:
+        # If paths are not relative to cwd, use absolute paths with forward slashes
+        run_root_rel = run_root.as_posix()
+        sandbox_rel = sandbox.as_posix()
+        trace_rel = Path(trace_path).as_posix()
     
     print(f"\n{'='*70}")
     print(f"  FailCore Three-Act Demonstration")
-    print(f"  Workspace: {run_root_rel}")
     print(f"  Sandbox: {sandbox_rel}")
     print(f"  Trace: {trace_rel}")
     print(f"{'='*70}\n")
     
-    # Create custom sandbox policy for demonstration
-    class SandboxPolicy:
-        """Strict sandbox policy - any path operation must be within sandbox"""
-        def __init__(self, sandbox_root):
-            # Use absolute path for comparison, but derived from relative path
-            self.sandbox_root = Path(sandbox_root).resolve()
-        
-        def allow(self, step, ctx):
-            # Check if tool has path parameter
-            path_param = step.params.get("path")
-            if path_param:
-                abs_path = Path(path_param).resolve()
-                # Check if path is within sandbox
-                try:
-                    abs_path.relative_to(self.sandbox_root)
-                    return True, ""
-                except ValueError:
-                    return False, "Path escapes sandbox boundary"
-            return True, ""
-    
-    policy = SandboxPolicy(sandbox)
-    
-    with Session(trace=trace_path, policy=policy) as session:
-        # Register tools
-        _register_sample_tools(session, sandbox)
+    # Use run() context with fs_safe policy
+    with run(
+        policy="fs_safe",
+        sandbox=str(sandbox),
+        trace=trace_path,
+        strict=True
+    ) as ctx:
+        # Register and guard tools
+        tools = _register_sample_tools(ctx, sandbox)
         
         # Act 1: Policy interception
-        _act1_policy_denied(session, sandbox)
+        _act1_policy_denied(ctx, tools, sandbox)
         
         # Act 2: Contract violation
-        _act2_schema_mismatch(session)
+        _act2_schema_mismatch(ctx, tools)
         
     # Act 3: Replay
     _act3_replay(trace_path)
@@ -92,7 +82,7 @@ def run_sample(args):
     print(f"  [X] Agent can't escape permissions (Policy)")
     print(f"  [X] Output drift is detectable (Contract)")
     print(f"  [X] Full audit replay available (Trace)")
-    print(f"\n  Workspace: {run_root_rel}")
+    print(f"\n  sandbox: {run_root_rel}")
     print(f"  Safe to delete after review")
     print(f"{'='*70}\n")
     
@@ -100,9 +90,8 @@ def run_sample(args):
     _auto_ingest(trace_path)
 
 
-def _register_sample_tools(session, sandbox):
-    """Register tools for sample demonstration with metadata"""
-    from failcore.core.tools.metadata import ToolMetadata, RiskLevel, SideEffect, DefaultPolicy
+def _register_sample_tools(ctx, sandbox):
+    """Register tools for sample demonstration with guard"""
     
     def cleanup_temp(path: str) -> str:
         """Clean up temporary files (demonstrates policy check)"""
@@ -132,42 +121,37 @@ def _register_sample_tools(session, sandbox):
                 return json.load(f)
         return {"error": "File not found"}
     
-    # Register with metadata for v0.1.2 trace schema
-    session.register(
-        "cleanup_temp",
+    # Guard tools with new API
+    safe_cleanup = guard(
         cleanup_temp,
-        metadata=ToolMetadata(
-            risk_level=RiskLevel.HIGH,
-            side_effect=SideEffect.WRITE,
-            default_policy=DefaultPolicy.BLOCK,
-        ),
+        risk="high",
+        effect="fs",
         description="Clean up temporary files (demonstrates policy check)"
     )
     
-    session.register(
-        "fetch_user_data",
+    safe_fetch = guard(
         fetch_user_data,
-        metadata=ToolMetadata(
-            risk_level=RiskLevel.MEDIUM,
-            side_effect=SideEffect.NETWORK,
-            default_policy=DefaultPolicy.WARN,
-        ),
+        risk="medium",
+        effect="net",
         description="Fetch user data (demonstrates schema mismatch)"
     )
     
-    session.register(
-        "read_config",
+    safe_read = guard(
         read_config,
-        metadata=ToolMetadata(
-            risk_level=RiskLevel.LOW,
-            side_effect=SideEffect.READ,
-            default_policy=DefaultPolicy.ALLOW,
-        ),
+        risk="low",
+        effect="fs",
         description="Read config file"
     )
+    
+    # Return tools dict for easier access
+    return {
+        "cleanup_temp": safe_cleanup,
+        "fetch_user_data": safe_fetch,
+        "read_config": safe_read,
+    }
 
 
-def _act1_policy_denied(session, sandbox):
+def _act1_policy_denied(ctx, tools, sandbox):
     """Act 1: Intercepting permission boundary violations"""
     print("\n" + "─"*70)
     print("  ACT 1: Policy Interception - Permission Boundary")
@@ -182,26 +166,33 @@ def _act1_policy_denied(session, sandbox):
     print(f"  Proposed Action: cleanup_temp(path=\"<system_temp>/{outside_file.name}\")")
     print()
     
-    # Try to delete file outside sandbox
-    result = session.call("cleanup_temp", path=str(outside_file))
-    
-    print("[SHIELD] INTERCEPTED")
-    print(f"  Status: {result.status.value.upper()}")
-    if result.error:
-        print(f"  Error Code: {result.error.error_code}")
-        print(f"  Message: {result.error.message}")
-        if result.error.detail:
-            print(f"  Detail: {result.error.detail}")
-    print()
-    
-    print("[CHECK] Side effect prevented")
-    print(f"  Target still exists: {outside_file.exists()}")
-    print()
-    
-    print("[TRACE] Evidence recorded")
-    print(f"  Event: policy_denied")
-    print(f"  Step ID: {result.step_id}")
-    print()
+    # Try to delete file outside sandbox - should be blocked
+    cleanup_temp = tools["cleanup_temp"]
+    try:
+        result = cleanup_temp(path=str(outside_file))
+        print("[SHIELD] FAILED TO BLOCK")
+        print(f"  ERROR: Should have been blocked but succeeded")
+    except FailCoreError as e:
+        print("[SHIELD] INTERCEPTED")
+        print(f"  Status: BLOCKED")
+        print(f"  Error Code: {e.error_code}")
+        print(f"  Message: {e.message}")
+        if e.details:
+            print(f"  Detail: {e.details}")
+        print()
+        
+        print("[CHECK] Side effect prevented")
+        print(f"  Target still exists: {outside_file.exists()}")
+        print()
+        
+        print("[TRACE] Evidence recorded")
+        print(f"  Event: policy_denied")
+        try:
+            trace_path_rel = Path(ctx.trace_path).relative_to(Path.cwd()).as_posix()
+        except ValueError:
+            trace_path_rel = Path(ctx.trace_path).as_posix()
+        print(f"  Trace: {trace_path_rel}")
+        print()
     
     print("[VALUE] FailCore stops agents from escaping sandbox - \"smart\" doesn't mean \"trusted\"")
     
@@ -210,7 +201,7 @@ def _act1_policy_denied(session, sandbox):
         outside_file.unlink()
 
 
-def _act2_schema_mismatch(session):
+def _act2_schema_mismatch(ctx, tools):
     """Act 2: Detecting contract violations and output drift"""
     print("\n" + "─"*70)
     print("  ACT 2: Contract Validation - Output Drift Detection")
@@ -221,45 +212,46 @@ def _act2_schema_mismatch(session):
     print(f"  Expected: JSON object {{\"user_id\": ..., \"name\": ..., \"email\": ...}}")
     print()
     
-    result = session.call("fetch_user_data", user_id="123")
+    # Call the tool - it returns invalid JSON
+    fetch_user_data = tools["fetch_user_data"]
+    result = fetch_user_data(user_id="123")
     
-    print("[SHIELD] CONTRACT DRIFT DETECTED")
-    print(f"  Status: {result.status.value.upper()}")
+    print("[SHIELD] OUTPUT VALIDATION")
+    print(f"  Status: SUCCESS (but output is non-JSON)")
+    print(f"  Raw Output: \"{result[:80]}...\"")
+    print()
     
-    if result.output:
-        output_value = result.output.value
-        print(f"  Expected Contract: JSON")
-        print(f"  Observed Type: {result.output.kind.value.upper()}")
-        print(f"  Raw Output: \"{output_value[:80]}...\"")
-        print()
-        
-        # Try to parse as JSON to demonstrate mismatch
-        is_valid_json = False
-        try:
-            json.loads(output_value)
-            is_valid_json = True
-        except:
-            pass
-        
-        print(f"  Valid JSON: {'Yes' if is_valid_json else 'No'}")
-        if not is_valid_json:
-            print(f"  Issue: Contains commentary/garbage text before JSON")
+    # Try to parse as JSON to demonstrate mismatch
+    is_valid_json = False
+    try:
+        json.loads(result)
+        is_valid_json = True
+    except:
+        pass
+    
+    print(f"  Valid JSON: {'Yes' if is_valid_json else 'No'}")
+    if not is_valid_json:
+        print(f"  Issue: Contains commentary/garbage text before JSON")
     print()
     
     print("[DETAIL]")
     print(f"  Root Cause: LLM added explanation text instead of pure JSON")
     print(f"  Downstream Impact: json.loads() will raise JSONDecodeError")
-    print(f"  FailCore Behavior: Normalized as TEXT (kind={result.output.kind.value})")
-    print(f"  Detection Method: Output type hint mismatch")
+    print(f"  FailCore Behavior: Execution succeeds, but output is traceable")
+    print(f"  Detection Method: Can be validated in trace replay")
     print()
     
     print("[TRACE] Evidence recorded")
-    print(f"  Event: output_kind_mismatch (expected=JSON, got=TEXT)")
-    print(f"  Step ID: {result.step_id}")
-    print(f"  Fingerprint: output.kind={result.output.kind.value}")
+    print(f"  Event: tool_execution with problematic output")
+    try:
+        trace_path_rel = Path(ctx.trace_path).relative_to(Path.cwd()).as_posix()
+    except ValueError:
+        trace_path_rel = Path(ctx.trace_path).as_posix()
+    print(f"  Trace: {trace_path_rel}")
+    print(f"  Can be analyzed offline for contract violations")
     print()
     
-    print("[VALUE] FailCore makes \"model drift\" a machine-readable failure type for auto-retry/fallback")
+    print("[VALUE] FailCore makes \"model drift\" traceable and debuggable through execution logs")
 
 
 def _act3_replay(trace_path):
@@ -375,10 +367,11 @@ def _act3_replay(trace_path):
 
 def _auto_ingest(trace_path: str):
     """Auto-ingest trace to database after run completes"""
-    db_path = ".failcore/failcore.db"
+    from failcore.utils.paths import get_database_path
+    db_path = str(get_database_path())
     
-    # Ensure .failcore directory exists
-    Path(".failcore").mkdir(exist_ok=True)
+    # Ensure directory exists
+    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     
     try:
         with SQLiteStore(db_path) as store:
