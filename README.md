@@ -2,7 +2,7 @@
 # FailCore
 
 > **The "Safety Airbag" for AI Agents.** 🛡️  
-> **Status:** Beta (0.1.x) · **Pip Install:** `failcore` · **License:** Apache 2.0
+> **Status:** Beta (0.1.x) · **Distribution:** GitHub Releases (PyPI lagging) · **License:** Apache 2.0
 
 [![PyPI version](https://badge.fury.io/py/failcore.svg)](https://badge.fury.io/py/failcore)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
@@ -14,6 +14,22 @@ It does not try to make agents smarter — it makes them **safe and reliable**.
 
 While frameworks like LangChain focus on *planning*, FailCore focuses on what happens **during execution**:
 enforcing permissions, blocking side-effects (network & filesystem), and generating forensic audit logs.
+
+---
+
+## 🧪 Experimental: Proxy Mode (Pre-release)
+
+FailCore is actively developing an **experimental proxy mode**, distributed via GitHub **pre-releases**.
+
+The proxy runs in front of LLM providers and **transparently forwards requests** while observing and tracing execution at runtime. It is streaming-aware and designed as a foundation for future execution-time enforcement and auditing.
+
+> Proxy mode is experimental and not production-ready. APIs and behaviors may change.
+
+---
+
+## 💰 Cost Tracking (Early Stage)
+
+Cost-related features are under early development, focusing on traceability and provider compatibility. Expect changes as APIs evolve.
 
 ---
 
@@ -58,33 +74,10 @@ FailCore automatically generates audit HTML reports for every run.
 pip install failcore
 ```
 
-### 2. Protect Your Tools (Zero-Touch)
+> Note: The PyPI package may lag behind the latest features. For the newest builds (including experimental proxy mode), use GitHub Releases.
 
-Wrap your existing functions (or LangChain tools) with a FailCore Session.
 
-```python
-from failcore import Session, presets
-
-# Enable strict security mode (network & sandbox protection ON)
-session = Session(
-    validator=presets.fs_safe(strict=True),
-    sandbox="./workspace"  # sandbox
-)
-
-@session.tool  # 
-def write_file(path: str, content: str):
-    with open(path, "w") as f:
-        f.write(content)
-
-# --- Simulation: LLM tries to attack ---
-result = session.call("write_file", path="../etc/passwd", content="hack")
-
-# Example output:
-print(f"Status: {result.status}")        # e.g. BLOCKED
-print(f"Error: {result.error.message}") # Path traversal detected
-```
-
-### 3. Generate Report
+### 2. Generate Report
 
 ```bash
 failcore show
@@ -110,18 +103,6 @@ Modern AI agents are fragile. FailCore addresses core execution risks:
 
 ---
 
-## LangChain Integration
-
-```python
-from failcore import Session, presets
-from failcore.adapters.langchain import map_langchain_tool
-
-session = Session(validator=presets.fs_safe(strict=True))
-safe_tool_spec = map_langchain_tool(my_langchain_tool)
-session.invoker.register_spec(safe_tool_spec)
-```
-
----
 
 ## Contributing
 
