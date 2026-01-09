@@ -13,7 +13,7 @@
             <div 
                 class="timeline-event event-type-{{ event_type | lower }}"
                 data-event-idx="{{ loop.index0 }}"
-                onclick="selectEvent({{ loop.index0 }})"
+                onclick="selectEvent(this.dataset.eventIdx)"
             >
                 <div class="event-meta">
                     <span class="event-type-label">{{ event_type | upper }}</span>
@@ -34,11 +34,27 @@
     {% endif %}
 </div>
 
+{# Store data in a script tag to avoid JS syntax errors in IDE #}
+<script type="application/json" id="timeline-events-data">
+    {{ events | tojson | safe }}
+</script>
+
 <script>
 let selectedEventIndex = null;
 
 // Store object URLs to revoke them later
 let activeObjectUrls = [];
+
+// Load events data from the JSON script tag
+let EVENTS_DATA = [];
+try {
+    const dataElement = document.getElementById('timeline-events-data');
+    if (dataElement) {
+        EVENTS_DATA = JSON.parse(dataElement.textContent);
+    }
+} catch (e) {
+    console.error('Failed to load timeline events data:', e);
+}
 
 function selectEvent(idx) {
     selectedEventIndex = idx;
@@ -62,7 +78,7 @@ function selectEvent(idx) {
     // Reset pending previews store
     window.pendingPreviews = {};
     
-    const event = {{ events | tojson | safe }}[idx];
+    const event = EVENTS_DATA[idx];
     inspectorContent.innerHTML = renderEventInspector(event);
     
     // Render pending HTML previews using Blob URLs
@@ -245,7 +261,7 @@ function escapeHtmlAttr(text) {
 }
 
 // Auto-select first event (wait for DOM to be ready)
-if ({{ events | length }} > 0) {
+if (EVENTS_DATA.length > 0) {
     // Use setTimeout to ensure DOM is fully loaded
     setTimeout(() => {
         const inspectorContent = document.getElementById('inspector-content');
