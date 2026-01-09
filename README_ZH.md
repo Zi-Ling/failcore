@@ -24,6 +24,23 @@ FailCore 位于 **Agent 技术栈最底层的执行安全层（Execution Safety 
 
 ---
 
+## 🧪 实验性功能：Proxy 模式（Pre-release）
+
+FailCore 正在开发 **实验性的 Proxy 模式**，并通过 GitHub **Pre-release** 提供。  
+
+Proxy 以轻量网关的形式运行在客户端与模型服务之间，**透明转发请求**，同时在运行时对请求与响应进行观测与追踪。该模式支持流式（Streaming）响应，是未来执行期策略拦截、审计与回放能力的基础。
+
+> Proxy 模式仍处于实验阶段，接口与行为可能发生变化，不建议用于生产环境。
+
+---
+
+## 💰 Cost 相关能力（早期阶段）
+
+FailCore 正在探索 **执行期成本信息的提取与追踪**，以支持更好的可观测性与审计能力。  
+当前阶段以 **正确性与可追溯性** 为目标，相关设计仍在演进中。
+
+---
+
 ## ▶️ 执行阶段安全拦截（实时演示）
 
 FailCore 在 **工具调用（tool invocation）阶段** 强制执行安全策略，  
@@ -47,6 +64,7 @@ FailCore 会为 **每一次 Agent 运行自动生成审计（Audit）HTML 报告
 failcore show
 failcore audit --html > audit.html
 ```
+
 ![FailCore Audit Report](/assets/images/audit.jpeg)
 
 ---
@@ -78,98 +96,6 @@ pip install failcore
 ```
 
 ### 2. 零侵入保护你的工具
-
-将你现有的函数（或 LangChain 工具）包裹进 FailCore 的 Session 中。
-
-```python
-from failcore import Session, presets
-
-session = Session(
-    validator=presets.fs_safe(strict=True),
-    sandbox="./workspace"
-)
-
-@session.tool
-def write_file(path: str, content: str):
-    with open(path, "w") as f:
-        f.write(content)
-
-# —— 模拟：LLM 试图发起攻击 ——
-result = session.call("write_file", path="../etc/passwd", content="hack")
-
-print(result.status)        # e.g. BLOCKED
-print(result.error.message) # Path traversal detected
-```
-
-FailCore 会在 **执行前** 拦截该操作，原始函数 **不会被调用**。
-
----
-
-### 3. 生成报告
-
-```bash
-failcore show
-failcore report --last > report.html
-```
-（下图展示：LLM 生成了路径穿越攻击，而 FailCore 在执行前将其拦截）
-![FailCore Forensic Report](/assets/images/report_screenshot.png)
-
-> 报告中的执行失败记录表明：  
-> Agent 曾试图执行未授权操作，并在 *执行阶段的验证层* 被 FailCore 拦截，  
-> 相关时间线、事件分析与 Trace 证据已完整保留，便于事后检查与复现。
-
----
-
-## 为什么需要 FailCore？
-
-现代 AI Agent 在生产环境中非常脆弱：
-
-| 风险 | 没有 FailCore | 使用 FailCore |
-|-----|---------------|---------------|
-| **SSRF / 内网访问** | Agent 可能访问云元数据服务 | **BLOCKED**（执行前拦截） |
-| **文件系统越权** | 任意 `../` 读写真实文件 | **BLOCKED**（沙箱边界） |
-| **成本** | 一步失败，整个流程重跑 | **确定性回放** 已成功步骤 |
-| **可见性** | 大量日志，难以定位 | **取证报告** 一眼定位原因 |
-
-FailCore 把“不可控的失败”变成 **可解释、可复现、可审计的事件**。
-
----
-
-## LangChain 集成示例
-
-无需重写工具，只需在执行层加一层 FailCore：
-
-```python
-from failcore import Session, presets
-from failcore.adapters.langchain import map_langchain_tool
-
-session = Session(validator=presets.fs_safe(strict=True))
-
-safe_tool_spec = map_langchain_tool(my_langchain_tool)
-session.invoker.register_spec(safe_tool_spec)
-```
-
----
-
-## FailCore 不是什么
-
-FailCore **不是**：
-
-- Agent 框架
-- Planner / 任务分解系统
-- Memory 系统
-- 可观测性 SaaS
-
-它只负责一件事：
-
-> **确保 Agent 的执行过程是安全的、可解释的、可回放的。**
-
----
-
-## 参与贡献
-
-欢迎 Issue 与 PR。  
-如果你正在构建对执行安全、审计和复现有要求的 Agent 系统，非常欢迎交流。
 
 ---
 
