@@ -58,18 +58,30 @@ def build_run_context(
     tags: Optional[Dict[str, str]] = None,
     flags: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Build run context object"""
+    """
+    Build run context object with normalized relative paths.
+    
+    All paths are converted to be relative to .failcore directory for portability.
+    """
+    from pathlib import Path
+    from failcore.utils.paths import to_failcore_relative
+    
     ctx = {
         "run_id": run_id,
         "created_at": created_at,
     }
     
+    # Normalize all paths to be relative to .failcore directory
     if workspace:
-        ctx["workspace"] = workspace
+        ctx["workspace"] = to_failcore_relative(Path(workspace))
     if sandbox_root:
-        ctx["sandbox_root"] = sandbox_root
+        ctx["sandbox_root"] = to_failcore_relative(Path(sandbox_root))
     if cwd:
-        ctx["cwd"] = cwd
+        # cwd might be outside .failcore, so handle gracefully
+        try:
+            ctx["cwd"] = to_failcore_relative(Path(cwd))
+        except:
+            ctx["cwd"] = str(Path(cwd)).replace("\\", "/")
     if tags:
         ctx["tags"] = tags
     if flags:
@@ -93,7 +105,11 @@ def build_run_start_event(
     tags: Optional[Dict[str, str]] = None,
     flags: Optional[Dict[str, Any]] = None,
 ) -> TraceEvent:
-    """Build RUN_START event"""
+    """
+    Build RUN_START event with normalized relative paths.
+    
+    Adds 'kind': 'run' to distinguish from proxy mode.
+    """
     run_ctx = build_run_context(
         run_id=run_id,
         created_at=created_at,
@@ -103,6 +119,9 @@ def build_run_start_event(
         tags=tags,
         flags=flags,
     )
+    
+    # Add 'kind' field to distinguish SDK run from proxy
+    run_ctx["kind"] = "run"
     
     return TraceEvent(
         schema=SCHEMA_VERSION,
@@ -121,7 +140,7 @@ def build_run_start_event(
     )
 
 
-def build_step_start_event(
+def build_attempt_event(
     seq: int,
     run_context: Dict[str, Any],
     step_id: str,
@@ -130,7 +149,7 @@ def build_step_start_event(
     attempt: int = 1,
     depends_on: Optional[list] = None,
 ) -> TraceEvent:
-    """Build STEP_START event"""
+    """Build ATTEMPT event (business action start)"""
     # Build fingerprint (CRITICAL for replay)
     # Format: tool#params_hash (deterministic, not tied to run_id)
     import json
@@ -174,8 +193,8 @@ def build_step_start_event(
         ts=utc_now_iso(),
         level=LogLevel.INFO,
         event={
-            "type": EventType.STEP_START.value,
-            "severity": "ok",  # v0.1.2: severity for all events
+            "type": EventType.ATTEMPT.value,
+            "severity": "ok",  # Business action attempt
             "step": step_info,
             "data": {"payload": payload},
         },
@@ -257,7 +276,7 @@ def build_output_normalized_event(
     )
 
 
-def build_step_end_event(
+def build_result_event(
     seq: int,
     run_context: Dict[str, Any],
     step_id: str,
@@ -271,7 +290,7 @@ def build_step_end_event(
     warnings: Optional[list] = None,
     metrics: Optional[Dict[str, Any]] = None,
 ) -> TraceEvent:
-    """Build STEP_END event with optional cost metrics"""
+    """Build RESULT event (business action end) with optional cost metrics"""
     result = {
         "status": status.value,
         "phase": phase.value,
@@ -300,7 +319,7 @@ def build_step_end_event(
             }
         }
     
-    # v0.1.2: Determine severity based on status
+    # Determine severity based on status
     if status == TraceStepStatus.OK:
         severity = "ok"
     elif status == TraceStepStatus.BLOCKED:
@@ -314,8 +333,8 @@ def build_step_end_event(
         ts=utc_now_iso(),
         level=LogLevel.INFO if status == TraceStepStatus.OK else LogLevel.ERROR,
         event={
-            "type": EventType.STEP_END.value,
-            "severity": severity,  # v0.1.2: required severity
+            "type": EventType.RESULT.value,
+            "severity": severity,
             "step": {"id": step_id, "tool": tool, "attempt": attempt},
             "data": event_data,
         },

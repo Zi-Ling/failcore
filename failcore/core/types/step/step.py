@@ -34,6 +34,7 @@ class StepStatus(str, Enum):
     FAIL = "fail"
     BLOCKED = "blocked"  # v0.1.2: security/policy prevention
     SKIPPED = "skipped"  # reserved (v0.1 typically won't use)
+    TIMEOUT = "timeout"  # 阶段四：Step execution exceeded timeout
 
 
 class OutputKind(str, Enum):

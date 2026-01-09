@@ -36,7 +36,7 @@ def show_trace(args):
     
     if not Path(db_path).exists():
         print(f"Error: Database not found: {db_path}")
-        print("Hint: Run 'failcore sample' or 'failcore trace ingest <trace.jsonl>' first")
+        print("Hint: Run 'failcore trace ingest <trace.jsonl>' first")
         return 1
     
     run_id = args.run

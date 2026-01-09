@@ -5,14 +5,18 @@ Replay Page - incident replay viewer page route
 Provides the replay viewer page (tape view) for a specific run.
 """
 
+from pathlib import Path
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from failcore.web.services.replay_service import get_replay_service
 
+# Use absolute path to templates directory (consistent with other page routes)
+TEMPLATES_DIR = Path(__file__).parent.parent.parent / "templates"
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
 router = APIRouter()
-templates = Jinja2Templates(directory="failcore/web/templates")
 
 
 @router.get("/runs/{run_id}/replay", response_class=HTMLResponse, name="replay")

@@ -1,7 +1,6 @@
 # failcore/cli/main.py
 import argparse
 
-from failcore.cli.commands import sample_cmd
 from failcore.cli.commands import validate_cmd
 from failcore.cli.commands import list_cmd
 from failcore.cli.commands import show_cmd
@@ -11,6 +10,8 @@ from failcore.cli.commands import trace_cmd
 from failcore.cli.commands import replay_cmd
 from failcore.cli.commands import run_cmd
 from failcore.cli.commands import ui_cmd
+from failcore.cli.commands import proxy_cmd
+from failcore.cli.commands import service_cmd
 
 
 def main():
@@ -21,7 +22,6 @@ def main():
     sub = parser.add_subparsers(dest="command")
 
     # Register all commands
-    sample_cmd.register_command(sub)
     validate_cmd.register_command(sub)
     list_cmd.register_command(sub)
     show_cmd.register_command(sub)
@@ -29,6 +29,8 @@ def main():
     audit_cmd.register_command(sub)
     run_cmd.register_command(sub)
     ui_cmd.register_command(sub)
+    proxy_cmd.register_command(sub)
+    service_p = service_cmd.register_command(sub)
     trace_p = trace_cmd.register_command(sub)
     replay_p = replay_cmd.register_command(sub)
 
@@ -46,6 +48,10 @@ def main():
     
     if args.command == "replay" and not args.replay_command:
         replay_p.print_help()
+        return
+    
+    if args.command == "service" and not args.service_command:
+        service_p.print_help()
         return
 
     # Call the registered function

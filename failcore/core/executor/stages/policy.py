@@ -93,6 +93,40 @@ class PolicyStage:
                     details=gate_result.details,
                 )
         
+        # Phase 1.5: Process ownership check (for PROCESS_KILL operations)
+        # This check runs after side-effect boundary but before semantic guard
+        # to enforce PID ownership rules early in the policy chain
+        if services.process_registry:
+            ownership_result = self._check_process_ownership(state, services)
+            if ownership_result is not None:
+                # Ownership check denied - record and return
+                state.policy_result = ownership_result
+                if hasattr(services.recorder, 'next_seq') and state.seq is not None:
+                    seq = services.recorder.next_seq()
+                    self._record(
+                        services,
+                        build_policy_denied_event(
+                            seq=seq,
+                            run_context=state.run_ctx,
+                            step_id=state.step.id,
+                            tool=state.step.tool,
+                            attempt=state.attempt,
+                            policy_id="Process-Ownership",
+                            rule_id="PROC001",
+                            rule_name="ProcessOwnershipCheck",
+                            reason=ownership_result.reason or "PID not owned by this session",
+                        )
+                    )
+                
+                return services.failure_builder.fail(
+                    state=state,
+                    error_code=ownership_result.error_code or "PID_NOT_OWNED",
+                    message=ownership_result.reason or "PID not owned by this session",
+                    phase=ExecutionPhase.POLICY,
+                    suggestion=ownership_result.suggestion,
+                    details=ownership_result.details,
+                )
+        
         # Phase 2: Semantic guard (high-confidence malicious pattern detection)
         # Controlled by AnalysisConfig (see failcore.core.config.analysis)
         # Default: disabled (zero cost, zero behavior when disabled)
@@ -242,6 +276,44 @@ class PolicyStage:
             )
         
         return None  # Continue to next stage
+    
+    def _check_process_ownership(
+        self,
+        state: ExecutionState,
+        services: ExecutionServices,
+    ) -> Optional[Any]:
+        """
+        Check process ownership for PROCESS_KILL operations
+        
+        Args:
+            state: Execution state
+            services: Execution services
+        
+        Returns:
+            PolicyResult if denied (PID not owned), None if allowed
+        """
+        from ...policy.process_ownership import ProcessOwnershipPolicy
+        
+        # Create policy with process registry
+        policy = ProcessOwnershipPolicy(process_registry=services.process_registry)
+        
+        # Check policy
+        result = policy.allow(state.step, state.ctx)
+        
+        # Convert tuple to PolicyResult if needed
+        from ...policy.policy import PolicyResult
+        if isinstance(result, tuple):
+            allowed, reason = result
+            if not allowed:
+                return PolicyResult.deny(
+                    reason=reason,
+                    error_code="PID_NOT_OWNED",
+                )
+        elif isinstance(result, PolicyResult):
+            if not result.allowed:
+                return result
+        
+        return None
     
     def _check_semantic_guard(
         self,

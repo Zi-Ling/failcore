@@ -45,39 +45,50 @@ class TraceLoader:
                     continue
     
     def _index_event(self, event: Dict[str, Any]):
-        """Index event for quick lookup"""
+        """
+        Index event for quick lookup (v0.1.3 unified model)
+        
+        Behavior:
+        - Indexes ATTEMPT and RESULT events by step_id
+        - Collects EGRESS_EVENT with step_id as evidence
+        - All events must contain step_id for association
+        """
         evt = event.get("event", {})
         evt_type = evt.get("type")
+        
+        # Extract step_id from either event.step.id or event.data.step_id (EGRESS_EVENT)
         step = evt.get("step", {})
-        
-        if not step:
-            return
-        
-        run_id = event.get("run", {}).get("run_id", "unknown")
         step_id = step.get("id")
+        
+        # For EGRESS_EVENT, step_id might be in data
+        if not step_id and evt_type == "EGRESS_EVENT":
+            data = evt.get("data", {})
+            step_id = data.get("step_id")
         
         if not step_id:
             return
         
+        run_id = event.get("run", {}).get("run_id", "unknown")
         key = (run_id, step_id)
         
-        # Build step info
+        # Build step info on first encounter
         if key not in self.steps_by_id:
             self.steps_by_id[key] = {
                 "run_id": run_id,
                 "step_id": step_id,
                 "tool": step.get("tool"),
                 "attempt": step.get("attempt", 1),
-                "start_event": None,
-                "end_event": None,
-                "other_events": [],
+                "attempt_event": None,  # Renamed from start_event
+                "result_event": None,   # Renamed from end_event
+                "egress_events": [],    # Renamed from other_events
             }
         
         step_info = self.steps_by_id[key]
         
-        # Store events
-        if evt_type == "STEP_START":
-            step_info["start_event"] = event
+        # Index by event type (v0.1.3 unified model)
+        if evt_type == "ATTEMPT":
+            step_info["attempt_event"] = event
+            step_info["tool"] = step.get("tool", step_info["tool"])
             
             # Index by fingerprint
             fingerprint = step.get("fingerprint", {})
@@ -87,11 +98,16 @@ class TraceLoader:
                     self.events_by_fingerprint[fp_id] = []
                 self.events_by_fingerprint[fp_id].append(event)
         
-        elif evt_type == "STEP_END":
-            step_info["end_event"] = event
+        elif evt_type == "RESULT":
+            step_info["result_event"] = event
+        
+        elif evt_type == "EGRESS_EVENT":
+            # Collect EGRESS_EVENT as evidence
+            step_info["egress_events"].append(event)
         
         else:
-            step_info["other_events"].append(event)
+            # Other events (POLICY_DENIED, VALIDATION_FAILED, etc.) also as evidence
+            step_info["egress_events"].append(event)
     
     def get_step(self, run_id: str, step_id: str) -> Optional[Dict[str, Any]]:
         """Get step info by run_id and step_id"""
@@ -103,10 +119,10 @@ class TraceLoader:
         if not events:
             return None
         
-        # Return the first STEP_START event
+        # Return the first ATTEMPT event
         for event in events:
             evt = event.get("event", {})
-            if evt.get("type") == "STEP_START":
+            if evt.get("type") == "ATTEMPT":
                 run_id = event.get("run", {}).get("run_id")
                 step_id = evt.get("step", {}).get("id")
                 return self.get_step(run_id, step_id)
@@ -114,5 +130,17 @@ class TraceLoader:
         return None
     
     def get_all_steps(self) -> List[Dict[str, Any]]:
-        """Get all steps"""
-        return list(self.steps_by_id.values())
+        """
+        Get all steps (sorted by sequence)
+        
+        Returns frames built from ATTEMPT + RESULT + EGRESS_EVENTs
+        """
+        steps = []
+        for step_info in self.steps_by_id.values():
+            # Only include steps that have an ATTEMPT event
+            if step_info.get("attempt_event"):
+                steps.append(step_info)
+        
+        # Sort by attempt event sequence
+        steps.sort(key=lambda s: s.get("attempt_event", {}).get("seq", 0))
+        return steps

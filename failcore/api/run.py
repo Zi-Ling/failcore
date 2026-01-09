@@ -169,5 +169,5 @@ def run(
         max_cost_usd=max_cost_usd,
         max_tokens=max_tokens,
         max_usd_per_minute=max_usd_per_minute,
-        guards=guards,
+        guard_config=guards,
     )

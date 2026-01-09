@@ -53,8 +53,8 @@ class EventsService:
             seq = event.get("seq", 0)
             ts = event.get("ts", "")
             
-            # Check for BLOCKED status in STEP_END
-            if evt_type == "STEP_END":
+            # Check for BLOCKED status in RESULT event
+            if evt_type == "RESULT":
                 data = evt.get("data", {})
                 result = data.get("result", {})
                 status = result.get("status", "")

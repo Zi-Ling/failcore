@@ -57,60 +57,80 @@ class ReplayService:
         """
         return self.trace_repo.load_trace_events(run_id)
     
-    def merge_step_events(self, events: List[Dict[str, Any]]) -> Dict[int, Dict[str, Any]]:
+    def merge_step_events(self, events: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
         """
-        Merge STEP_START and STEP_END events by seq
+        Merge ATTEMPT and RESULT events by step_id (v0.1.3 unified model)
         
         Args:
             events: List of trace events
         
         Returns:
-            Dictionary mapping seq -> merged step data
+            Dictionary mapping step_id -> merged frame data
         """
-        steps = defaultdict(dict)
+        frames = defaultdict(dict)
         
         for event in events:
             evt = event.get("event", {})
             evt_type = evt.get("type")
             seq = event.get("seq", 0)
+            step = evt.get("step", {})
+            step_id = step.get("id")
             
-            if evt_type == "STEP_START":
-                step = evt.get("step", {})
-                steps[seq]["seq"] = seq
-                steps[seq]["ts_start"] = event.get("ts", "")
-                steps[seq]["tool"] = step.get("tool", "")
-                steps[seq]["args_raw"] = step.get("params", {})
-                steps[seq]["args"] = step.get("params", {})  # Normalized args (same as raw for now)
+            if not step_id:
+                continue
             
-            elif evt_type == "STEP_END":
+            # Handle ATTEMPT event
+            if evt_type == "ATTEMPT":
+                frames[step_id]["step_id"] = step_id
+                frames[step_id]["seq"] = seq
+                frames[step_id]["ts_start"] = event.get("ts", "")
+                frames[step_id]["tool"] = step.get("tool", "")
+                
+                # Extract params from data.payload.input.summary (v0.1.3)
+                data = evt.get("data", {})
+                payload = data.get("payload", {})
+                input_data = payload.get("input", {})
+                params = input_data.get("summary", {})
+                
+                frames[step_id]["args_raw"] = params
+                frames[step_id]["args"] = params  # Normalized args (same as raw for now)
+            
+            # Handle RESULT event
+            elif evt_type == "RESULT":
                 data = evt.get("data", {})
                 result = data.get("result", {})
-                step = evt.get("step", {})
                 
-                steps[seq]["seq"] = seq
-                steps[seq]["ts_end"] = event.get("ts", "")
-                steps[seq]["status"] = result.get("status", "UNKNOWN")
-                steps[seq]["result_raw"] = result.get("output")
+                frames[step_id]["step_id"] = step_id
+                if "seq" not in frames[step_id]:  # Use ATTEMPT seq if available
+                    frames[step_id]["seq"] = seq
+                frames[step_id]["ts_end"] = event.get("ts", "")
+                frames[step_id]["status"] = result.get("status", "UNKNOWN")
+                
+                # Extract result from payload.output.summary
+                payload = data.get("payload", {})
+                output_data = payload.get("output", {})
+                output = output_data.get("summary")
+                
+                frames[step_id]["result_raw"] = output
                 
                 # Extract result summary
-                output = result.get("output")
                 if isinstance(output, str):
-                    steps[seq]["result_summary"] = output[:200] + "..." if len(output) > 200 else output
+                    frames[step_id]["result_summary"] = output[:200] + "..." if len(output) > 200 else output
                 elif isinstance(output, dict):
-                    steps[seq]["result_summary"] = str(output).replace("{", "").replace("}", "")[:200]
+                    frames[step_id]["result_summary"] = str(output).replace("{", "").replace("}", "")[:200]
                 else:
-                    steps[seq]["result_summary"] = str(output)[:200] if output else None
+                    frames[step_id]["result_summary"] = str(output)[:200] if output else None
                 
                 # Extract error info
                 error = result.get("error")
                 if error:
-                    steps[seq]["error_code"] = error.get("code")
-                    steps[seq]["error_message"] = error.get("message")
+                    frames[step_id]["error_code"] = error.get("code")
+                    frames[step_id]["error_message"] = error.get("message")
                     # Extract side-effect crossing info if present
                     error_type = error.get("type")
                     if error_type == "SIDE_EFFECT_BOUNDARY_CROSSED":
                         details = error.get("details", {})
-                        steps[seq]["side_effect_crossing"] = {
+                        frames[step_id]["side_effect_crossing"] = {
                             "crossing_type": details.get("crossing_type"),
                             "observed_category": details.get("observed_category"),
                             "target": details.get("target"),
@@ -124,13 +144,13 @@ class ReplayService:
                 metrics = data.get("metrics", {})
                 cost_metrics = metrics.get("cost")
                 if cost_metrics:
-                    steps[seq]["metrics"] = cost_metrics
+                    frames[step_id]["metrics"] = cost_metrics
         
-        return dict(steps)
+        return dict(frames)
     
     def build_frames(self, run_id: str, events: Optional[List[Dict[str, Any]]] = None) -> List[StepFrame]:
         """
-        Build frames from trace events
+        Build frames from trace events (v0.1.3 unified model)
         
         Args:
             run_id: Run ID
@@ -141,13 +161,16 @@ class ReplayService:
         """
         if events is None:
             events = self.load_trace(run_id)
-        merged_steps = self.merge_step_events(events)
+        merged_frames = self.merge_step_events(events)
         
         frames = []
         prev_frame_by_tool = {}  # Track previous frame for each tool (for diff)
         
-        for seq in sorted(merged_steps.keys()):
-            step_data = merged_steps[seq]
+        # Sort frames by seq
+        sorted_frames = sorted(merged_frames.values(), key=lambda f: f.get("seq", 0))
+        
+        for step_data in sorted_frames:
+            seq = step_data.get("seq", 0)
             tool = step_data.get("tool", "")
             args = step_data.get("args", {})
             

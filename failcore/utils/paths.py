@@ -5,7 +5,7 @@ Shared path utilities for FailCore.
 Design goals:
 - Deterministic and explicit: creating a run is a deliberate action.
 - No hidden side-effects in "get_*" helpers (they don't create directories).
-- Unified naming: <run_id>_<HHMMSS>_<command>
+- Unified naming: run_<HHMMSS> or proxy_<HHMMSS>
 - Prefer pathlib.Path throughout; convert to str only at CLI edges if needed.
 - Smart project root detection: avoids path pollution across different directories
 - Never resolve relative to FailCore's package location
@@ -17,12 +17,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 import hashlib
 import os
 import sys
+import logging
 
 from failcore.core.types.step import generate_run_id
+
+logger = logging.getLogger(__name__)
 
 
 # Markers that indicate a project root directory
@@ -216,15 +219,50 @@ def format_relative_path(path: Path) -> str:
         return str(path).replace("\\", "/")
 
 
+def to_failcore_relative(path: Path) -> str:
+    """
+    Convert path to relative path from failcore_root (.failcore directory).
+    
+    This ensures all paths in trace files are relative to .failcore directory,
+    making them portable and avoiding absolute path leakage in trace files.
+    
+    Args:
+        path: Absolute or relative path
+    
+    Returns:
+        Path string relative to failcore_root with forward slashes
+    
+    Examples:
+        >>> to_failcore_relative(Path("/home/user/proj/.failcore/runs/20240101/run_120000/sandbox"))
+        'runs/20240101/run_120000/sandbox'
+        >>> to_failcore_relative(Path("C:\\proj\\.failcore\\runs\\run_120000\\sandbox"))
+        'runs/run_120000/sandbox'
+    """
+    try:
+        failcore_root = get_failcore_root()
+        # Resolve to absolute path first
+        abs_path = path.resolve() if not path.is_absolute() else path
+        # Make relative to failcore_root
+        rel_path = abs_path.relative_to(failcore_root)
+        return str(rel_path).replace("\\", "/")
+    except (ValueError, OSError):
+        # Path is outside failcore_root or cannot be resolved
+        # Fall back to format_relative_path
+        return format_relative_path(path)
+
+
 @dataclass(frozen=True)
 class RunContext:
     """
     Represents a single FailCore run.
 
     Directory structure:
-        <root>/.failcore/runs/<date>/<run_id>_<HHMMSS>_<command>/
+        <root>/.failcore/runs/<date>/run_<HHMMSS>/
             ├── trace.jsonl
             └── sandbox/
+        OR for proxy:
+        <root>/.failcore/runs/<date>/proxy_<HHMMSS>/
+            ├── proxy.jsonl
     """
     command_name: str
     started_at: datetime
@@ -241,7 +279,11 @@ class RunContext:
 
     @property
     def run_dir_name(self) -> str:
-        return f"{self.run_id}_{self.time_str}_{self.command_name}"
+        # Simplified naming: run_<HHMMSS> or proxy_<HHMMSS>
+        # Remove run_id and command suffix for clarity
+        if self.command_name == "proxy":
+            return f"proxy_{self.time_str}"
+        return f"run_{self.time_str}"
 
     @property
     def run_dir(self) -> Path:
@@ -355,3 +397,142 @@ def reset_project_root_cache() -> None:
     """
     global _PROJECT_ROOT_CACHE
     _PROJECT_ROOT_CACHE = None
+
+
+def resolve_and_verify(
+    path: Path | str,
+    sandbox_root: Path | str,
+    allow_symlinks: bool = False,
+    check_intermediate_symlinks: bool = True
+) -> Tuple[bool, Optional[str], Optional[Path]]:
+    """
+    Resolve and verify a path is within sandbox with strict security checks.
+    
+    Security checks:
+    1. Resolve path to absolute canonical form
+    2. Check if resolved path is within sandbox_root
+    3. Optionally reject symlinks (final target or intermediate)
+    4. Cross-platform: handle Windows drive letters, UNC paths, Unix absolute paths
+    
+    Args:
+        path: Path to verify (relative or absolute)
+        sandbox_root: Sandbox root directory
+        allow_symlinks: If False, reject if final path is a symlink
+        check_intermediate_symlinks: If True, reject if any intermediate component is a symlink
+        
+    Returns:
+        Tuple of (is_safe, error_message, resolved_path)
+        - (True, None, resolved_path) if path is safe
+        - (False, error_msg, None) if path is unsafe
+        
+    Examples:
+        >>> resolve_and_verify("/tmp/sandbox/file.txt", "/tmp/sandbox")
+        (True, None, Path("/tmp/sandbox/file.txt"))
+        
+        >>> resolve_and_verify("../etc/passwd", "/tmp/sandbox")
+        (False, "Path escapes sandbox", None)
+        
+        >>> resolve_and_verify("/tmp/sandbox/link", "/tmp/sandbox", allow_symlinks=False)
+        (False, "Symlinks not allowed", None)
+    """
+    try:
+        # Convert to Path objects
+        path_obj = Path(path)
+        sandbox_obj = Path(sandbox_root).resolve()
+        
+        # Resolve path to absolute canonical form
+        # Note: resolve() follows symlinks by default
+        try:
+            resolved = path_obj.resolve()
+        except (OSError, RuntimeError) as e:
+            return (False, f"Cannot resolve path: {e}", None)
+        
+        # Check 1: Final path must be within sandbox
+        try:
+            resolved.relative_to(sandbox_obj)
+        except ValueError:
+            return (False, f"Path escapes sandbox: {resolved} not in {sandbox_obj}", None)
+        
+        # Check 2: Reject if final target is a symlink (if not allowed)
+        if not allow_symlinks and path_obj.exists():
+            # Check if the ORIGINAL path (before resolve) is a symlink
+            try:
+                if path_obj.is_symlink():
+                    return (False, f"Symlinks not allowed: {path_obj}", None)
+            except OSError:
+                pass  # If we can't check, continue (file might not exist yet)
+        
+        # Check 3: Check intermediate components for symlinks (TOCTOU protection)
+        if check_intermediate_symlinks and path_obj.exists():
+            # Walk up the path and check each component
+            current = path_obj
+            while current != current.parent:
+                try:
+                    if current.is_symlink():
+                        return (False, f"Intermediate symlink detected: {current}", None)
+                except OSError:
+                    pass  # Continue if we can't check
+                
+                # Move to parent
+                current = current.parent
+                
+                # Stop if we've reached sandbox root
+                try:
+                    current.relative_to(sandbox_obj)
+                except ValueError:
+                    break  # Outside sandbox, stop checking
+        
+        # Check 4: Platform-specific checks
+        if sys.platform == 'win32':
+            # Windows: Check for drive letter changes
+            if resolved.drive != sandbox_obj.drive:
+                return (False, f"Drive letter mismatch: {resolved.drive} != {sandbox_obj.drive}", None)
+            
+            # Windows: Check for UNC path escapes
+            if resolved.as_posix().startswith('//') and not sandbox_obj.as_posix().startswith('//'):
+                return (False, "UNC path not allowed in non-UNC sandbox", None)
+        
+        # All checks passed
+        return (True, None, resolved)
+        
+    except Exception as e:
+        logger.error(f"Unexpected error in resolve_and_verify: {e}", exc_info=True)
+        return (False, f"Unexpected error: {e}", None)
+
+
+def secure_sandbox_path(
+    path: Path | str,
+    sandbox_root: Path | str,
+    operation: str = "access"
+) -> Path:
+    """
+    Securely resolve and verify a path, raising exception if unsafe.
+    
+    Convenience wrapper around resolve_and_verify() that raises on failure.
+    
+    Args:
+        path: Path to verify
+        sandbox_root: Sandbox root directory
+        operation: Operation description (for error messages)
+        
+    Returns:
+        Resolved safe path
+        
+    Raises:
+        ValueError: If path is unsafe
+        
+    Example:
+        >>> secure_sandbox_path("file.txt", "/tmp/sandbox", "write")
+        Path("/tmp/sandbox/file.txt")
+    """
+    is_safe, error, resolved = resolve_and_verify(
+        path,
+        sandbox_root,
+        allow_symlinks=False,
+        check_intermediate_symlinks=True
+    )
+    
+    if not is_safe:
+        raise ValueError(f"Unsafe path for {operation}: {error}")
+    
+    return resolved

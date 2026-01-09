@@ -16,12 +16,13 @@ class StepFrame:
     """
     Single frame in incident replay (represents one tool call step)
     
-    Each frame is built from STEP_START + STEP_END events in trace.
+    Each frame is built from ATTEMPT + RESULT events in trace (v0.1.3 unified model).
+    Legacy STEP_START/STEP_END are also supported via aliasing.
     """
     seq: int  # Step sequence number
-    ts_start: str  # ISO timestamp of STEP_START
+    ts_start: str  # ISO timestamp of ATTEMPT event
     tool: str  # Tool name
-    ts_end: Optional[str] = None  # ISO timestamp of STEP_END (None if not ended)
+    ts_end: Optional[str] = None  # ISO timestamp of RESULT event (None if not ended)
     status: str = "PENDING"  # "PENDING", "OK", "BLOCKED", "ERROR"
     args: Dict[str, Any] = field(default_factory=dict)  # Tool arguments (normalized)
     args_raw: Optional[Dict[str, Any]] = None  # Original tool arguments (preserved)

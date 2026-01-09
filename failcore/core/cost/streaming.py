@@ -94,7 +94,8 @@ class StreamingTokenWatchdog:
             output_tokens=self.tokens_generated,
             total_tokens=self.tokens_generated,
             cost_usd=cost_usd,
-            estimated=False,  # Actual tokens generated
+            estimated=True,  # Streaming estimate (will be corrected by provider usage if available)
+            source="streaming",  # Mark as streaming source
         )
         
         # Check against budget

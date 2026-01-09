@@ -2,8 +2,8 @@
 Cost Storage Tables
 
 SQLite table definitions:
-- runs: Run-level aggregation (SHARED with sqlite_store.py)
-  - Base columns: run_id, created_at, workspace, trace_path, etc. (sqlite_store.py schema)
+- runs: Run-level aggregation (SHARED with trace.py)
+  - Base columns: run_id, created_at, workspace, trace_path, etc. (trace.py schema)
   - Cost columns: total_cost_usd, total_tokens, blocked_reason, etc. (CostStorage additions)
   - Design: CostStorage creates full table if not exists, then adds cost columns
   
@@ -229,7 +229,7 @@ class CostStorage:
         Design: This method ensures cost data can be written immediately during execution.
         - If run exists: UPDATE cost columns
         - If run doesn't exist: INSERT basic record with cost data
-        - Trace ingest (sqlite_store.py) can later enrich with workspace/trace_path
+        - Trace ingest (trace.py) can later enrich with workspace/trace_path
         
         Args:
             run_id: Run ID

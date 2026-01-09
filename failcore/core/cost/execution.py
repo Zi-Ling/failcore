@@ -18,7 +18,7 @@ from typing import Dict, Any, Optional
 from dataclasses import dataclass
 
 from .models import CostUsage
-from ...infra.storage.cost_tables import CostStorage
+from ...infra.storage.cost import CostStorage
 
 
 class CostRunAccumulator:
@@ -268,6 +268,7 @@ def build_cost_metrics(
         "tokens": int(usage.total_tokens),
         "api_calls": int(usage.api_calls),
         "estimated": bool(usage.estimated),
+        "source": usage.source,  # Add source for traceability
     }
     
     # Include input/output tokens if available
@@ -279,6 +280,10 @@ def build_cost_metrics(
     # Optional: pricing_ref (format: provider:model)
     if usage.model and usage.provider:
         incremental["pricing_ref"] = f"{usage.provider}:{usage.model}"
+    
+    # Optional: raw_usage for debugging (if available)
+    if usage.raw_usage:
+        incremental["raw_usage"] = usage.raw_usage
     
     # Cumulative (entire run so far)
     # If commit=False, get current cumulative (before this step)

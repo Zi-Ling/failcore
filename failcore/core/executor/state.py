@@ -25,7 +25,7 @@ from ..replay.execution import ReplayExecutionHook
 from ..replay.replayer import Replayer
 from .output import OutputNormalizer
 from .validation import StepValidator
-from ...infra.storage.cost_tables import CostStorage
+from ...infra.storage.cost import CostStorage
 
 # Avoid circular import
 if TYPE_CHECKING:
@@ -108,6 +108,12 @@ class ExecutionServices:
     # Taint tracking/DLP (optional, must be after required fields)
     taint_engine: Optional[Any] = None  # DLPMiddleware
     taint_store: Optional[Any] = None  # TaintStore (run-scoped)
+    
+    # Process registry (optional, run-scoped, tracks owned PIDs)
+    process_registry: Optional[Any] = None  # ProcessRegistry
+    
+    # Executor config (optional, for timeout and other config)
+    executor_config: Optional[Any] = None  # ExecutorConfig
 
 
 __all__ = [

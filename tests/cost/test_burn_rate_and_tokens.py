@@ -7,12 +7,15 @@
 """
 
 from datetime import datetime, timezone
+from pathlib import Path
 
 from failcore.core.executor import Executor, ExecutorConfig
+from failcore.core.executor.resources import SessionResources
 from failcore.core.tools import ToolRegistry
 from failcore.core.types.step import Step, RunContext, StepStatus
 from failcore.core.trace import TraceRecorder
 from failcore.core.cost import CostGuardian, CostEstimator, UsageExtractor
+from failcore.core.process import ProcessRegistry
 
 
 class TestTraceRecorder(TraceRecorder):
@@ -27,6 +30,41 @@ class TestTraceRecorder(TraceRecorder):
     
     def record(self, event):
         self.events.append(event.to_dict())
+
+
+def create_test_executor(
+    tools: ToolRegistry,
+    recorder: TraceRecorder,
+    cost_guardian: CostGuardian = None,
+    cost_estimator: CostEstimator = None,
+    config: ExecutorConfig = None,
+) -> Executor:
+    """创建测试用的 Executor，使用 SessionResources 避免警告"""
+    # 创建测试用的 SessionResources
+    session_id = f"test-{datetime.now(timezone.utc).timestamp()}"
+    sandbox_root = Path("/tmp/test")
+    process_registry = ProcessRegistry()
+    
+    # 创建空的 Janitor（测试中不需要）
+    class MockJanitor:
+        def unregister_session(self, session_id: str):
+            pass
+    
+    session_resources = SessionResources.create(
+        session_id=session_id,
+        sandbox_root=sandbox_root,
+        process_registry=process_registry,
+        trace_recorder=recorder,
+        janitor=MockJanitor(),
+    )
+    
+    return Executor(
+        tools=tools,
+        session_resources=session_resources,
+        cost_guardian=cost_guardian,
+        cost_estimator=cost_estimator,
+        config=config or ExecutorConfig(enable_cost_tracking=True),
+    )
 
 
 def test_burn_rate_enforcement():
@@ -47,7 +85,7 @@ def test_burn_rate_enforcement():
     
     recorder = TestTraceRecorder()
     
-    executor = Executor(
+    executor = create_test_executor(
         tools=tools,
         recorder=recorder,
         cost_guardian=guardian,
@@ -71,7 +109,10 @@ def test_burn_rate_enforcement():
     )
     result1 = executor.execute(step1, ctx)
     print(f"Step 1 ($0.30): status={result1.status}")
-    assert result1.status == StepStatus.OK, "Step 1 should succeed"
+    if result1.status != StepStatus.OK:
+        error_info = f"error_code={result1.error.error_code if result1.error else 'None'}, error_message={result1.error.message if result1.error else 'None'}"
+        print(f"  Step 1 failed: {error_info}")
+    assert result1.status == StepStatus.OK, f"Step 1 should succeed, but got {result1.status} (error: {result1.error.error_code if result1.error else 'None'})"
     
     # Step 2: $0.3 (累计 $0.6，超过 $0.5/min，应该被拦截)
     step2 = Step(
@@ -108,7 +149,6 @@ def test_burn_rate_enforcement():
     assert "metrics" in blocked_event["event"]["data"], "BLOCKED step must have metrics"
     
     print("✅ Trace 验证通过!")
-    return True
 
 
 def test_token_extraction():
@@ -154,7 +194,7 @@ def test_token_extraction():
     
     recorder = TestTraceRecorder()
     
-    executor = Executor(
+    executor = create_test_executor(
         tools=tools,
         recorder=recorder,
         cost_guardian=guardian,
@@ -234,7 +274,6 @@ def test_token_extraction():
     print("  ✅ OpenAI 格式提取正确!")
     
     print("\n✅ Token 统计功能完全正常!")
-    return True
 
 
 def test_usage_extractor_directly():
@@ -253,8 +292,8 @@ def test_usage_extractor_directly():
         }
     }
     
-    usage1 = UsageExtractor.extract(output1, "run1", "s1", "tool1")
-    assert usage1 is not None, "Should extract usage from dict"
+    usage1, error1 = UsageExtractor.extract(output1, "run1", "s1", "tool1")
+    assert usage1 is not None, f"Should extract usage from dict (error: {error1})"
     assert usage1.input_tokens == 10
     assert usage1.output_tokens == 5
     assert usage1.total_tokens == 15
@@ -268,20 +307,19 @@ def test_usage_extractor_directly():
             self.usage = {"input_tokens": 20, "output_tokens": 10}
     
     output2 = MockResponse()
-    usage2 = UsageExtractor.extract(output2, "run1", "s2", "tool2")
-    assert usage2 is not None
+    usage2, error2 = UsageExtractor.extract(output2, "run1", "s2", "tool2")
+    assert usage2 is not None, f"Should extract usage from object (error: {error2})"
     assert usage2.input_tokens == 20
     assert usage2.output_tokens == 10
     print("  ✅ Object 格式")
     
     # Case 3: No usage info
     output3 = "plain string result"
-    usage3 = UsageExtractor.extract(output3, "run1", "s3", "tool3")
+    usage3, error3 = UsageExtractor.extract(output3, "run1", "s3", "tool3")
     assert usage3 is None, "Should return None for plain results"
     print("  ✅ 无 usage 时返回 None")
     
     print("\n✅ UsageExtractor 单元测试通过!")
-    return True
 
 
 def main():

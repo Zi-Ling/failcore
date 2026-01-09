@@ -189,29 +189,19 @@ class BudgetGuardMiddleware:
         """
         Extract actual cost from tool result
         
-        Looks for cost info in result metadata
+        Uses UsageExtractor for consistent extraction logic
         """
-        # Check if result has cost metadata
-        if isinstance(result, dict):
-            if "usage" in result or "cost" in result:
-                usage_data = result.get("usage") or result.get("cost")
-                
-                if isinstance(usage_data, dict):
-                    return CostUsage(
-                        run_id=context.get("run_id", ""),
-                        step_id=context.get("step_id", ""),
-                        tool_name=tool_name,
-                        input_tokens=usage_data.get("input_tokens", 0),
-                        output_tokens=usage_data.get("output_tokens", 0),
-                        total_tokens=usage_data.get("total_tokens", 0),
-                        cost_usd=usage_data.get("cost_usd", 0.0),
-                        estimated=False,  # Actual cost
-                        api_calls=1,
-                        model=usage_data.get("model"),
-                        provider=usage_data.get("provider"),
-                    )
+        from .usage import UsageExtractor
         
-        return None
+        usage, parse_error = UsageExtractor.extract(
+            tool_output=result,
+            run_id=context.get("run_id", ""),
+            step_id=context.get("step_id", ""),
+            tool_name=tool_name,
+        )
+        
+        # Note: parse_error is logged by DispatchStage, not here
+        return usage
     
     def _get_budget_exceeded_suggestion(self) -> str:
         """Get suggestion for budget exceeded error"""

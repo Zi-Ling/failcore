@@ -56,8 +56,36 @@ class CostPrecheckStage:
             total_tokens=estimated_usage.total_tokens,
             cost_usd=estimated_usage.cost_usd,
             estimated=True,
+            source="estimated",  # From estimator
             api_calls=estimated_usage.api_calls,
         )
+        
+        # Check for cost override in step.meta (user-provided)
+        # Note: Conflict resolution happens in CostFinalizeStage after actual usage is available
+        if state.step.meta:
+            meta_cost = state.step.meta.get("cost_usd")
+            if meta_cost is not None:
+                try:
+                    meta_cost = float(meta_cost) if isinstance(meta_cost, (int, float, str)) else None
+                    if meta_cost is not None and meta_cost > 0:
+                        # Override with meta cost (user-provided, more trusted for pre-check)
+                        estimated_usage = CostUsage(
+                            run_id=estimated_usage.run_id,
+                            step_id=estimated_usage.step_id,
+                            tool_name=estimated_usage.tool_name,
+                            model=estimated_usage.model,
+                            provider=estimated_usage.provider,
+                            input_tokens=estimated_usage.input_tokens,
+                            output_tokens=estimated_usage.output_tokens,
+                            total_tokens=estimated_usage.total_tokens,
+                            cost_usd=meta_cost,  # Override with meta cost
+                            estimated=True,
+                            source="step_meta",  # From step metadata
+                            api_calls=estimated_usage.api_calls,
+                        )
+                except (ValueError, TypeError):
+                    # Invalid meta cost - ignore
+                    pass
         
         state.estimated_usage = estimated_usage
         

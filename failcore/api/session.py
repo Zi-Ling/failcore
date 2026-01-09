@@ -97,7 +97,19 @@ class Session:
         # Sandbox validation (v0.1.2: enforce explicit sandbox for security)
         if sandbox is None:
             # Default to .failcore/sandbox for safety
-            sandbox = str(get_failcore_root() / "sandbox")  
+            sandbox = str(get_failcore_root() / "sandbox")
+        
+        # Initialize Janitor and ProcessRegistry (阶段一：Session 中心化)
+        from failcore.infra.lifecycle.janitor import ResourceJanitor
+        from failcore.core.process import ProcessRegistry
+        
+        self._janitor = ResourceJanitor()
+        self._process_registry = ProcessRegistry(auto_cleanup=True)
+        self._session_manifest = None  # Will be created in __enter__
+        self._session_resources = None  # Will be created when needed  
+        
+        # Store sandbox root
+        self._sandbox_root = Path(sandbox)
         
         # Tool registry with sandbox support
         self._tools = ToolRegistry(sandbox_root=sandbox)
@@ -136,10 +148,21 @@ class Session:
             self._recorder: TraceRecorder = JsonlTraceRecorder(trace)
             self._trace_path = Path(trace).as_posix()
         
-        # Create executor
+        # Create SessionResources (阶段一 Step 1: 统一资源容器)
+        from failcore.core.executor.resources import SessionResources
+        
+        self._session_resources = SessionResources.create(
+            session_id=self._run_id,
+            sandbox_root=self._sandbox_root,
+            process_registry=self._process_registry,
+            trace_recorder=self._recorder,
+            janitor=self._janitor,
+        )
+        
+        # Create executor with SessionResources (阶段一 Step 2: 强制使用 SessionResources)
         self._executor = Executor(
             tools=self._tools,
-            recorder=self._recorder,
+            session_resources=self._session_resources,  # 使用 SessionResources
             validator=self._validator,
             policy=policy,
             config=ExecutorConfig()
@@ -369,12 +392,90 @@ class Session:
                 print(f"Warning: Failed to auto-ingest trace: {e}", file=sys.stderr)
     
     def __enter__(self) -> Session:
-        """Support context manager"""
+        """
+        Enter session context - cleanup stale resources and register session
+        
+        阶段一 Step 3: Session 生命周期管理
+        - 清理历史孤儿资源
+        - 注册当前 session
+        """
+        # Step 3.1: Cleanup stale sessions from previous runs
+        try:
+            cleanup_results = self._janitor.cleanup_stale_sessions(
+                max_age_hours=24.0,
+                force=False
+            )
+            if cleanup_results:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.info(f"Cleaned up {len(cleanup_results)} stale sessions on startup")
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to cleanup stale sessions: {e}")
+        
+        # Step 3.2: Register current session
+        try:
+            from failcore.infra.lifecycle.janitor import SessionManifest
+            import time
+            
+            self._session_manifest = SessionManifest(
+                session_id=self._run_id,
+                sandbox_root=str(self._sandbox_root),
+                created_at=time.time(),
+                pgid=self._process_registry.get_process_group(),
+                pids=list(self._process_registry.get_owned_pids()),
+            )
+            
+            self._janitor.register_session(self._session_manifest)
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to register session: {e}")
+        
         return self
     
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        """Support context manager"""
-        self.close()
+        """
+        Exit session context - cleanup resources and unregister session
+        
+        阶段一 Step 3: Session 生命周期管理
+        - 清理所有拥有的进程
+        - 注销 session
+        - 关闭 trace
+        """
+        try:
+            # Step 3.3: Cleanup owned processes
+            import logging
+            logger = logging.getLogger(__name__)
+            
+            if self._process_registry:
+                try:
+                    cleanup_results = self._process_registry.cleanup(
+                        timeout=10.0,
+                        force=True,
+                        use_process_group=True
+                    )
+                    
+                    if cleanup_results:
+                        failed = [pid for pid, ok in cleanup_results.items() if not ok]
+                        if failed:
+                            logger.warning(f"Failed to cleanup PIDs: {failed}")
+                        else:
+                            logger.debug(f"Successfully cleaned up {len(cleanup_results)} processes")
+                except Exception as e:
+                    logger.error(f"Error during process cleanup: {e}", exc_info=True)
+            
+            # Step 3.4: Unregister session
+            if self._janitor and self._run_id:
+                try:
+                    self._janitor.unregister_session(self._run_id)
+                except Exception as e:
+                    logger.warning(f"Failed to unregister session: {e}")
+        
+        finally:
+            # Always call close to flush trace and ingest
+            self.close()
     
     @property
     def run_id(self) -> str:

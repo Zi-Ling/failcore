@@ -165,21 +165,7 @@ def path_traversal_precondition(
             
             target_path = Path(path_value)
             
-            # Block absolute paths immediately (before resolve)
-            if target_path.is_absolute():
-                return ValidationResult.failure(
-                    message=f"Absolute paths are not allowed: '{path_value}'",
-                    code="SANDBOX_VIOLATION",
-                    details={
-                        "path": str(path_value),
-                        "sandbox": format_relative_path(sandbox_root),
-                        "reason": "absolute_path",
-                        "field": found_param,
-                        "suggestion": f"Use relative paths within sandbox"
-                    }
-                )
-            
-            # Block UNC paths (Windows)
+            # Block UNC paths (Windows) immediately
             if str(path_value).startswith(("\\\\", "//")):
                 return ValidationResult.failure(
                     message=f"UNC paths are not allowed: '{path_value}'",
@@ -189,12 +175,17 @@ def path_traversal_precondition(
                         "sandbox": format_relative_path(sandbox_root),
                         "reason": "unc_path",
                         "field": found_param,
-                        "suggestion": f"Use relative paths within sandbox"
+                        "suggestion": f"Use paths within sandbox"
                     }
                 )
             
-            # Construct target path relative to sandbox
-            full_path = sandbox_root / target_path
+            # Handle absolute vs relative paths
+            if target_path.is_absolute():
+                # Absolute path: use as-is (will check if within sandbox later)
+                full_path = target_path
+            else:
+                # Relative path: construct relative to sandbox
+                full_path = sandbox_root / target_path
             
             # === Critical: Resolve symlinks/junctions at EVERY level ===
             # For existing paths: resolve and check (handles symlinks/junctions)

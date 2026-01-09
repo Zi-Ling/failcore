@@ -67,9 +67,20 @@ class CostUsage:
     output_tokens: int = 0
     total_tokens: int = 0
 
+    # Extended token types (provider-specific)
+    cache_creation_input_tokens: Optional[int] = None  # Anthropic cache creation tokens
+    cache_read_input_tokens: Optional[int] = None      # Anthropic cache read tokens
+    reasoning_tokens: Optional[int] = None             # OpenAI o1 reasoning tokens
+    audio_tokens: Optional[int] = None                 # Audio input/output tokens
+    cached_tokens: Optional[int] = None                 # Generic cached tokens
+
     # Financial cost (USD)
     cost_usd: float = 0.0
     estimated: bool = True
+    
+    # Usage source and confidence
+    source: str = "unknown"  # provider_reported | gateway_reported | estimated | streaming | unknown
+    raw_usage: Optional[Dict[str, Any]] = None  # Original usage data for audit/debugging
 
     # API usage
     api_calls: int = 1
@@ -80,10 +91,26 @@ class CostUsage:
     def __post_init__(self):
         if self.input_tokens < 0 or self.output_tokens < 0 or self.total_tokens < 0:
             raise ValueError("token counts must be non-negative")
+        # Validate extended token fields if present
+        if self.cache_creation_input_tokens is not None and self.cache_creation_input_tokens < 0:
+            raise ValueError("cache_creation_input_tokens must be non-negative")
+        if self.cache_read_input_tokens is not None and self.cache_read_input_tokens < 0:
+            raise ValueError("cache_read_input_tokens must be non-negative")
+        if self.reasoning_tokens is not None and self.reasoning_tokens < 0:
+            raise ValueError("reasoning_tokens must be non-negative")
+        if self.audio_tokens is not None and self.audio_tokens < 0:
+            raise ValueError("audio_tokens must be non-negative")
+        if self.cached_tokens is not None and self.cached_tokens < 0:
+            raise ValueError("cached_tokens must be non-negative")
         if self.api_calls < 0:
             raise ValueError("api_calls must be non-negative")
         if self.cost_usd < 0:
             raise ValueError("cost_usd must be non-negative")
+        
+        # Validate source
+        valid_sources = ("provider_reported", "gateway_reported", "estimated", "streaming", "unknown")
+        if self.source not in valid_sources:
+            object.__setattr__(self, "source", "unknown")
 
         # Auto-derive total_tokens if not provided
         if self.total_tokens == 0 and (self.input_tokens or self.output_tokens):
@@ -91,7 +118,7 @@ class CostUsage:
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dict for storage/trace emission (JSON-serializable)."""
-        return {
+        result = {
             "run_id": self.run_id,
             "step_id": self.step_id,
             "tool_name": self.tool_name,
@@ -102,9 +129,24 @@ class CostUsage:
             "total_tokens": int(self.total_tokens),
             "cost_usd": float(self.cost_usd),
             "estimated": bool(self.estimated),
+            "source": self.source,
             "api_calls": int(self.api_calls),
             "timestamp": iso_utc(self.ts),
         }
+        # Add extended token fields if present
+        if self.cache_creation_input_tokens is not None:
+            result["cache_creation_input_tokens"] = int(self.cache_creation_input_tokens)
+        if self.cache_read_input_tokens is not None:
+            result["cache_read_input_tokens"] = int(self.cache_read_input_tokens)
+        if self.reasoning_tokens is not None:
+            result["reasoning_tokens"] = int(self.reasoning_tokens)
+        if self.audio_tokens is not None:
+            result["audio_tokens"] = int(self.audio_tokens)
+        if self.cached_tokens is not None:
+            result["cached_tokens"] = int(self.cached_tokens)
+        if self.raw_usage:
+            result["raw_usage"] = self.raw_usage
+        return result
 
 
 @dataclass

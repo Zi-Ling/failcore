@@ -1,23 +1,29 @@
-{# Timeline - event list (left panel) #}
+{# Timeline - event list (left panel) 
+   v0.1.3 unified format: {schema, seq, ts, level, event: {type, ...}, run: {...}}
+   Event types: RUN_START/END, ATTEMPT/RESULT, EGRESS_EVENT
+#}
 <div class="timeline">
     <h3>EVENT TIMELINE</h3>
     {% if events %}
         <div class="timeline-events">
             {% for event in events %}
+            {# Extract event type from v0.1.3 nested structure #}
+            {% set event_type = event.event.type if event.event else (event.type or event.event_type) %}
+            {% set event_summary = event.event.data.action if event.event and event.event.data else '' %}
             <div 
-                class="timeline-event event-type-{{ event.type or event.event_type }}"
+                class="timeline-event event-type-{{ event_type | lower }}"
                 data-event-idx="{{ loop.index0 }}"
                 onclick="selectEvent({{ loop.index0 }})"
             >
                 <div class="event-meta">
-                    <span class="event-type-label">{{ (event.event_type or event.type) | upper }}</span>
+                    <span class="event-type-label">{{ event_type | upper }}</span>
                     {% if event.seq is defined %}
                         <span class="event-seq">#{{ "%03d"|format(event.seq) }}</span>
                     {% endif %}
                 </div>
-                {% if event.message %}
+                {% if event_summary %}
                 <div class="event-message-preview">
-                    {{ event.message[:60] }}{% if event.message|length > 60 %}...{% endif %}
+                    {{ event_summary[:60] }}{% if event_summary|length > 60 %}...{% endif %}
                 </div>
                 {% endif %}
             </div>
@@ -45,25 +51,41 @@ function selectEvent(idx) {
 }
 
 function renderEventInspector(event) {
-    return `
-        <h4>EVENT #${event.seq || '?'}: ${event.event_type || event.type}</h4>
-        <div class="inspector-section">
-            <h5>MESSAGE</h5>
-            <div class="inspector-value">${event.message || 'N/A'}</div>
-        </div>
-        ${event.data ? `
-        <div class="inspector-section">
-            <h5>DATA</h5>
-            <pre class="inspector-code">${JSON.stringify(event.data, null, 2)}</pre>
-        </div>
-        ` : ''}
-        ${event.timestamp ? `
+    // v0.1.3 unified format: extract event type and data from nested structure
+    const eventType = event.event ? event.event.type : (event.event_type || event.type || 'UNKNOWN');
+    const eventData = event.event ? event.event.data : event.data;
+    const timestamp = event.ts || event.timestamp;
+    
+    let html = `<h4>EVENT #${event.seq || '?'}: ${eventType}</h4>`;
+    
+    // Show timestamp
+    if (timestamp) {
+        html += `
         <div class="inspector-section">
             <h5>TIMESTAMP</h5>
-            <div class="inspector-value">${event.timestamp}</div>
-        </div>
-        ` : ''}
-    `;
+            <div class="inspector-value">${timestamp}</div>
+        </div>`;
+    }
+    
+    // Show run context
+    if (event.run) {
+        html += `
+        <div class="inspector-section">
+            <h5>RUN CONTEXT</h5>
+            <pre class="inspector-code">${JSON.stringify(event.run, null, 2)}</pre>
+        </div>`;
+    }
+    
+    // Show event data
+    if (eventData) {
+        html += `
+        <div class="inspector-section">
+            <h5>EVENT DATA</h5>
+            <pre class="inspector-code">${JSON.stringify(eventData, null, 2)}</pre>
+        </div>`;
+    }
+    
+    return html;
 }
 
 // Auto-select first event

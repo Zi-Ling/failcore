@@ -60,6 +60,17 @@ from .middleware import BudgetGuardMiddleware
 # Usage extraction
 from .usage import UsageExtractor
 
+# Provider Metadata Registry (Phase C: Configuration-driven extraction)
+from .registry import ProviderRegistry, get_default_registry
+from .metadata import ProviderMetadata, ExtractionRule, FieldMapping, FieldType
+from .pipeline import ExtractionPipeline, PathFinder, TypeNormalizer, FieldMapper
+
+# Auto-register built-in providers
+try:
+    from . import providers  # noqa: F401  - Auto-registers all providers
+except ImportError:
+    pass
+
 __all__ = [
     # Core models
     "CostUnit",
@@ -93,6 +104,17 @@ __all__ = [
     "CostGuardian",
     # Middleware
     "BudgetGuardMiddleware",
-    # Usage extraction
+    # Usage extraction (unified API)
     "UsageExtractor",
+    # Provider Metadata Registry (Phase C)
+    "ProviderRegistry",
+    "get_default_registry",
+    "ProviderMetadata",
+    "ExtractionRule",
+    "FieldMapping",
+    "FieldType",
+    "ExtractionPipeline",
+    "PathFinder",
+    "TypeNormalizer",
+    "FieldMapper",
 ]

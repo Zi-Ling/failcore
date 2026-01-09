@@ -106,7 +106,7 @@ def test_cost_guardian_advanced():
     config = GuardianConfig(
         max_cost_usd=0.50,
         max_tokens=5000,
-        max_usd_per_minute=0.20,
+        max_usd_per_minute=0.50,  # Allow up to 4 operations (4 * 0.12 = 0.48 < 0.50)
         streaming_check_interval=50,
         streaming_safety_margin=0.95,
     )

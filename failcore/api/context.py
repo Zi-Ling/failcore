@@ -161,7 +161,7 @@ class RunCtx:
         if max_cost_usd or max_tokens or max_usd_per_minute:
             from ..core.cost.guardian import CostGuardian
             from ..core.cost.estimator import CostEstimator
-            from ..infra.storage.cost_tables import CostStorage
+            from ..infra.storage.cost import CostStorage
             
             enable_cost_tracking = True
             cost_estimator = CostEstimator()
@@ -593,8 +593,8 @@ class RunCtx:
                         evt = event.get("event", {})
                         evt_type = evt.get("type")
                         
-                        # Extract from STEP_START events
-                        if evt_type == "STEP_START":
+                        # Extract from ATTEMPT events
+                        if evt_type == "ATTEMPT":
                             step = evt.get("step", {})
                             tool_name = step.get("tool", "")
                             step_id = step.get("id", "")
@@ -605,17 +605,17 @@ class RunCtx:
                             # Extract parameters (similar to drift extractor)
                             params = self._extract_params_from_event(evt, step)
                             
-                            # Create call record (result will be filled from STEP_END)
+                            # Create call record (result will be filled from RESULT)
                             call = {
                                 "step_id": step_id,
                                 "tool_name": tool_name,
                                 "params": params,
-                                "result": None,  # Will be filled from STEP_END
+                                "result": None,  # Will be filled from RESULT
                             }
                             calls.append(call)
                         
-                        # Extract results from STEP_END events
-                        elif evt_type == "STEP_END":
+                        # Extract results from RESULT events
+                        elif evt_type == "RESULT":
                             step = evt.get("step", {})
                             step_id = step.get("id", "")
                             data = evt.get("data", {})

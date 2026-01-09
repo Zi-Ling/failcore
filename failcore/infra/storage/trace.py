@@ -1,4 +1,4 @@
-# failcore/infra/storage/sqlite_store.py
+# failcore/infra/storage/trace.py
 """
 SQLite storage engine for trace events
 """

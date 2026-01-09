@@ -1,4 +1,4 @@
-# failcore/core/replay/drift/config.py
+# failcore/core/replay/drift/proxy.py
 """
 Drift Engine Configuration - field ignore rules and normalization settings
 

@@ -3,7 +3,7 @@
 Storage engines for trace persistence and querying
 """
 
-from .sqlite_store import SQLiteStore
+from .trace import SQLiteStore
 from .ingest import TraceIngestor
 
 __all__ = [

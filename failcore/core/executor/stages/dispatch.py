@@ -53,6 +53,52 @@ class DispatchStage:
                 phase=ExecutionPhase.EXECUTE,
             )
         
+        # 步骤2：获取有效超时（支持优先级）
+        timeout = None
+        timeout_metadata = {}
+        if hasattr(services, 'executor_config') and services.executor_config:
+            config = services.executor_config
+            # 获取工具 spec（未来支持 tool-level timeout）
+            tool_spec = services.tools.get_tool_spec(state.step.tool) if hasattr(services.tools, 'get_tool_spec') else None
+            timeout, timeout_metadata = config.get_effective_timeout(
+                step_params=state.step.params,
+                tool_spec=tool_spec
+            )
+            
+            # 步骤2要求：如果被 clamp，记录到 trace/audit
+            if timeout_metadata.get("clamped"):
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(
+                    f"Step {state.step.id} timeout clamped: {timeout_metadata['clamp_reason']}"
+                )
+                
+                # 记录 clamp 事件到 trace（可选但推荐）
+                if hasattr(services.recorder, 'next_seq'):
+                    from ...trace.events import EventType, TraceEvent, LogLevel, utc_now_iso
+                    
+                    seq = services.recorder.next_seq()
+                    clamp_event = TraceEvent(
+                        schema="failcore.trace.v0.1.3",
+                        seq=seq,
+                        ts=utc_now_iso(),
+                        level=LogLevel.WARN,
+                        event={
+                            "type": "TIMEOUT_CLAMPED",
+                            "severity": "warn",
+                            "step": {
+                                "id": state.step.id,
+                                "tool": state.step.tool,
+                            },
+                            "data": timeout_metadata,
+                        },
+                        run={"run_id": state.run_ctx["run_id"], "created_at": state.run_ctx["created_at"]},
+                    )
+                    try:
+                        services.recorder.record(clamp_event)
+                    except Exception:
+                        pass  # Non-fatal
+        
         try:
             # Optionally use ProcessExecutor for isolation
             if self.process_executor:
@@ -67,8 +113,11 @@ class DispatchStage:
                     )
                 out = result.get("result")
             else:
-                # Direct execution
-                out = fn(**state.step.params)
+                # Direct execution with timeout
+                if timeout:
+                    out = self._execute_with_timeout(fn, state.step.params, timeout, state, services)
+                else:
+                    out = fn(**state.step.params)
             
             # Normalize output
             output = services.output_normalizer.normalize(out)
@@ -76,7 +125,7 @@ class DispatchStage:
             
             # Extract actual usage from tool output (if available)
             if services.usage_extractor:
-                actual_usage = services.usage_extractor.extract(
+                actual_usage, parse_error = services.usage_extractor.extract(
                     tool_output=out,
                     run_id=state.ctx.run_id,
                     step_id=state.step.id,
@@ -84,16 +133,64 @@ class DispatchStage:
                 )
                 if actual_usage:
                     state.actual_usage = actual_usage
+                elif parse_error:
+                    # Record parse error to trace (debug level, non-fatal)
+                    # Note: Parse errors are non-fatal, just log for debugging
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.debug(f"Usage extraction failed for step {state.step.id}: {parse_error}")
             
             # Detect and record side-effects (post-execution observation)
             observed = self._detect_and_record_side_effects(state, services, out)
             state.observed_side_effects = observed
+            
+            # Register spawned PIDs in process registry (for ownership tracking)
+            if services.process_registry:
+                self._register_spawned_pids(state, services, out)
             
             # Mark taint tags for source tools (post-execution)
             if services.taint_engine and services.taint_store:
                 self._mark_taint_tags(state, services, output)
             
             return None  # Continue to next stage
+        
+        except TimeoutError as e:
+            # 步骤1：超时语义落地 - 统一的结果模型
+            import logging
+            import time
+            logger = logging.getLogger(__name__)
+            logger.error(f"Step {state.step.id} timed out: {e}")
+            
+            # Return TIMEOUT result (distinct from BLOCKED or FAILED)
+            from failcore.core.types.step import StepStatus, StepResult, StepError
+            from failcore.core.types.step import utc_now_iso
+            
+            # Calculate timestamps and duration from ExecutionState
+            finished_at = utc_now_iso()
+            started_at = state.started_at  # From ExecutionState
+            # Calculate duration from t0 (performance counter)
+            elapsed = time.time() - state.t0
+            duration_ms = max(int(elapsed * 1000), int(timeout * 1000), 100)  # At least timeout duration
+            
+            return StepResult(
+                step_id=state.step.id,
+                tool=state.step.tool,
+                status=StepStatus.TIMEOUT,
+                started_at=started_at,
+                finished_at=finished_at,
+                duration_ms=duration_ms,
+                output=None,
+                error=StepError(
+                    error_code="STEP_TIMEOUT",  # 使用 error_code 而不是 code
+                    message=f"Step execution exceeded timeout of {timeout}s",
+                    detail={
+                        "timeout_seconds": timeout,  # 步骤1要求：必须包含此字段
+                        "tool": state.step.tool,
+                        "step_id": state.step.id,
+                        "phase": "execute",
+                    },
+                ),
+            )
         
         except Exception as e:
             import traceback
@@ -279,3 +376,279 @@ class DispatchStage:
                 f"Taint marking failed (non-fatal): {type(e).__name__}: {e}",
                 exc_info=True,
             )
+    
+    def _register_spawned_pids(
+        self,
+        state: ExecutionState,
+        services: ExecutionServices,
+        tool_output: Any,
+    ) -> None:
+        """
+        Register spawned PIDs in process registry for ownership tracking
+        
+        Args:
+            state: Execution state
+            services: Execution services
+            tool_output: Tool output (may contain PID)
+        
+        Note:
+            - Detects PROCESS_SPAWN operations (tool name contains 'spawn', 'start', 'popen')
+            - Extracts PID from output or params
+            - Registers PID in process registry for ownership checks
+        """
+        if not services.process_registry:
+            return
+        
+        try:
+            # Detect if this is a process spawn operation
+            tool_name = state.step.tool.lower()
+            is_spawn = any(keyword in tool_name for keyword in ['spawn', 'start', 'popen', 'launch', 'run'])
+            
+            if not is_spawn:
+                return
+            
+            # Try to extract PID from output
+            pid = None
+            
+            # Check if output is a dict with 'pid' key
+            if isinstance(tool_output, dict) and 'pid' in tool_output:
+                pid = tool_output['pid']
+            # Check if output is an integer (direct PID return)
+            elif isinstance(tool_output, int):
+                pid = tool_output
+            # Check if output has a 'pid' attribute (e.g., subprocess.Popen object)
+            elif hasattr(tool_output, 'pid'):
+                pid = tool_output.pid
+            # Check params for PID (fallback)
+            elif 'pid' in state.step.params:
+                pid = state.step.params['pid']
+            
+            if pid is not None:
+                # Convert to int if string
+                try:
+                    pid = int(pid)
+                    services.process_registry.register_pid(pid)
+                    
+                    # Optionally record to trace
+                    if hasattr(services.recorder, 'next_seq'):
+                        from ...trace.events import EventType, TraceEvent, LogLevel, utc_now_iso
+                        seq = services.recorder.next_seq()
+                        event = TraceEvent(
+                            schema="failcore.trace.v0.1.3",
+                            seq=seq,
+                            ts=utc_now_iso(),
+                            level=LogLevel.INFO,
+                            event={
+                                "type": "PROCESS_REGISTERED",
+                                "severity": "info",
+                                "step": {
+                                    "id": state.step.id,
+                                    "tool": state.step.tool,
+                                    "attempt": state.attempt,
+                                },
+                                "data": {
+                                    "pid": pid,
+                                    "message": f"Process {pid} registered as owned by this session",
+                                },
+                            },
+                            run={"run_id": state.run_ctx["run_id"], "created_at": state.run_ctx["created_at"]},
+                        )
+                        services.recorder.record(event)
+                
+                except (ValueError, TypeError):
+                    # Invalid PID, skip registration
+                    pass
+        
+        except Exception as e:
+            # Don't fail execution if PID registration fails
+            import logging
+            logging.warning(
+                f"PID registration failed (non-fatal): {type(e).__name__}: {e}",
+                exc_info=True,
+            )
+
+    def _execute_with_timeout(
+        self,
+        fn: Any,
+        params: dict,
+        timeout: float,
+        state: ExecutionState,
+        services: ExecutionServices,
+    ) -> Any:
+        """
+        Execute function with timeout enforcement
+        
+        阶段四：超时系统化
+        - 使用 multiprocessing 或 threading + signal 实现超时
+        - 超时后 kill 当前 step 的进程组（不是整个 session）
+        - 记录 STEP_TIMEOUT 事件到 trace
+        
+        Args:
+            fn: Tool function to execute
+            params: Function parameters
+            timeout: Timeout in seconds
+            state: Execution state
+            services: Execution services
+            
+        Returns:
+            Function result
+            
+        Raises:
+            TimeoutError: If execution exceeds timeout
+        """
+        import signal
+        import sys
+        import threading
+        from failcore.core.types.step import StepStatus
+        
+        result_container = {"result": None, "error": None, "completed": False}
+        
+        def target():
+            try:
+                result_container["result"] = fn(**params)
+                result_container["completed"] = True
+            except Exception as e:
+                result_container["error"] = e
+                result_container["completed"] = False
+        
+        # Unix: Use signal.alarm for timeout (more reliable)
+        if sys.platform != 'win32' and hasattr(signal, 'SIGALRM'):
+            def timeout_handler(signum, frame):
+                raise TimeoutError(f"Step execution exceeded timeout of {timeout}s")
+            
+            old_handler = signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(int(timeout) + 1)  # +1 for safety
+            
+            try:
+                result = fn(**params)
+                signal.alarm(0)  # Cancel alarm
+                return result
+            except TimeoutError as e:
+                # Timeout occurred - kill process group for this step
+                self._handle_timeout(state, services, timeout)
+                raise
+            finally:
+                signal.signal(signal.SIGALRM, old_handler)
+        
+        # Windows/fallback: Use threading
+        else:
+            thread = threading.Thread(target=target, daemon=True)
+            thread.start()
+            thread.join(timeout=timeout)
+            
+            if thread.is_alive():
+                # Timeout occurred
+                self._handle_timeout(state, services, timeout)
+                raise TimeoutError(f"Step execution exceeded timeout of {timeout}s")
+            
+            if result_container["error"]:
+                raise result_container["error"]
+            
+            if not result_container["completed"]:
+                raise RuntimeError("Execution failed without setting result or error")
+            
+            return result_container["result"]
+    
+    def _handle_timeout(
+        self,
+        state: ExecutionState,
+        services: ExecutionServices,
+        timeout: float,
+    ) -> None:
+        """
+        Handle step timeout - kill process group and record event
+        
+        步骤4：只 kill 当前执行域的进程组，不调用 cleanup()
+        
+        设计：
+        - v1: 如果有 session-level PGID，kill 整个进程组
+        - v2: 未来支持 per-step PGID，只 kill 当前 step 的进程组
+        - 不调用 cleanup()（避免清理其他并发 step）
+        
+        Args:
+            state: Execution state
+            services: Execution services
+            timeout: Timeout value that was exceeded
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        logger.error(f"Step {state.step.id} ({state.step.tool}) exceeded timeout of {timeout}s")
+        
+        # 步骤4：kill 进程组（v1: session-level PGID）
+        kill_success = False
+        kill_error = None
+        pgid = None
+        
+        if services.process_registry:
+            try:
+                pgid = services.process_registry.get_process_group()
+                
+                if pgid:
+                    logger.info(f"Attempting to kill process group {pgid} due to timeout")
+                    
+                    from failcore.utils.process import kill_process_group
+                    
+                    # 只 kill 进程组，不调用 cleanup()
+                    success, error = kill_process_group(
+                        pgid=pgid,
+                        timeout=5.0,
+                        signal_escalation=True  # SIGTERM -> SIGKILL
+                    )
+                    
+                    kill_success = success
+                    kill_error = error
+                    
+                    if success:
+                        logger.info(f"Successfully killed process group {pgid}")
+                    else:
+                        logger.error(f"Failed to kill process group {pgid}: {error}")
+                else:
+                    logger.warning("No process group ID available for timeout kill")
+                    kill_error = "No PGID available"
+            
+            except Exception as e:
+                kill_error = f"Unexpected error: {type(e).__name__}: {e}"
+                logger.error(f"Error killing process group on timeout: {kill_error}", exc_info=True)
+        else:
+            logger.warning("Process registry not available for timeout kill")
+            kill_error = "No process registry"
+        
+        # Record STEP_TIMEOUT event (步骤4要求：包含 kill 结果)
+        if hasattr(services.recorder, 'next_seq'):
+            from ...trace.events import EventType, TraceEvent, LogLevel, utc_now_iso
+            from ...trace import ExecutionPhase
+            
+            seq = services.recorder.next_seq()
+            event = TraceEvent(
+                schema="failcore.trace.v0.1.3",
+                seq=seq,
+                ts=utc_now_iso(),
+                level=LogLevel.ERROR,
+                event={
+                    "type": "STEP_TIMEOUT",
+                    "severity": "error",
+                    "step": {
+                        "id": state.step.id,
+                        "tool": state.step.tool,
+                        "attempt": state.attempt,
+                    },
+                    "data": {
+                        "timeout_seconds": timeout,  # 步骤1要求
+                        "message": f"Step execution exceeded timeout of {timeout}s",
+                        "phase": ExecutionPhase.EXECUTE.value,
+                        # 步骤4要求：kill 结果
+                        "process_group": {
+                            "pgid": pgid,
+                            "killed": kill_success,
+                            "kill_error": kill_error,
+                        },
+                    },
+                },
+                run={"run_id": state.run_ctx["run_id"], "created_at": state.run_ctx["created_at"]},
+            )
+            
+            try:
+                services.recorder.record(event)
+            except Exception as e:
+                logger.warning(f"Failed to record STEP_TIMEOUT event: {e}")
