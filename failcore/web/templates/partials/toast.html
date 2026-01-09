@@ -26,6 +26,18 @@
     animation: slideIn 0.3s ease-out;
 }
 
+.toast.toast-success {
+    border-left-color: #10b981;
+}
+
+.toast.toast-error {
+    border-left-color: var(--red-500);
+}
+
+.toast.toast-warning {
+    border-left-color: var(--yellow-500);
+}
+
 .toast.toast-blocked {
     border-left-color: var(--red-500);
 }
@@ -141,6 +153,115 @@
 .toast-link:hover {
     background: var(--blue-600);
 }
+
+/* Confirmation Modal */
+.confirm-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 10001;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.confirm-modal-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    animation: fadeIn 0.2s ease-out;
+}
+
+.confirm-modal-content {
+    position: relative;
+    width: 90%;
+    max-width: 500px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+    animation: slideInUp 0.3s ease-out;
+}
+
+.confirm-modal-header {
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.confirm-modal-title {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.confirm-modal-body {
+    padding: 1.5rem;
+    font-size: 0.9375rem;
+    color: var(--text-secondary);
+    line-height: 1.6;
+}
+
+.confirm-modal-footer {
+    padding: 1rem 1.5rem;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+}
+
+.confirm-btn {
+    padding: 0.625rem 1.25rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.confirm-btn-cancel {
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+}
+
+.confirm-btn-cancel:hover {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+}
+
+.confirm-btn-primary {
+    background: var(--blue-500);
+    color: white;
+    border-color: var(--blue-500);
+}
+
+.confirm-btn-primary:hover {
+    background: var(--blue-600);
+    border-color: var(--blue-600);
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes slideInUp {
+    from {
+        transform: translateY(20px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
 </style>
 
 <script>
@@ -151,38 +272,59 @@
     
     /**
      * Show a toast notification
-     * @param {Object} event - Event object { type, seq, ts, reason, error_code }
+     * @param {Object} event - Event object
+     *   Format 1 (legacy): { type, seq, ts, reason, error_code, run_id }
+     *   Format 2 (new): { type, title, message, action: {label, url} }
      * @param {number} duration - Auto-hide duration in ms (0 = never auto-hide)
      */
     window.showToast = function(event, duration = 5000) {
         const toast = document.createElement('div');
         toast.className = `toast toast-${event.type}`;
         
-        const title = event.type === 'blocked' ? 'BLOCKED' :
-                     event.type === 'budget_exceeded' ? 'BUDGET EXCEEDED' :
-                     event.type === 'burn_rate_exceeded' ? 'BURN RATE EXCEEDED' :
-                     event.type === 'token_limit_exceeded' ? 'TOKEN LIMIT EXCEEDED' :
-                     'EVENT';
+        // Determine title (new format or legacy)
+        let title = event.title || 
+                   (event.type === 'success' ? 'SUCCESS' :
+                    event.type === 'error' ? 'ERROR' :
+                    event.type === 'warning' ? 'WARNING' :
+                    event.type === 'blocked' ? 'BLOCKED' :
+                    event.type === 'budget_exceeded' ? 'BUDGET EXCEEDED' :
+                    event.type === 'burn_rate_exceeded' ? 'BURN RATE EXCEEDED' :
+                    event.type === 'token_limit_exceeded' ? 'TOKEN LIMIT EXCEEDED' :
+                    'NOTIFICATION');
         
-        // Build View Replay link if run_id is available
-        const runId = event.run_id || '';
-        const viewReplayLink = runId ? 
-            `<div class="toast-actions">
-                <a href="/runs/${encodeURIComponent(runId)}/replay" class="toast-link">View Replay</a>
-            </div>` : '';
+        // Determine message (new format or legacy)
+        const message = event.message || event.reason || 'No details available';
+        
+        // Build action link (new format or legacy)
+        let actionHtml = '';
+        if (event.action) {
+            actionHtml = `<div class="toast-actions">
+                <a href="${event.action.url}" class="toast-link">${escapeHtml(event.action.label)}</a>
+            </div>`;
+        } else if (event.run_id) {
+            actionHtml = `<div class="toast-actions">
+                <a href="/runs/${encodeURIComponent(event.run_id)}/replay" class="toast-link">View Replay</a>
+            </div>`;
+        }
+        
+        // Build meta info (for legacy events)
+        let metaHtml = '';
+        if (event.seq || event.ts || event.error_code) {
+            metaHtml = `<div class="toast-meta">
+                ${event.seq ? `<span>Step ${event.seq}</span>` : ''}
+                ${event.ts ? `<span>${new Date(event.ts).toLocaleTimeString()}</span>` : ''}
+                ${event.error_code ? `<span class="toast-error-code">${escapeHtml(event.error_code)}</span>` : ''}
+            </div>`;
+        }
         
         toast.innerHTML = `
             <div class="toast-header">
-                <span class="toast-title">${title}</span>
+                <span class="toast-title">${escapeHtml(title)}</span>
                 <button class="toast-close" onclick="this.closest('.toast').remove()">×</button>
             </div>
-            <div class="toast-message">${escapeHtml(event.reason)}</div>
-            <div class="toast-meta">
-                <span>Step ${event.seq}</span>
-                <span>${new Date(event.ts).toLocaleTimeString()}</span>
-                ${event.error_code ? `<span class="toast-error-code">${escapeHtml(event.error_code)}</span>` : ''}
-            </div>
-            ${viewReplayLink}
+            <div class="toast-message">${escapeHtml(message)}</div>
+            ${metaHtml}
+            ${actionHtml}
         `;
         
         container.appendChild(toast);
@@ -203,6 +345,50 @@
         div.textContent = text;
         return div.innerHTML;
     }
+    
+    /**
+     * Show a confirmation dialog
+     * @param {string} message - Confirmation message
+     * @returns {Promise<boolean>} - Resolves to true if confirmed, false if cancelled
+     */
+    window.showConfirm = function(message) {
+        return new Promise((resolve) => {
+            const modal = document.createElement('div');
+            modal.className = 'confirm-modal';
+            modal.innerHTML = `
+                <div class="confirm-modal-overlay"></div>
+                <div class="confirm-modal-content">
+                    <div class="confirm-modal-header">
+                        <span class="confirm-modal-title">CONFIRM ACTION</span>
+                    </div>
+                    <div class="confirm-modal-body">${escapeHtml(message)}</div>
+                    <div class="confirm-modal-footer">
+                        <button class="confirm-btn confirm-btn-cancel">Cancel</button>
+                        <button class="confirm-btn confirm-btn-primary">Confirm</button>
+                    </div>
+                </div>
+            `;
+            
+            document.body.appendChild(modal);
+            
+            // Handle confirm
+            modal.querySelector('.confirm-btn-primary').onclick = () => {
+                modal.remove();
+                resolve(true);
+            };
+            
+            // Handle cancel
+            const cancel = () => {
+                modal.remove();
+                resolve(false);
+            };
+            modal.querySelector('.confirm-btn-cancel').onclick = cancel;
+            modal.querySelector('.confirm-modal-overlay').onclick = cancel;
+            
+            // Focus primary button
+            setTimeout(() => modal.querySelector('.confirm-btn-primary').focus(), 100);
+        });
+    };
     
     /**
      * Connect to SSE event stream (placeholder)

@@ -69,15 +69,23 @@ class CostStorage:
             runs_exists = cursor.fetchone() is not None
             
             if not runs_exists:
-                # Create base runs table using sqlite_store schema
+                # Create base runs table using v0.1.3 schema
                 # This ensures compatibility with trace ingest
                 conn.execute("""
                     CREATE TABLE IF NOT EXISTS runs (
                         run_id TEXT PRIMARY KEY,
                         created_at TEXT NOT NULL,
+                        mode TEXT,
+                        session_id TEXT,
+                        parent_run_id TEXT,
                         workspace TEXT,
                         sandbox_root TEXT,
                         trace_path TEXT,
+                        started_at TEXT,
+                        finished_at TEXT,
+                        status TEXT,
+                        client TEXT,
+                        tags TEXT,
                         first_event_ts TEXT,
                         last_event_ts TEXT,
                         total_events INTEGER DEFAULT 0,

@@ -46,8 +46,14 @@ function selectEvent(idx) {
     });
     
     // Update inspector panel
+    const inspectorContent = document.getElementById('inspector-content');
+    if (!inspectorContent) {
+        console.error('Inspector content element not found');
+        return;
+    }
+    
     const event = {{ events | tojson | safe }}[idx];
-    document.getElementById('inspector-content').innerHTML = renderEventInspector(event);
+    inspectorContent.innerHTML = renderEventInspector(event);
 }
 
 function renderEventInspector(event) {
@@ -72,24 +78,156 @@ function renderEventInspector(event) {
         html += `
         <div class="inspector-section">
             <h5>RUN CONTEXT</h5>
-            <pre class="inspector-code">${JSON.stringify(event.run, null, 2)}</pre>
+            ${renderJsonData(event.run)}
         </div>`;
     }
     
-    // Show event data
+    // Show event data with smart rendering
     if (eventData) {
         html += `
         <div class="inspector-section">
             <h5>EVENT DATA</h5>
-            <pre class="inspector-code">${JSON.stringify(eventData, null, 2)}</pre>
+            ${renderEventData(eventData)}
         </div>`;
     }
     
     return html;
 }
 
-// Auto-select first event
+function renderEventData(data) {
+    try {
+        // Check if data contains HTML content (like report.html or audit.html)
+        if (typeof data === 'string' && (data.trim().startsWith('<!DOCTYPE') || data.includes('<html'))) {
+            return `<div class="inspector-html-preview">
+                <iframe srcdoc="${escapeHtmlAttr(data)}" style="width:100%;height:600px;border:1px solid var(--border);background:white;"></iframe>
+            </div>`;
+        }
+        
+        // Check if data looks like structured audit/report JSON
+        if (data && typeof data === 'object') {
+            // Special rendering for audit data
+            if (data.findings || data.summary || data.report_id) {
+                return renderAuditData(data);
+            }
+            // Regular JSON with syntax highlighting
+            return renderJsonData(data);
+        }
+        
+        // Fallback to JSON stringify
+        return `<pre class="inspector-code">${JSON.stringify(data, null, 2)}</pre>`;
+    } catch (e) {
+        console.error('Error rendering event data:', e);
+        return `<pre class="inspector-code">${JSON.stringify(data, null, 2)}</pre>`;
+    }
+}
+
+function renderAuditData(auditData) {
+    try {
+        let html = '<div class="audit-preview">';
+        
+        // Audit summary
+        if (auditData.summary) {
+            const summary = auditData.summary;
+            html += `
+            <div class="audit-summary">
+                <h6 style="font-size:0.75rem;color:var(--text-muted);margin-bottom:0.5rem;">SUMMARY</h6>
+                <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:0.5rem;margin-bottom:1rem;">
+                    ${summary.risk_score !== undefined ? `<div><span style="color:var(--text-muted);">Risk Score:</span> <strong>${summary.risk_score}</strong></div>` : ''}
+                    ${summary.total_steps !== undefined ? `<div><span style="color:var(--text-muted);">Total Steps:</span> ${summary.total_steps}</div>` : ''}
+                    ${summary.blocked_steps !== undefined ? `<div><span style="color:var(--text-muted);">Blocked:</span> <span style="color:var(--red-500);font-weight:600;">${summary.blocked_steps}</span></div>` : ''}
+                    ${summary.passed_steps !== undefined ? `<div><span style="color:var(--text-muted);">Passed:</span> <span style="color:var(--green-500);font-weight:600;">${summary.passed_steps}</span></div>` : ''}
+                </div>
+            </div>`;
+        }
+        
+        // Findings (collapsed by default, expandable)
+        if (auditData.findings && Array.isArray(auditData.findings) && auditData.findings.length > 0) {
+            html += `
+            <div class="audit-findings">
+                <h6 style="font-size:0.75rem;color:var(--text-muted);margin-bottom:0.5rem;">FINDINGS (${auditData.findings.length})</h6>
+                <div style="max-height:400px;overflow-y:auto;">`;
+            
+            auditData.findings.slice(0, 5).forEach((finding, idx) => {
+                const severityColor = 
+                    finding.severity === 'CRIT' ? 'var(--red-500)' :
+                    finding.severity === 'HIGH' ? 'var(--red-400)' :
+                    finding.severity === 'MED' ? 'var(--yellow-500)' : 'var(--blue-500)';
+                
+                html += `
+                <div style="padding:0.75rem;margin-bottom:0.5rem;background:var(--bg-tertiary);border-left:3px solid ${severityColor};border-radius:4px;">
+                    <div style="display:flex;justify-content:space-between;margin-bottom:0.5rem;">
+                        <strong style="font-size:0.875rem;">${escapeHtml(finding.title || 'Finding ' + (idx + 1))}</strong>
+                        <span style="color:${severityColor};font-weight:600;font-size:0.75rem;">${finding.severity || 'UNKNOWN'}</span>
+                    </div>
+                    <div style="font-size:0.8125rem;color:var(--text-secondary);margin-bottom:0.5rem;">${escapeHtml(finding.what_happened || '')}</div>
+                    ${finding.rule_id ? `<div style="font-size:0.75rem;color:var(--text-muted);">Rule: <code>${escapeHtml(finding.rule_id)}</code></div>` : ''}
+                </div>`;
+            });
+            
+            if (auditData.findings.length > 5) {
+                html += `<div style="text-align:center;padding:0.5rem;color:var(--text-muted);font-size:0.75rem;">... and ${auditData.findings.length - 5} more findings</div>`;
+            }
+            
+            html += '</div></div>';
+        }
+        
+        // Full JSON (collapsible)
+        html += `
+        <details style="margin-top:1rem;">
+            <summary style="cursor:pointer;font-size:0.75rem;color:var(--text-muted);margin-bottom:0.5rem;">FULL JSON DATA</summary>
+            ${renderJsonData(auditData)}
+        </details>`;
+        
+        html += '</div>';
+        return html;
+    } catch (e) {
+        console.error('Error rendering audit data:', e);
+        return renderJsonData(auditData);
+    }
+}
+
+function renderJsonData(data) {
+    try {
+        const jsonStr = JSON.stringify(data, null, 2);
+        // Basic syntax highlighting
+        const highlighted = jsonStr
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"([^"]+)":/g, '<span style="color:#569cd6;">"$1"</span>:') // keys
+            .replace(/:\s*"([^"]*)"/g, ': <span style="color:#ce9178;">"$1"</span>') // string values
+            .replace(/:\s*(\d+)/g, ': <span style="color:#b5cea8;">$1</span>') // numbers
+            .replace(/:\s*(true|false|null)/g, ': <span style="color:#569cd6;">$1</span>'); // booleans
+        
+        return `<pre class="inspector-code inspector-json">${highlighted}</pre>`;
+    } catch (e) {
+        console.error('Error rendering JSON data:', e);
+        return `<pre class="inspector-code">${String(data)}</pre>`;
+    }
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function escapeHtmlAttr(text) {
+    if (!text) return '';
+    return text.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// Auto-select first event (wait for DOM to be ready)
 if ({{ events | length }} > 0) {
-    selectEvent(0);
+    // Use setTimeout to ensure DOM is fully loaded
+    setTimeout(() => {
+        const inspectorContent = document.getElementById('inspector-content');
+        if (inspectorContent) {
+            selectEvent(0);
+        } else {
+            console.warn('Inspector panel not found, skipping auto-select');
+        }
+    }, 100);
 }
 </script>

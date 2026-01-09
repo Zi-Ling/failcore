@@ -199,33 +199,35 @@ async function previewArtifact(artifactId, name) {
         title.textContent = `Preview: ${name}`;
         
         if (data.format === 'html') {
-            body.innerHTML = `<div class="preview-html"><iframe srcdoc="${data.content.replace(/"/g, '&quot;')}" sandbox></iframe></div>`;
+            // Render HTML directly in iframe without sandbox restrictions
+            body.innerHTML = `<div class="preview-html"><iframe srcdoc="${escapeHtml(data.content)}"></iframe></div>`;
+        } else if (data.format === 'jsonl') {
+            // JSONL is already formatted on server side
+            body.innerHTML = `<div class="preview-json"><pre><code class="language-json">${escapeHtml(data.content)}</code></pre></div>`;
         } else if (data.format === 'json') {
-            // Handle JSONL (multiple JSON objects, one per line)
-            let formatted;
-            try {
-                if (name.endsWith('.jsonl')) {
-                    // JSONL format: each line is a separate JSON object
-                    const lines = data.content.trim().split('\n');
-                    const objects = lines.map(line => JSON.parse(line));
-                    formatted = objects.map(obj => JSON.stringify(obj, null, 2)).join('\n\n---\n\n');
-                } else {
-                    // Regular JSON
-                    formatted = JSON.stringify(JSON.parse(data.content), null, 2);
-                }
-            } catch (e) {
-                // Fallback to plain text if parsing fails
-                formatted = data.content;
-            }
-            body.innerHTML = `<div class="preview-json"><pre>${formatted}</pre></div>`;
+            // JSON is already formatted on server side
+            body.innerHTML = `<div class="preview-json"><pre><code class="language-json">${escapeHtml(data.content)}</code></pre></div>`;
         } else {
-            body.innerHTML = `<div class="preview-json"><pre>${data.content}</pre></div>`;
+            body.innerHTML = `<div class="preview-text"><pre>${escapeHtml(data.content)}</pre></div>`;
         }
         
         modal.style.display = 'flex';
     } catch (error) {
-        alert(`Preview failed: ${error.message}`);
+        showToast({
+            type: 'error',
+            title: 'PREVIEW FAILED',
+            message: error.message,
+        }, 5000);
     }
+}
+
+function escapeHtml(unsafe) {
+    return unsafe
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
 }
 
 function closePreview() {

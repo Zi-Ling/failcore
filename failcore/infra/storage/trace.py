@@ -11,14 +11,15 @@ from pathlib import Path
 
 class SQLiteStore:
     """
-    SQLite storage for trace events
+    SQLite storage for trace events (v0.1.3)
     
-    Two-table design:
-    1. events - raw events (source of truth)
-    2. steps - aggregated step lifecycle (query-optimized)
+    Three-table design:
+    1. runs - run metadata with mode/session context
+    2. events - unified event envelope (all event types)
+    3. steps - aggregated step summary (materialized view for performance)
     """
     
-    SCHEMA_VERSION = "0.1.2"
+    SCHEMA_VERSION = "0.1.3"
     
     def __init__(self, db_path: str):
         self.db_path = db_path
@@ -54,14 +55,22 @@ class SQLiteStore:
             )
         """)
         
-        # Runs table - track all runs
+        # Runs table - track all runs with mode/session context (v0.1.3)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS runs (
                 run_id TEXT PRIMARY KEY,
                 created_at TEXT NOT NULL,
+                mode TEXT,
+                session_id TEXT,
+                parent_run_id TEXT,
                 workspace TEXT,
                 sandbox_root TEXT,
                 trace_path TEXT,
+                started_at TEXT,
+                finished_at TEXT,
+                status TEXT,
+                client TEXT,
+                tags TEXT,
                 first_event_ts TEXT,
                 last_event_ts TEXT,
                 total_events INTEGER DEFAULT 0,
@@ -70,61 +79,68 @@ class SQLiteStore:
             )
         """)
         
-        # Events table - raw events
+        # Events table - unified event envelope (v0.1.3)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id TEXT NOT NULL,
                 run_id TEXT NOT NULL,
                 seq INTEGER NOT NULL,
                 ts TEXT NOT NULL,
-                level TEXT NOT NULL,
                 type TEXT NOT NULL,
                 step_id TEXT,
-                tool TEXT,
-                attempt INTEGER,
-                json TEXT NOT NULL,
-                UNIQUE(run_id, seq)
+                span_id TEXT,
+                parent_span_id TEXT,
+                severity TEXT DEFAULT 'info',
+                fingerprint TEXT,
+                source TEXT,
+                payload_json TEXT NOT NULL,
+                UNIQUE(run_id, seq),
+                UNIQUE(event_id)
             )
         """)
         
-        # Create indexes for events
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_run_id ON events(run_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_type ON events(type)")
+        # Create indexes for events (v0.1.3 optimized)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_run_ts ON events(run_id, ts)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_run_type_ts ON events(run_id, type, ts)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_step_id ON events(step_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_tool ON events(tool)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_fingerprint ON events(fingerprint)")
         
-        # Steps table - aggregated view
+        # Steps table - aggregated step summary (v0.1.3)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS steps (
                 run_id TEXT NOT NULL,
                 step_id TEXT NOT NULL,
-                tool TEXT NOT NULL,
+                name TEXT NOT NULL,
+                kind TEXT NOT NULL,
                 attempt INTEGER NOT NULL DEFAULT 1,
                 start_seq INTEGER,
                 end_seq INTEGER,
-                start_ts TEXT,
-                end_ts TEXT,
-                status TEXT,
-                phase TEXT,
+                started_at TEXT,
+                finished_at TEXT,
                 duration_ms INTEGER,
-                warnings TEXT,
-                fingerprint_id TEXT,
+                status TEXT,
                 error_code TEXT,
                 error_message TEXT,
-                has_policy_denied INTEGER DEFAULT 0,
-                has_output_normalized INTEGER DEFAULT 0,
+                fingerprint TEXT,
+                http_status INTEGER,
+                provider TEXT,
+                model TEXT,
+                payload_json TEXT,
                 PRIMARY KEY (run_id, step_id, attempt)
             )
         """)
         
-        # Create indexes for steps
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_steps_tool ON steps(tool)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_steps_status ON steps(status)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_steps_phase ON steps(phase)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_steps_run_id ON steps(run_id)")
+        # Create indexes for steps (v0.1.3 optimized)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_steps_run_started ON steps(run_id, started_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_steps_run_status ON steps(run_id, status)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_steps_kind ON steps(kind)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_steps_fingerprint ON steps(fingerprint)")
         
-        # Create index for runs
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_runs_created_at ON runs(created_at)")
+        # Create indexes for runs (v0.1.3 optimized)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_runs_created_at ON runs(created_at DESC)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_runs_mode_created ON runs(mode, created_at DESC)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_runs_session_id ON runs(session_id)")
         
         # Store schema version
         cursor.execute("""
@@ -135,19 +151,34 @@ class SQLiteStore:
         self.conn.commit()
     
     def upsert_run(self, run_id: str, run_data: Dict[str, Any]):
-        """Insert or update run metadata"""
+        """Insert or update run metadata (v0.1.3)"""
         cursor = self.conn.cursor()
+        
+        # Serialize tags as JSON if present
+        tags = run_data.get("tags")
+        if tags and not isinstance(tags, str):
+            tags = json.dumps(tags)
+        
         cursor.execute("""
             INSERT OR REPLACE INTO runs 
-            (run_id, created_at, workspace, sandbox_root, trace_path, 
+            (run_id, created_at, mode, session_id, parent_run_id, workspace, sandbox_root, 
+             trace_path, started_at, finished_at, status, client, tags, 
              first_event_ts, last_event_ts, total_events, total_steps)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             run_id,
             run_data.get("created_at"),
+            run_data.get("mode"),
+            run_data.get("session_id"),
+            run_data.get("parent_run_id"),
             run_data.get("workspace"),
             run_data.get("sandbox_root"),
             run_data.get("trace_path"),
+            run_data.get("started_at"),
+            run_data.get("finished_at"),
+            run_data.get("status"),
+            run_data.get("client"),
+            tags,
             run_data.get("first_event_ts"),
             run_data.get("last_event_ts"),
             run_data.get("total_events", 0),
@@ -156,41 +187,58 @@ class SQLiteStore:
         self.conn.commit()
     
     def insert_event(self, event: Dict[str, Any]):
-        """Insert raw event"""
+        """Insert raw event (v0.1.3 envelope)"""
         cursor = self.conn.cursor()
         
-        # Extract key fields
+        # Extract envelope fields
         run_id = event.get("run", {}).get("run_id", "unknown")
         seq = event.get("seq", 0)
         ts = event.get("ts", "")
-        level = event.get("level", "INFO")
         
         evt = event.get("event", {})
         evt_type = evt.get("type", "UNKNOWN")
         
-        step = evt.get("step", {})
-        step_id = step.get("id")
-        tool = step.get("tool")
-        attempt = step.get("attempt", 1)
+        # Extract data fields (unified structure)
+        data = evt.get("data", {})
+        step_id = data.get("step_id")
+        fingerprint = data.get("fingerprint")
         
-        # Store full JSON
-        json_str = json.dumps(event)
+        # Generate event_id if not present
+        event_id = event.get("event_id")
+        if not event_id:
+            import uuid
+            event_id = f"{run_id}:{seq}:{uuid.uuid4().hex[:8]}"
+        
+        # Optional fields
+        span_id = data.get("span_id")
+        parent_span_id = data.get("parent_span_id")
+        severity = event.get("severity", "info")
+        source = event.get("source") or event.get("run", {}).get("kind")
+        
+        # Store full event as payload_json
+        payload_json = json.dumps(event)
         
         cursor.execute("""
             INSERT OR IGNORE INTO events
-            (run_id, seq, ts, level, type, step_id, tool, attempt, json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (run_id, seq, ts, level, evt_type, step_id, tool, attempt, json_str))
+            (event_id, run_id, seq, ts, type, step_id, span_id, parent_span_id, 
+             severity, fingerprint, source, payload_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (event_id, run_id, seq, ts, evt_type, step_id, span_id, parent_span_id,
+              severity, fingerprint, source, payload_json))
     
     def upsert_step(self, step_data: Dict[str, Any]):
-        """Insert or update step aggregation"""
+        """Insert or update step aggregation (v0.1.3)"""
         cursor = self.conn.cursor()
+        
+        # Serialize payload_json if present and not a string
+        if "payload_json" in step_data and not isinstance(step_data["payload_json"], str):
+            step_data["payload_json"] = json.dumps(step_data["payload_json"])
         
         # Check if step exists
         cursor.execute("""
             SELECT 1 FROM steps
             WHERE run_id = ? AND step_id = ? AND attempt = ?
-        """, (step_data["run_id"], step_data["step_id"], step_data["attempt"]))
+        """, (step_data["run_id"], step_data["step_id"], step_data.get("attempt", 1)))
         
         exists = cursor.fetchone() is not None
         
@@ -203,7 +251,7 @@ class SQLiteStore:
                     set_parts.append(f"{key} = ?")
                     values.append(value)
             
-            values.extend([step_data["run_id"], step_data["step_id"], step_data["attempt"]])
+            values.extend([step_data["run_id"], step_data["step_id"], step_data.get("attempt", 1)])
             
             cursor.execute(f"""
                 UPDATE steps
@@ -258,23 +306,35 @@ class SQLiteStore:
         """)
         status_dist = {row["status"]: row["count"] for row in cursor.fetchall()}
         
-        # Tool distribution
+        # Kind distribution (v0.1.3)
         cursor.execute(f"""
-            SELECT tool, COUNT(*) as count
+            SELECT kind, COUNT(*) as count
             FROM steps
             {where_clause}
-            GROUP BY tool
+            GROUP BY kind
             ORDER BY count DESC
             LIMIT 10
         """)
-        tool_dist = {row["tool"]: row["count"] for row in cursor.fetchall()}
+        kind_dist = {row["kind"]: row["count"] for row in cursor.fetchall()}
+        
+        # Name distribution (top 10 step names)
+        cursor.execute(f"""
+            SELECT name, COUNT(*) as count
+            FROM steps
+            {where_clause}
+            GROUP BY name
+            ORDER BY count DESC
+            LIMIT 10
+        """)
+        name_dist = {row["name"]: row["count"] for row in cursor.fetchall()}
         
         return {
             "events": event_count,
             "steps": step_count,
             "runs": run_count,
             "status_distribution": status_dist,
-            "tool_distribution": tool_dist,
+            "kind_distribution": kind_dist,
+            "name_distribution": name_dist,
         }
     
     def commit(self):

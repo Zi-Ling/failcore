@@ -42,7 +42,6 @@ async def list_run_artifacts(date: str, run_name: str):
         ("report.html", "report_html", "html", "html"),
         ("audit.json", "audit_json", "json", "json"),
         ("audit.html", "audit_html", "html", "html"),
-        ("audit_report.html", "audit_report_html", "html", "html"),
     ]
     
     for filename, type_id, format_type, preview_mode in artifact_patterns:
@@ -131,8 +130,8 @@ async def preview_artifact(artifact_id: str):
     
     date = parts[0]
     
-    # Find type_id by checking known patterns
-    type_patterns = ["trace", "report_json", "report_html", "audit_json", "audit_html", "audit_report_html"]
+    # Find type_id by checking known patterns (ordered by specificity)
+    type_patterns = ["report_html", "audit_html", "report_json", "audit_json", "trace"]
     type_id = None
     run_name = None
     
@@ -155,7 +154,6 @@ async def preview_artifact(artifact_id: str):
         "report_html": "report.html",
         "audit_json": "audit.json",
         "audit_html": "audit.html",
-        "audit_report_html": "audit_report.html",
     }
     
     filename = file_map.get(type_id)
@@ -173,9 +171,28 @@ async def preview_artifact(artifact_id: str):
         
         # Determine preview mode
         if filename.endswith('.html'):
+            # Return HTML content for iframe rendering
             return JSONResponse({"format": "html", "content": content})
-        elif filename.endswith('.json') or filename.endswith('.jsonl'):
-            return JSONResponse({"format": "json", "content": content})
+        elif filename.endswith('.jsonl'):
+            # Format JSONL for better display (pre-formatted on server side)
+            lines = []
+            for line in content.strip().split('\n'):
+                if line.strip():
+                    try:
+                        obj = json.loads(line)
+                        lines.append(json.dumps(obj, indent=2, ensure_ascii=False))
+                    except:
+                        lines.append(line)
+            formatted_content = '\n\n===\n\n'.join(lines)
+            return JSONResponse({"format": "jsonl", "content": formatted_content})
+        elif filename.endswith('.json'):
+            # Format JSON for better display
+            try:
+                obj = json.loads(content)
+                formatted_content = json.dumps(obj, indent=2, ensure_ascii=False)
+                return JSONResponse({"format": "json", "content": formatted_content})
+            except:
+                return JSONResponse({"format": "json", "content": content})
         else:
             return JSONResponse({"format": "text", "content": content})
             
@@ -199,8 +216,8 @@ async def download_artifact(artifact_id: str):
     
     date = parts[0]
     
-    # Find type_id by checking known patterns
-    type_patterns = ["trace", "report_json", "report_html", "audit_json", "audit_html", "audit_report_html"]
+    # Find type_id by checking known patterns (ordered by specificity)
+    type_patterns = ["report_html", "audit_html", "report_json", "audit_json", "trace"]
     type_id = None
     run_name = None
     
@@ -223,7 +240,6 @@ async def download_artifact(artifact_id: str):
         "report_html": "report.html",
         "audit_json": "audit.json",
         "audit_html": "audit.html",
-        "audit_report_html": "audit_report.html",
     }
     
     filename = file_map.get(type_id)
