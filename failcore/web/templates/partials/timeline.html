@@ -98,8 +98,9 @@ function renderEventData(data) {
     try {
         // Check if data contains HTML content (like report.html or audit.html)
         if (typeof data === 'string' && (data.trim().startsWith('<!DOCTYPE') || data.includes('<html'))) {
-            return `<div class="inspector-html-preview">
-                <iframe srcdoc="${escapeHtmlAttr(data)}" style="width:100%;height:600px;border:1px solid var(--border);background:white;"></iframe>
+            const safeContent = data.replace(/"/g, '&quot;');
+            return `<div class="inspector-html-preview" style="height: 600px; resize: vertical; overflow: hidden; border: 1px solid var(--border);">
+                <iframe srcdoc="${safeContent}" style="width:100%;height:100%;border:none;background:white;"></iframe>
             </div>`;
         }
         

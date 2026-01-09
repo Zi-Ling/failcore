@@ -11,7 +11,9 @@
         <div class="preview-modal-content">
             <div class="preview-modal-header">
                 <h4 id="preview-title">Preview</h4>
-                <button onclick="closePreview()" class="btn btn-sm">✕ CLOSE</button>
+                <button onclick="closePreview()" class="close-btn" title="Close">
+                    <span style="font-size: 1.5rem; line-height: 1;">&times;</span>
+                </button>
             </div>
             <div id="preview-body" class="preview-modal-body"></div>
         </div>
@@ -59,7 +61,8 @@
 .artifact-meta {
     display: flex;
     gap: 1rem;
-    flex: 1;
+    flex: 1; /* Take up available space */
+    align-items: center;
 }
 
 .artifact-name {
@@ -76,7 +79,10 @@
 .artifact-actions {
     display: flex;
     gap: 0.5rem;
+    margin-left: auto; /* Push to right */
 }
+
+/* ... existing styles ... */
 
 .preview-modal {
     position: fixed;
@@ -84,69 +90,119 @@
     left: 0;
     right: 0;
     bottom: 0;
-    background: rgba(0, 0, 0, 0.8);
-    z-index: 1000;
+    background: rgba(0, 0, 0, 0.85);
+    z-index: 10000;
     display: flex;
     align-items: center;
     justify-content: center;
+    backdrop-filter: blur(2px);
 }
 
 .preview-modal-content {
     background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    width: 90%;
-    max-width: 1200px;
-    max-height: 90vh;
+    width: 95vw;
+    height: 92vh;
+    border-radius: 8px;
     display: flex;
     flex-direction: column;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    overflow: hidden;
 }
 
 .preview-modal-header {
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    padding: 1rem;
+    padding: 0.75rem 1.5rem;
+    background: var(--bg-tertiary);
     border-bottom: 1px solid var(--border);
+    height: 50px; /* Fixed header height */
+    flex-shrink: 0;
 }
 
 .preview-modal-header h4 {
-    font-size: 0.875rem;
-    text-transform: uppercase;
-    color: var(--text-primary);
     margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+/* Close button pushed to the right */
+.close-btn {
+    margin-left: auto; /* Push to right */
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0.5rem;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.close-btn:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.1);
 }
 
 .preview-modal-body {
     flex: 1;
-    overflow: auto;
-    padding: 1rem;
+    position: relative; /* Context for absolute children */
+    background: #fff; /* Default white for HTML */
+    overflow: hidden;
 }
 
-.preview-json {
-    background: var(--bg-tertiary);
-    padding: 1rem;
-    border: 1px solid var(--border);
-    overflow-x: auto;
-}
-
-.preview-json pre {
-    margin: 0;
-    font-size: 0.8125rem;
-    line-height: 1.5;
-    color: var(--text-primary);
-}
-
-.preview-html iframe {
+/* Full fill iframe */
+.preview-iframe {
+    position: absolute;
+    top: 0;
+    left: 0;
     width: 100%;
-    height: 70vh;
-    border: 1px solid var(--border);
-    background: white;
+    height: 100%;
+    border: none;
 }
+
+/* Code View Container */
+.preview-code-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background: #1e1e1e; /* Dark theme for code */
+    padding: 1.5rem;
+}
+
+.preview-code {
+    margin: 0;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 14px;
+    line-height: 1.5;
+    color: #d4d4d4;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+/* Simple Syntax Highlighting Colors */
+.hl-key { color: #9cdcfe; }
+.hl-string { color: #ce9178; }
+.hl-number { color: #b5cea8; }
+.hl-bool { color: #569cd6; }
+.hl-null { color: #569cd6; }
+
 </style>
 
 <script>
-// Load artifacts on page load
-async function loadArtifacts() {
+// Keep track of object URLs to revoke them
+let activePreviewUrl = null;
+
+// Make functions globally available
+window.loadArtifacts = async function() {
     const runId = document.querySelector('[data-run-id]')?.dataset.runId;
     const date = document.querySelector('[data-run-date]')?.dataset.runDate;
     const runName = document.querySelector('[data-run-name]')?.dataset.runName;
@@ -158,6 +214,7 @@ async function loadArtifacts() {
         const data = await response.json();
         
         const container = document.getElementById('artifacts-list');
+        if (!container) return;
         
         if (data.artifacts && data.artifacts.length > 0) {
             container.innerHTML = data.artifacts.map(a => `
@@ -182,12 +239,14 @@ async function loadArtifacts() {
             container.innerHTML = '<div class="artifacts-loading">No artifacts yet</div>';
         }
     } catch (error) {
-        document.getElementById('artifacts-list').innerHTML = 
-            '<div class="artifacts-loading">Failed to load artifacts</div>';
+        const container = document.getElementById('artifacts-list');
+        if (container) {
+            container.innerHTML = '<div class="artifacts-loading">Failed to load artifacts</div>';
+        }
     }
-}
+};
 
-async function previewArtifact(artifactId, name) {
+window.previewArtifact = async function(artifactId, name) {
     try {
         const response = await fetch(`/api/artifacts/${artifactId}/preview`);
         const data = await response.json();
@@ -196,42 +255,95 @@ async function previewArtifact(artifactId, name) {
         const title = document.getElementById('preview-title');
         const body = document.getElementById('preview-body');
         
-        title.textContent = `Preview: ${name}`;
+        title.textContent = name;
+        
+        // Clean up previous URL if exists
+        if (activePreviewUrl) {
+            URL.revokeObjectURL(activePreviewUrl);
+            activePreviewUrl = null;
+        }
         
         if (data.format === 'html') {
-            // Render HTML directly in iframe without sandbox restrictions
-            body.innerHTML = `<div class="preview-html"><iframe srcdoc="${escapeHtml(data.content)}"></iframe></div>`;
-        } else if (data.format === 'jsonl') {
-            // JSONL is already formatted on server side
-            body.innerHTML = `<div class="preview-json"><pre><code class="language-json">${escapeHtml(data.content)}</code></pre></div>`;
-        } else if (data.format === 'json') {
-            // JSON is already formatted on server side
-            body.innerHTML = `<div class="preview-json"><pre><code class="language-json">${escapeHtml(data.content)}</code></pre></div>`;
+            // SCHEME: Blob URL
+            const blob = new Blob([data.content], { type: 'text/html' });
+            activePreviewUrl = URL.createObjectURL(blob);
+            
+            body.innerHTML = `<iframe src="${activePreviewUrl}" class="preview-iframe"></iframe>`;
+            
+        } else if (data.format === 'json' || data.format === 'jsonl') {
+            // JSON Rendering
+            let codeHtml = '';
+            let rawJson = data.content;
+            
+            try {
+                if (data.format === 'jsonl') {
+                    const lines = rawJson.trim().split('\n');
+                    const formattedLines = lines.map(line => {
+                        try { return JSON.stringify(JSON.parse(line), null, 2); } 
+                        catch (e) { return line; }
+                    });
+                    codeHtml = highlightJson(formattedLines.join('\n\n'));
+                } else {
+                    const obj = JSON.parse(rawJson);
+                    codeHtml = highlightJson(JSON.stringify(obj, null, 2));
+                }
+            } catch (e) {
+                codeHtml = escapeHtml(rawJson);
+            }
+            
+            body.innerHTML = `<div class="preview-code-container"><pre class="preview-code">${codeHtml}</pre></div>`;
+            
         } else {
-            body.innerHTML = `<div class="preview-text"><pre>${escapeHtml(data.content)}</pre></div>`;
+            // Plain text
+            body.innerHTML = `<div class="preview-code-container" style="background:var(--bg-primary);color:var(--text-primary)"><pre class="preview-code" style="color:inherit">${escapeHtml(data.content)}</pre></div>`;
         }
         
         modal.style.display = 'flex';
+        
     } catch (error) {
         showToast({
             type: 'error',
-            title: 'PREVIEW FAILED',
-            message: error.message,
-        }, 5000);
+            title: 'PREVIEW ERROR',
+            message: error.message
+        });
     }
+};
+
+window.closePreview = function() {
+    const modal = document.getElementById('preview-modal');
+    modal.style.display = 'none';
+    document.getElementById('preview-body').innerHTML = ''; // Clear content
+    if (activePreviewUrl) {
+        URL.revokeObjectURL(activePreviewUrl);
+        activePreviewUrl = null;
+    }
+};
+
+function highlightJson(json) {
+    if (!json) return '';
+    json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function (match) {
+        let cls = 'hl-number';
+        if (/^"/.test(match)) {
+            if (/:$/.test(match)) {
+                cls = 'hl-key';
+            } else {
+                cls = 'hl-string';
+            }
+        } else if (/true|false/.test(match)) {
+            cls = 'hl-bool';
+        } else if (/null/.test(match)) {
+            cls = 'hl-null';
+        }
+        return '<span class="' + cls + '">' + match + '</span>';
+    });
 }
 
-function escapeHtml(unsafe) {
-    return unsafe
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
-}
-
-function closePreview() {
-    document.getElementById('preview-modal').style.display = 'none';
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 
 // Close modal on outside click
@@ -241,8 +353,8 @@ document.getElementById('preview-modal')?.addEventListener('click', (e) => {
 
 // Auto-load on page ready
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', loadArtifacts);
+    document.addEventListener('DOMContentLoaded', () => window.loadArtifacts());
 } else {
-    loadArtifacts();
+    window.loadArtifacts();
 }
 </script>
