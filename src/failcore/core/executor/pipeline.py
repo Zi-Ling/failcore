@@ -109,10 +109,10 @@ class ExecutionPipeline:
         finished_at = utc_now_iso()
         duration_ms = int((time.perf_counter() - state.t0) * 1000)
         
-        # Record STEP_END (success)
+        # Record RESULT event (success)
         if hasattr(services.recorder, 'next_seq') and state.seq is not None:
             seq = services.recorder.next_seq()
-            from ..trace import build_step_end_event, ExecutionPhase
+            from ..trace import build_result_event, ExecutionPhase
             # Use StepStatus from step module (not trace.events)
             
             # Summarize output if summarizer available
@@ -131,7 +131,7 @@ class ExecutionPipeline:
             trace_status = map_step_status_to_trace(StepStatus.OK)
             
             services.recorder.record(
-                build_step_end_event(
+                build_result_event(
                     seq=seq,
                     run_context=state.run_ctx,
                     step_id=state.step.id,

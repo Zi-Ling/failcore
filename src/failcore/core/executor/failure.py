@@ -14,7 +14,7 @@ from typing import Dict, Any, Optional
 import time
 
 from failcore.core.types.step import StepResult, StepStatus, StepError
-from ..trace import build_step_end_event, ExecutionPhase
+from ..trace import build_result_event, ExecutionPhase
 from ..trace.events import TraceStepStatus
 from ..trace.summarize import OutputSummarizer, SummarizeConfig
 from .state import ExecutionState, ExecutionServices
@@ -101,7 +101,7 @@ class FailureBuilder:
             state.seq = seq
             
             self._record(
-                build_step_end_event(
+                build_result_event(
                     seq=seq,
                     run_context=state.run_ctx,
                     step_id=state.step.id,

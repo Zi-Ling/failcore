@@ -17,14 +17,14 @@ def utc_now_iso() -> str:
 
 # Event Types
 class EventType(str, Enum):
-    """Trace event types following v0.1.1 schemas"""
+    """Trace event types following v0.1.3 schemas"""
     # Run lifecycle
     RUN_START = "RUN_START"
     RUN_END = "RUN_END"
     
-    # Step lifecycle
-    STEP_START = "STEP_START"
-    STEP_END = "STEP_END"
+    # Business action lifecycle (unified for SDK + Proxy)
+    ATTEMPT = "ATTEMPT"
+    RESULT = "RESULT"
     
     # Execution gateway events
     FINGERPRINT_COMPUTED = "FINGERPRINT_COMPUTED"

@@ -1,17 +1,17 @@
 # failcore/core/executor/stages/start.py
 """
-Start Stage - record STEP_START event and initialize execution state
+Start Stage - record ATTEMPT event and initialize execution state
 """
 
 from typing import Optional, Any
 
 from ..state import ExecutionState, ExecutionServices
 from failcore.core.types.step import StepResult
-from ...trace import build_step_start_event, build_run_context
+from ...trace import build_attempt_event, build_run_context
 
 
 class StartStage:
-    """Stage 1: Record STEP_START and initialize state"""
+    """Stage 1: Record ATTEMPT event and initialize state"""
     
     def execute(
         self,
@@ -19,7 +19,7 @@ class StartStage:
         services: ExecutionServices,
     ) -> Optional[StepResult]:
         """
-        Record STEP_START event and initialize state.seq
+        Record ATTEMPT event and initialize state.seq
         
         Args:
             state: Execution state
@@ -40,14 +40,14 @@ class StartStage:
         )
         state.run_ctx = run_ctx
         
-        # Record STEP_START
+        # Record ATTEMPT event
         if hasattr(services.recorder, 'next_seq'):
             seq = services.recorder.next_seq()
             state.seq = seq
             
             self._record(
                 services,
-                build_step_start_event(
+                build_attempt_event(
                     seq=seq,
                     run_context=run_ctx,
                     step_id=state.step.id,

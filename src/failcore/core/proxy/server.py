@@ -95,16 +95,37 @@ class ProxyServer:
                 except Exception:
                     pass  # Skip malformed headers
             
-            # Read request body
+            # Read request body (ASGI may send body in chunks)
+            # IMPORTANT: ASGI spec allows body to be sent in multiple messages
+            # We must keep reading until more_body is False
+            # The first http.request message may have body bytes, and subsequent
+            # messages will have more_body=True until the last one (more_body=False)
             body = b""
             while True:
                 message = await receive()
-                if message["type"] == "http.request":
-                    body += message.get("body", b"")
-                    if not message.get("more_body", False):
+                msg_type = message.get("type")
+                
+                if msg_type == "http.request":
+                    # Get body chunk (may be empty on first message, but usually contains data)
+                    chunk = message.get("body", b"")
+                    if chunk:
+                        body += chunk
+                    # Check if more body is coming
+                    more_body = message.get("more_body", False)
+                    if not more_body:
+                        # No more body chunks - we're done
                         break
-                elif message["type"] == "http.disconnect":
-                    return
+                    # If more_body is True, continue reading next chunk
+                elif msg_type == "http.disconnect":
+                    # Client disconnected before body was fully received
+                    break
+                else:
+                    # Unknown message type - log and break to avoid infinite loop
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.warning(f"Unexpected ASGI message type: {msg_type}")
+                    break
+            
             
             # Extract proxy metadata from headers
             provider = headers.get("x-failcore-provider", "openai")

@@ -1,59 +1,67 @@
 # failcore/core/egress/sinks/trace_sink.py
 """
-Trace Sink - Unified trace writing for all egress events
+Trace Sink - Thin compatibility wrapper over EventWriter
 
-Replaces scattered trace write logic with single authoritative sink.
-All trace writes go through here.
+DEPRECATED: Direct use of TraceSink is discouraged.
+New code should use EventWriter directly.
+
+This module provides backward compatibility for existing code.
 """
 
 from __future__ import annotations
 from pathlib import Path
 from typing import Optional, Any
 
-from failcore.infra.storage.trace_writer import SyncTraceWriter, AsyncTraceWriter
+from failcore.core.trace.writer import EventWriter
 from ..types import EgressEvent
 
 
 class TraceSink:
     """
-    Unified trace sink for EgressEvent
+    Compatibility wrapper for EventWriter
     
-    Responsibilities:
-    - Single authoritative trace writer
-    - Path management
-    - Format normalization
-    - Buffering and flushing
+    Maintains backward compatibility with existing EgressEngine code.
+    All writes are forwarded to EventWriter with v0.1.3 envelope format.
     
-    Design:
-    - Wraps existing trace_writer infrastructure
-    - Converts EgressEvent → trace format
-    - Fail-safe: errors must not propagate
+    Migration path:
+    - Phase 1: TraceSink wraps EventWriter (current)
+    - Phase 2: Update all callers to use EventWriter directly
+    - Phase 3: Remove TraceSink entirely
     """
     
     def __init__(
         self,
         trace_path: str | Path,
         *,
-        async_mode: bool = False,
-        buffer_size: int = 100,
-        flush_interval_s: float = 1.0,
+        async_mode: bool = False,  # Ignored - kept for compatibility
+        buffer_size: int = 1,
+        flush_interval_s: float = 0.0,
+        run_id: str = "unknown",  # Required for EventWriter
+        kind: str = "run",  # "run", "proxy", "mcp"
     ):
-        self.trace_path = Path(trace_path)
-        self.async_mode = async_mode
+        """
+        Initialize TraceSink (compatibility wrapper)
         
-        # Create underlying writer
-        if async_mode:
-            self._writer = AsyncTraceWriter(
-                trace_path=self.trace_path,
-                buffer_size=buffer_size,
-                flush_interval_s=flush_interval_s,
-            )
-        else:
-            self._writer = SyncTraceWriter(
-                trace_path=self.trace_path,
-                buffer_size=buffer_size,
-                flush_interval_s=flush_interval_s,
-            )
+        Args:
+            trace_path: Path to trace.jsonl
+            async_mode: Ignored (EventWriter is always thread-safe)
+            buffer_size: Buffer size for EventWriter
+            flush_interval_s: Flush interval for EventWriter
+            run_id: Run identifier (required)
+            kind: Run kind (run/proxy/mcp)
+        """
+        self.trace_path = Path(trace_path)
+        self.run_id = run_id
+        self.kind = kind
+        
+        # Create underlying EventWriter
+        self._writer = EventWriter(
+            trace_path=self.trace_path,
+            run_id=self.run_id,
+            kind=self.kind,
+            buffer_size=buffer_size,
+            flush_interval_s=flush_interval_s,
+        )
     
     def write(self, event: EgressEvent) -> None:
         """
@@ -62,32 +70,8 @@ class TraceSink:
         Args:
             event: EgressEvent to write
         """
-        # Convert EgressEvent to trace format
-        trace_event = self._normalize_to_trace(event)
-        
-        # Write through underlying writer
-        self._writer.write_event(trace_event)
-    
-    def _normalize_to_trace(self, event: EgressEvent) -> dict[str, Any]:
-        """
-        Normalize EgressEvent to trace format
-        
-        This is the single point where egress → trace conversion happens.
-        """
-        return {
-            "type": "egress_event",
-            "egress": event.egress.value,
-            "action": event.action,
-            "target": event.target,
-            "run_id": event.run_id,
-            "step_id": event.step_id,
-            "tool_name": event.tool_name,
-            "decision": event.decision.value,
-            "risk": event.risk.value,
-            "evidence": event.evidence,
-            "timestamp": event.timestamp.isoformat(),
-            "summary": event.summary or f"{event.action} on {event.target}",
-        }
+        # Forward to EventWriter
+        self._writer.write_egress_event(event)
     
     def flush(self) -> None:
         """Flush buffered events"""

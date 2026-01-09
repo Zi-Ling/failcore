@@ -1,7 +1,6 @@
 # failcore/cli/main.py
 import argparse
 
-from failcore.cli.commands import sample_cmd
 from failcore.cli.commands import validate_cmd
 from failcore.cli.commands import list_cmd
 from failcore.cli.commands import show_cmd
@@ -23,7 +22,6 @@ def main():
     sub = parser.add_subparsers(dest="command")
 
     # Register all commands
-    sample_cmd.register_command(sub)
     validate_cmd.register_command(sub)
     list_cmd.register_command(sub)
     show_cmd.register_command(sub)

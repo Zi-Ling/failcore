@@ -38,8 +38,8 @@
           "enum": [
             "RUN_START",
             "RUN_END",
-            "STEP_START",
-            "STEP_END",
+            "ATTEMPT",
+            "RESULT",
 
             "STEP_TIMEOUT",
             "TIMEOUT_CLAMPED",

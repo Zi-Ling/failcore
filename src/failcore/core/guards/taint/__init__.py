@@ -1,13 +1,12 @@
 """
-Taint Tracking & DLP
+Taint Tracking
 
-Tool-level data loss prevention with lightweight tainting
+Lightweight data tainting at tool boundaries for tracking data flow origins
 """
 
 from .tag import TaintSource, DataSensitivity, TaintTag, TaintedData
 from .context import TaintContext
 from .sanitizer import DataSanitizer
-from .middleware import DLPMiddleware, DLPAction
 from .store import TaintStore
 
 __all__ = [
@@ -17,7 +16,5 @@ __all__ = [
     "TaintedData",
     "TaintContext",
     "DataSanitizer",
-    "DLPMiddleware",
-    "DLPAction",
     "TaintStore",
 ]

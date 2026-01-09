@@ -6,7 +6,7 @@ Trace ingestor - converts trace.jsonl to database
 import json
 from typing import Dict, Any, Optional
 from collections import defaultdict
-from .sqlite_store import SQLiteStore
+from .trace import SQLiteStore
 
 
 class TraceIngestor:

@@ -12,6 +12,8 @@ Goal:
 Output:
 - event.evidence["taint_source"]: "user" | "model" | "tool" | "system" | "unknown"
 - event.evidence["taint_confidence"]: "high" | "medium" | "low" (optional but useful)
+- event.evidence["taint_source_type"]: TaintSource enum value (if detected)
+- event.evidence["taint_sensitivity"]: DataSensitivity enum value (if classified)
 """
 
 from __future__ import annotations
@@ -19,6 +21,12 @@ from __future__ import annotations
 from typing import Any, Dict, Optional, Tuple
 
 from ..types import EgressEvent
+try:
+    from failcore.core.guards.taint.tag import TaintSource, DataSensitivity
+except ImportError:
+    # Fallback for when taint types move to rules
+    TaintSource = None
+    DataSensitivity = None
 
 
 class TaintEnricher:
@@ -28,12 +36,14 @@ class TaintEnricher:
     Responsibilities:
     - Infer likely origin of data in this event (user/model/tool/system/unknown)
     - Add taint_source (+ optional confidence) into event.evidence
+    - Optionally classify using guards/taint TaintSource enum
     - Never block traffic; never throw
 
     Design:
     - Weak taint (no full propagation)
     - Heuristics only, explicitly low-risk
     - Defensive about evidence types
+    - Integrates with guards/taint module for consistency
     """
 
     def enrich(self, event: EgressEvent) -> None:
@@ -50,6 +60,16 @@ class TaintEnricher:
         evidence["taint_source"] = source
         if confidence:
             evidence["taint_confidence"] = confidence
+        
+        # Add TaintSource enum mapping for guards integration
+        taint_source_type = self._map_to_taint_source_enum(source, evidence)
+        if taint_source_type:
+            evidence["taint_source_type"] = taint_source_type.value
+        
+        # Add sensitivity classification if available
+        sensitivity = self._infer_sensitivity(evidence)
+        if sensitivity:
+            evidence["taint_sensitivity"] = sensitivity.value
 
     # ----------------------------
     # Inference
@@ -165,6 +185,85 @@ class TaintEnricher:
         if evidence.get("internal") is True:
             return True
         return False
+    
+    # ----------------------------
+    # Guards integration
+    # ----------------------------
+    
+    def _map_to_taint_source_enum(self, source: str, evidence: Dict[str, Any]) -> Optional[TaintSource]:
+        """
+        Map simple source string to TaintSource enum from guards/taint.
+        
+        Args:
+            source: Source string (user/model/tool/system/unknown)
+            evidence: Evidence dict (for additional hints)
+        
+        Returns:
+            TaintSource enum value if mappable
+        """
+        # Check for explicit tool-related sources
+        tool_name = evidence.get("tool", "")
+        if isinstance(tool_name, str):
+            tool_lower = tool_name.lower()
+            
+            # File operations
+            if any(kw in tool_lower for kw in ["file", "read", "write"]):
+                return TaintSource.FILE
+            
+            # Database operations
+            if any(kw in tool_lower for kw in ["db", "database", "sql", "query"]):
+                return TaintSource.DATABASE
+            
+            # API/HTTP calls
+            if any(kw in tool_lower for kw in ["api", "http", "request", "fetch"]):
+                return TaintSource.API
+            
+            # Secrets/credentials
+            if any(kw in tool_lower for kw in ["secret", "credential", "password", "key"]):
+                return TaintSource.SECRET
+            
+            # Environment variables
+            if any(kw in tool_lower for kw in ["env", "environment"]):
+                return TaintSource.ENVIRONMENT
+        
+        # Default mapping based on source
+        if source == "user":
+            return TaintSource.USER_INPUT
+        
+        # If no specific mapping, return None (not all sources map to TaintSource)
+        return None
+    
+    def _infer_sensitivity(self, evidence: Dict[str, Any]) -> Optional[DataSensitivity]:
+        """
+        Infer data sensitivity from evidence.
+        
+        Args:
+            evidence: Evidence dict
+        
+        Returns:
+            DataSensitivity enum value if classifiable
+        """
+        tool_name = evidence.get("tool", "")
+        if not isinstance(tool_name, str):
+            return None
+        
+        tool_lower = tool_name.lower()
+        
+        # Check for high-sensitivity indicators
+        if any(kw in tool_lower for kw in ["secret", "password", "credential", "key"]):
+            return DataSensitivity.SECRET
+        
+        if any(kw in tool_lower for kw in ["customer", "user", "pii", "personal"]):
+            return DataSensitivity.PII
+        
+        if any(kw in tool_lower for kw in ["confidential", "private", "internal"]):
+            return DataSensitivity.CONFIDENTIAL
+        
+        if any(kw in tool_lower for kw in ["public", "external"]):
+            return DataSensitivity.PUBLIC
+        
+        # Default to internal
+        return DataSensitivity.INTERNAL
 
 
 __all__ = ["TaintEnricher"]

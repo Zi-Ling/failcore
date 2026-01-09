@@ -25,7 +25,7 @@ from ..replay.execution import ReplayExecutionHook
 from ..replay.replayer import Replayer
 from .output import OutputNormalizer
 from .validation import StepValidator
-from ...infra.storage.cost_tables import CostStorage
+from ...infra.storage.cost import CostStorage
 
 # Avoid circular import
 if TYPE_CHECKING:

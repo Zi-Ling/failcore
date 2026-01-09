@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal, Optional, List, Any
 from failcore.utils.paths import get_failcore_root
+from failcore.infra.storage.job import JobStorage
 
 
 JobType = Literal["report", "audit", "replay", "run", "export"]
@@ -45,55 +46,45 @@ class Job:
 
 class JobsService:
     """
-    Job queue and execution manager.
-    
-    Currently in-memory (simple). Future: Redis/SQLite for persistence.
+    Job queue and execution manager with SQLite persistence.
     """
     
     def __init__(self):
-        self._jobs: dict[str, Job] = {}
-        self._jobs_dir = get_failcore_root() / "jobs"
-        self._jobs_dir.mkdir(parents=True, exist_ok=True)
-        self._load_persisted_jobs()
-    
-    def _load_persisted_jobs(self):
-        """Load jobs from disk (simple persistence)."""
-        jobs_index = self._jobs_dir / "jobs.jsonl"
-        if jobs_index.exists():
-            try:
-                with open(jobs_index, 'r', encoding='utf-8') as f:
-                    for line in f:
-                        line = line.strip()
-                        if line:
-                            job_data = json.loads(line)
-                            job = Job(**job_data)
-                            self._jobs[job.job_id] = job
-            except Exception:
-                pass  # Ignore corrupted job index
-    
-    def _persist_job(self, job: Job):
-        """Persist job to disk."""
-        jobs_index = self._jobs_dir / "jobs.jsonl"
-        with open(jobs_index, 'a', encoding='utf-8') as f:
-            f.write(json.dumps(job.to_dict()) + "\n")
+        self._storage = JobStorage()
     
     def create_job(self, job_type: JobType, inputs: dict) -> Job:
         """Create a new job."""
-        job = Job(
-            job_id=f"job_{uuid.uuid4().hex[:12]}",
-            type=job_type,
-            status="queued",
-            created_at=time.time(),
-            inputs=inputs or {},
-            artifacts=[],
+        job_data = {
+            "job_id": f"job_{uuid.uuid4().hex[:12]}",
+            "type": job_type,
+            "status": "queued",
+            "created_at": time.time(),
+            "inputs": inputs or {},
+            "artifacts": [],
+        }
+        
+        # Extract run_id from inputs if present (for easy querying)
+        if inputs and "run_id" in inputs:
+            job_data["run_id"] = inputs["run_id"]
+        
+        self._storage.create_job(job_data)
+        
+        # Convert to Job dataclass
+        return Job(
+            job_id=job_data["job_id"],
+            type=job_data["type"],
+            status=job_data["status"],
+            created_at=job_data["created_at"],
+            inputs=job_data["inputs"],
+            artifacts=job_data["artifacts"],
         )
-        self._jobs[job.job_id] = job
-        self._persist_job(job)
-        return job
     
     def get_job(self, job_id: str) -> Optional[Job]:
         """Get a job by ID."""
-        return self._jobs.get(job_id)
+        job_data = self._storage.get_job(job_id)
+        if job_data:
+            return self._dict_to_job(job_data)
+        return None
     
     def list_jobs(
         self,
@@ -102,16 +93,14 @@ class JobsService:
         job_type: Optional[JobType] = None,
     ) -> List[Job]:
         """List jobs with optional filtering."""
-        jobs = list(self._jobs.values())
-        
-        if status:
-            jobs = [j for j in jobs if j.status == status]
-        if job_type:
-            jobs = [j for j in jobs if j.type == job_type]
-        
-        # Sort by created_at (newest first)
-        jobs.sort(key=lambda j: j.created_at, reverse=True)
-        return jobs[:limit]
+        job_dicts = self._storage.list_jobs(
+            status=status,
+            job_type=job_type,
+            limit=limit,
+            order_by="created_at",
+            order_dir="DESC",
+        )
+        return [self._dict_to_job(jd) for jd in job_dicts]
     
     def update_status(
         self,
@@ -121,21 +110,26 @@ class JobsService:
         artifacts: Optional[List[dict]] = None,
     ):
         """Update job status."""
-        job = self._jobs.get(job_id)
-        if not job:
-            return
+        updates = {"status": status}
         
-        job.status = status
-        if status == "running" and job.started_at is None:
-            job.started_at = time.time()
+        if status == "running":
+            updates["started_at"] = time.time()
+        
         if status in ("success", "failed", "cancelled"):
-            job.finished_at = time.time()
-        if error:
-            job.error = error
-        if artifacts:
-            job.artifacts = artifacts
+            updates["finished_at"] = time.time()
+            # Calculate duration if we have started_at
+            job_data = self._storage.get_job(job_id)
+            if job_data and job_data.get("started_at"):
+                duration_ms = int((updates["finished_at"] - job_data["started_at"]) * 1000)
+                updates["duration_ms"] = duration_ms
         
-        self._persist_job(job)
+        if error:
+            updates["error"] = error
+        
+        if artifacts is not None:
+            updates["artifacts"] = artifacts
+        
+        self._storage.update_job(job_id, updates)
     
     def execute_job(self, job_id: str) -> bool:
         """
@@ -143,7 +137,7 @@ class JobsService:
         
         Future: enqueue to worker pool/celery/etc.
         """
-        job = self._jobs.get(job_id)
+        job = self.get_job(job_id)
         if not job:
             return False
         
@@ -166,12 +160,26 @@ class JobsService:
             self.update_status(job_id, "failed", error=str(e))
             return False
     
+    def _dict_to_job(self, job_data: dict) -> Job:
+        """Convert dictionary to Job dataclass."""
+        return Job(
+            job_id=job_data["job_id"],
+            type=job_data["type"],
+            status=job_data["status"],
+            created_at=job_data["created_at"],
+            started_at=job_data.get("started_at"),
+            finished_at=job_data.get("finished_at"),
+            inputs=job_data.get("inputs") or {},
+            artifacts=job_data.get("artifacts") or [],
+            error=job_data.get("error"),
+        )
+    
     def _execute_report(self, job: Job) -> List[dict]:
         """Execute report generation."""
-        from failcore.cli.renderers.html.report import render_report_html
-        from failcore.infra.storage.trace_reader import JsonlTraceReader
+        from failcore.cli.views.trace_report import build_report_view_from_trace
+        from failcore.cli.renderers.html import HtmlRenderer
         from failcore.utils.paths import get_failcore_root
-        import json
+        from pathlib import Path
         
         run_id = job.inputs.get("run_id")
         if not run_id:
@@ -192,28 +200,31 @@ class JobsService:
         if not trace_path.exists():
             raise FileNotFoundError(f"Trace not found: {trace_path}")
         
-        # Read trace
-        reader = JsonlTraceReader(str(trace_path))
-        events = list(reader.read_events())
+        # Build view model from trace
+        view = build_report_view_from_trace(Path(trace_path))
         
-        # Generate HTML report
-        html_content = render_report_html(events)
+        # Render to HTML
+        renderer = HtmlRenderer()
+        html_content = renderer.render_trace_report(view)
         
         # Save report
         report_path = run_dir / "report.html"
         report_path.write_text(html_content, encoding='utf-8')
         
+        # Use relative path from failcore root
+        relative_path = report_path.relative_to(get_failcore_root())
+        
         return [{
-            "path": str(report_path),
+            "path": str(relative_path),
             "type": "report_html",
             "mime": "text/html",
         }]
     
     def _execute_audit(self, job: Job) -> List[dict]:
         """Execute audit generation."""
-        from failcore.core.audit.analyzer import AuditAnalyzer
-        from failcore.infra.storage.trace_reader import JsonlTraceReader
-        from failcore.cli.renderers.html.sections.audit_report import render_audit_section
+        from failcore.core.audit.analyzer import analyze_events
+        from failcore.cli.views.audit_report import build_audit_view
+        from failcore.cli.renderers.html import HtmlRenderer
         from failcore.utils.paths import get_failcore_root
         import json
         
@@ -236,30 +247,42 @@ class JobsService:
         if not trace_path.exists():
             raise FileNotFoundError(f"Trace not found: {trace_path}")
         
-        # Read trace and analyze
-        reader = JsonlTraceReader(str(trace_path))
-        events = list(reader.read_events())
+        # Read trace events from JSONL file
+        events = []
+        with open(trace_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    events.append(json.loads(line))
         
-        analyzer = AuditAnalyzer()
-        report = analyzer.analyze(events)
+        # Analyze events to generate audit report
+        report = analyze_events(events)
         
         # Save JSON audit
         audit_json_path = run_dir / "audit.json"
         audit_json_path.write_text(json.dumps(report.to_dict(), indent=2), encoding='utf-8')
         
-        # Generate HTML audit report
-        html_content = render_audit_section(report)
-        audit_html_path = run_dir / "audit_report.html"
+        # Build view and render HTML
+        view = build_audit_view(report, trace_path=str(trace_path), trace_events=events)
+        renderer = HtmlRenderer()
+        html_content = renderer.render_audit_report(view)
+        
+        audit_html_path = run_dir / "audit.html"
         audit_html_path.write_text(html_content, encoding='utf-8')
+        
+        # Use relative paths from failcore root
+        failcore_root = get_failcore_root()
+        relative_json_path = audit_json_path.relative_to(failcore_root)
+        relative_html_path = audit_html_path.relative_to(failcore_root)
         
         return [
             {
-                "path": str(audit_json_path),
+                "path": str(relative_json_path),
                 "type": "audit_json",
                 "mime": "application/json",
             },
             {
-                "path": str(audit_html_path),
+                "path": str(relative_html_path),
                 "type": "audit_html",
                 "mime": "text/html",
             }
@@ -288,8 +311,11 @@ class JobsService:
         if not trace_path.exists():
             raise FileNotFoundError(f"Trace not found: {trace_path}")
         
+        # Use relative path from failcore root
+        relative_path = trace_path.relative_to(get_failcore_root())
+        
         return [{
-            "path": str(trace_path),
+            "path": str(relative_path),
             "type": "trace_export",
             "mime": "application/x-ndjson",
         }]

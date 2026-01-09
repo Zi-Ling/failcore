@@ -18,7 +18,7 @@ from typing import Dict, Any, Optional
 from dataclasses import dataclass
 
 from .models import CostUsage
-from ...infra.storage.cost_tables import CostStorage
+from ...infra.storage.cost import CostStorage
 
 
 class CostRunAccumulator:

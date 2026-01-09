@@ -26,7 +26,7 @@ async function executeAction(btn) {
     const isDanger = btn.classList.contains('action-danger');
     
     // Confirm dangerous actions
-    if (isDanger && !confirm(`Are you sure you want to execute: ${btn.textContent.trim()}?`)) {
+    if (isDanger && !await showConfirm(`Are you sure you want to execute: ${btn.textContent.trim()}?`)) {
         return;
     }
     
@@ -56,14 +56,23 @@ async function executeAction(btn) {
             throw new Error(data.detail || 'Action failed');
         }
         
-        // Show success and optionally navigate
-        alert(`✓ Job created: ${data.job_id}\nStatus: ${data.status}\n\nView progress in Jobs page.`);
-        
-        // Optional: auto-navigate to jobs page
-        // window.location.href = '/jobs';
+        // Show success toast
+        showToast({
+            type: 'success',
+            title: 'JOB CREATED',
+            message: `Job ${data.job_id} has been queued successfully.`,
+            action: {
+                label: 'View Jobs',
+                url: '/jobs'
+            }
+        }, 6000);
         
     } catch (error) {
-        alert(`✗ Error: ${error.message}`);
+        showToast({
+            type: 'error',
+            title: 'ACTION FAILED',
+            message: error.message,
+        }, 8000);
     } finally {
         // Re-enable button
         btn.disabled = false;

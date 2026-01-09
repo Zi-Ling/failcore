@@ -124,11 +124,14 @@ def run_proxy(args):
     print(f"[failcore.proxy] listen={host}:{port} mode={args.mode} trace={trace_path_rel}")
 
     # ---- Egress engine (sync writes = easier debugging) ----
+    # TraceSink now wraps EventWriter with v0.1.3 envelope format
     trace_sink = TraceSink(
         str(trace_path),
         async_mode=False,
         buffer_size=1,
         flush_interval_s=0.0,
+        run_id=run_id,  # Required for EventWriter
+        kind="proxy",  # Mark as proxy run
     )
     egress_engine = EgressEngine(
         trace_sink=trace_sink,
@@ -156,9 +159,30 @@ def run_proxy(args):
         budget=args.budget,
     )
 
+    # ---- Create EventWriter for ATTEMPT/RESULT events ----
+    from datetime import datetime, timezone
+    from failcore.utils.paths import to_failcore_relative
+    from failcore.core.trace.writer import EventWriter
+    
+    # EventWriter handles RUN_START/RUN_END and provides ATTEMPT/RESULT for pipeline
+    event_writer = EventWriter(
+        trace_path=trace_path,
+        run_id=run_id,
+        kind="proxy",
+        buffer_size=1,
+    )
+    
+    # Write RUN_START event
+    event_writer.write_run_event("RUN_START", {
+        "mode": args.mode,
+        "listen": f"{host}:{port}",
+        "sandbox_root": to_failcore_relative(sandbox_path),
+    })
+
     pipeline = ProxyPipeline(
         egress_engine=egress_engine,
         upstream_client=upstream_client,
+        event_writer=event_writer,  # Pass EventWriter for ATTEMPT/RESULT
     )
 
     streaming_handler = StreamHandler(strict_mode=strict_mode)
@@ -168,17 +192,6 @@ def run_proxy(args):
         pipeline=pipeline,
         streaming_handler=streaming_handler,
     )
-
-    # ---- Write RUN_START event (unified trace envelope) ----
-    from datetime import datetime, timezone
-    from failcore.utils.paths import to_failcore_relative
-    
-    _write_run_event(trace_path, "RUN_START", run_id, {
-        "kind": "proxy",
-        "mode": args.mode,
-        "listen": f"{host}:{port}",
-        "sandbox_root": to_failcore_relative(sandbox_path),
-    })
     
     # ---- Serve ASGI app ----
     try:
@@ -206,7 +219,8 @@ def run_proxy(args):
     finally:
         # ---- Write RUN_END event (unified trace envelope) ----
         try:
-            _write_run_event(trace_path, "RUN_END", run_id, {"kind": "proxy"})
+            event_writer.write_run_event("RUN_END", {})
+            event_writer.close()
         except Exception:
             pass
         
@@ -220,54 +234,6 @@ def run_proxy(args):
 # ----------------------------
 # Helpers
 # ----------------------------
-
-def _write_run_event(trace_path: Path, event_type: str, run_id: str, run_data: dict) -> None:
-    """
-    Write RUN_START/RUN_END event in unified trace envelope format
-    
-    This ensures proxy events use the same schema as SDK runs (failcore.trace.v0.1.3)
-    """
-    import json
-    from datetime import datetime, timezone
-    
-    # Read existing trace to determine sequence number
-    seq = 1
-    if trace_path.exists():
-        try:
-            with open(trace_path, 'r', encoding='utf-8') as f:
-                lines = f.readlines()
-                if lines:
-                    last_line = lines[-1].strip()
-                    if last_line:
-                        last_event = json.loads(last_line)
-                        seq = last_event.get("seq", 0) + 1
-        except Exception:
-            pass
-    
-    # Construct unified trace envelope (same as SDK runs)
-    envelope = {
-        "schema": "failcore.trace.v0.1.3",
-        "seq": seq,
-        "ts": datetime.now(timezone.utc).isoformat(),
-        "level": "INFO",
-        "event": {
-            "type": event_type,
-            "severity": "ok",
-        },
-        "run": {
-            "run_id": run_id,
-            **run_data,  # kind, mode, listen, sandbox_root
-        }
-    }
-    
-    # Append to trace file
-    try:
-        with open(trace_path, 'a', encoding='utf-8') as f:
-            f.write(json.dumps(envelope) + '\n')
-    except Exception as e:
-        import sys
-        print(f"Warning: Failed to write {event_type} event: {e}", file=sys.stderr)
-
 
 def parse_listen_address(listen: str) -> tuple[str, int]:
     if ":" in listen:

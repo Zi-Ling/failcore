@@ -121,9 +121,10 @@ class ProxyPipeline:
     Proxy request pipeline
 
     Responsibilities:
-    - Pre-call egress emit
-    - Upstream forwarding
-    - Post-call enrichment event
+    - Emit ATTEMPT/RESULT events (business layer)
+    - Emit pre-call/post-call EGRESS_EVENT (security layer)
+    - Forward requests to upstream
+    - Post-call enrichment (usage, DLP, taint)
 
     Design:
     - Synchronous semantics (async function but single awaited upstream call)
@@ -136,11 +137,13 @@ class ProxyPipeline:
         egress_engine: Optional[EgressEngine] = None,
         upstream_client: Optional[Any] = None,
         *,
+        event_writer: Optional[Any] = None,  # EventWriter for ATTEMPT/RESULT
         url_resolver: Optional[UrlResolver] = None,
         body_preview_limit: int = 4096,
     ):
         self.egress_engine = egress_engine
         self.upstream_client = upstream_client
+        self.event_writer = event_writer  # For ATTEMPT/RESULT events
         self.url_resolver = url_resolver
         self.body_preview_limit = int(body_preview_limit)
 
@@ -156,7 +159,15 @@ class ProxyPipeline:
     ) -> Dict[str, Any]:
         start_time = time.time()
 
-        # Stage 1: Pre-call egress event
+        # Stage 0: Write ATTEMPT event (business action start)
+        self._write_attempt(
+            step_id=step_id,
+            provider=provider,
+            endpoint=endpoint,
+            method=method,
+        )
+
+        # Stage 1: Pre-call egress event (security layer)
         pre_event = self._create_pre_event(
             provider, endpoint, method, headers, body, run_id, step_id
         )
@@ -166,11 +177,14 @@ class ProxyPipeline:
         # v1: allow all (fail-open)
 
         # Stage 3: Forward to upstream
+        error_occurred = None
+        response = None
         try:
             response = await self._forward_to_upstream(
                 provider, endpoint, method, headers, body
             )
         except Exception as e:
+            error_occurred = {"type": type(e).__name__, "message": str(e)}
             duration_ms = (time.time() - start_time) * 1000
             self._emit_post_event(
                 provider=provider,
@@ -179,11 +193,18 @@ class ProxyPipeline:
                 step_id=step_id,
                 duration_ms=duration_ms,
                 response=None,
-                error={"type": type(e).__name__, "message": str(e)},
+                error=error_occurred,
+            )
+            # Write RESULT event (error case)
+            self._write_result(
+                step_id=step_id,
+                status="ERROR",
+                duration_ms=duration_ms,
+                error=error_occurred,
             )
             raise
 
-        # Stage 4: Post-call enrichment emit
+        # Stage 4: Post-call enrichment emit (security layer)
         duration_ms = (time.time() - start_time) * 1000
         self._emit_post_event(
             provider=provider,
@@ -193,6 +214,15 @@ class ProxyPipeline:
             duration_ms=duration_ms,
             response=response,
             error=None,
+        )
+
+        # Stage 5: Write RESULT event (business action end)
+        http_status = response.get("status") if response else None
+        self._write_result(
+            step_id=step_id,
+            status="OK",
+            duration_ms=duration_ms,
+            http_status=http_status,
         )
 
         return response
@@ -205,6 +235,58 @@ class ProxyPipeline:
         except Exception:
             # must not block proxy
             pass
+    
+    def _write_attempt(
+        self,
+        step_id: str,
+        provider: str,
+        endpoint: str,
+        method: str,
+    ) -> None:
+        """Write ATTEMPT event for proxy request"""
+        if not self.event_writer:
+            return
+        
+        try:
+            # Generate fingerprint for proxy requests (method + endpoint)
+            fingerprint_input = f"{method}:{endpoint}"
+            fingerprint_hash = f"md5:{hashlib.md5(fingerprint_input.encode()).hexdigest()[:16]}"
+            
+            self.event_writer.attempt(
+                step_id=step_id,
+                tool=f"proxy:{provider}:{endpoint}",
+                method=method,
+                endpoint=endpoint,
+                fingerprint_hash=fingerprint_hash,
+                metadata={"provider": provider},
+            )
+        except Exception as e:
+            # Fail-open: don't block proxy
+            logger.warning(f"Failed to write ATTEMPT event: {e}")
+    
+    def _write_result(
+        self,
+        step_id: str,
+        status: str,
+        duration_ms: float,
+        http_status: Optional[int] = None,
+        error: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Write RESULT event for proxy request"""
+        if not self.event_writer:
+            return
+        
+        try:
+            self.event_writer.result(
+                step_id=step_id,
+                status=status,
+                duration_ms=duration_ms,
+                http_status=http_status,
+                error=error,
+            )
+        except Exception as e:
+            # Fail-open: don't block proxy
+            logger.warning(f"Failed to write RESULT event: {e}")
 
     def _create_pre_event(
         self,
@@ -218,7 +300,7 @@ class ProxyPipeline:
     ) -> EgressEvent:
         # Decode request body for DLP scanning (but keep it minimal)
         request_body_text = None
-        if body:
+        if body is not None and len(body) > 0:
             try:
                 request_body_text = body.decode("utf-8", errors="replace")
             except Exception:
@@ -239,6 +321,7 @@ class ProxyPipeline:
                 "method": method,
                 "phase": "pre_call",
                 # Include request_body for DLP scanning (minimal, text-only)
+                # Include even if None so DLP enricher knows to check this field
                 "request_body": request_body_text,
             },
         )

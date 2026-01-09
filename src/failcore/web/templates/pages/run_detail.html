@@ -223,6 +223,48 @@
     overflow-x: auto;
     font-size: 0.75rem;
     line-height: 1.5;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', monospace;
+}
+
+.inspector-json {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+.inspector-html-preview iframe {
+    border-radius: 4px;
+}
+
+.audit-preview {
+    background: var(--bg-tertiary);
+    padding: 1rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+}
+
+.audit-summary {
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.audit-findings {
+    margin-top: 1rem;
+}
+
+details summary {
+    user-select: none;
+    padding: 0.5rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+}
+
+details summary:hover {
+    background: var(--bg-tertiary);
+}
+
+details[open] summary {
+    margin-bottom: 0.5rem;
 }
 </style>
 {% endblock %}

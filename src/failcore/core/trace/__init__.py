@@ -21,8 +21,8 @@ from .recorder import TraceRecorder, JsonlTraceRecorder, NullTraceRecorder
 from .builder import (
     build_run_start_event,
     build_run_end_event,
-    build_step_start_event,
-    build_step_end_event,
+    build_attempt_event,
+    build_result_event,
     build_policy_denied_event,
     build_output_normalized_event,
     build_replay_hit_event,
@@ -63,8 +63,8 @@ __all__ = [
     # Builders
     "build_run_start_event",
     "build_run_end_event",
-    "build_step_start_event",
-    "build_step_end_event",
+    "build_attempt_event",
+    "build_result_event",
     "build_policy_denied_event",
     "build_output_normalized_event",
     "build_replay_hit_event",

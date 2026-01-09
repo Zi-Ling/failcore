@@ -37,6 +37,15 @@ class EgressEngine:
         trace_sink: Optional[TraceSink] = None,
         enrichers: Optional[List[Any]] = None,
     ):
+        """
+        Initialize EgressEngine
+        
+        Args:
+            trace_sink: TraceSink instance (wraps EventWriter)
+            enrichers: List of enrichers (UsageEnricher, DLPEnricher, etc.)
+        
+        Note: trace_sink must be initialized with run_id for proper v0.1.3 envelope
+        """
         self.trace_sink = trace_sink
         self.enrichers = enrichers or []
     

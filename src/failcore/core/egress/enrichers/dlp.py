@@ -8,6 +8,8 @@ Optionally redacts matched substrings in-place to avoid leaking secrets into tra
 Outputs:
 - event.evidence["dlp_hits"]: sorted list of pattern names that matched
 - event.evidence["dlp_redacted"]: bool (only when redaction performed)
+- event.evidence["dlp_pattern_categories"]: list of pattern categories detected
+- event.evidence["dlp_max_severity"]: maximum severity of detected patterns
 """
 
 from __future__ import annotations
@@ -17,20 +19,7 @@ import re
 import json
 
 from ..types import EgressEvent
-
-
-# Common DLP patterns (simplified for v1)
-DLP_PATTERNS: Dict[str, Pattern[str]] = {
-    "OPENAI_API_KEY": re.compile(r"sk-[A-Za-z0-9]{48}"),
-    "AWS_ACCESS_KEY": re.compile(r"AKIA[0-9A-Z]{16}"),
-    "GITHUB_TOKEN": re.compile(r"gh[ps]_[A-Za-z0-9]{36}"),
-    # Handles:
-    # - -----BEGIN PRIVATE KEY-----
-    # - -----BEGIN RSA PRIVATE KEY-----
-    # - -----BEGIN DSA PRIVATE KEY-----
-    # - -----BEGIN EC PRIVATE KEY-----
-    "PRIVATE_KEY": re.compile(r"-----BEGIN (?:RSA|DSA|EC)? ?PRIVATE KEY-----"),
-}
+from failcore.core.rules import DLPPatternRegistry, SensitivePattern, PatternCategory
 
 
 class DLPEnricher:
@@ -38,29 +27,56 @@ class DLPEnricher:
     DLP enricher for egress events.
 
     Responsibilities:
-    - Scan evidence for sensitive data patterns
+    - Scan evidence for sensitive data patterns using guards/dlp pattern registry
     - Add findings to event.evidence["dlp_hits"]
     - Optionally redact matched substrings in-place to prevent secrets from reaching traces
       (evidence-only; does not block)
 
     Design:
-    - Pattern-based detection
+    - Pattern-based detection using guards/dlp/patterns
     - Lightweight fast-path (bounded scan size)
     - Extensible pattern registry
+    - Integrates with guards DLP module for consistency
     """
 
     def __init__(
         self,
+        pattern_registry: Optional[DLPPatternRegistry] = None,
         patterns: Optional[Mapping[str, Pattern[str]]] = None,
         *,
         redact: bool = True,
         max_scan_chars: int = 65536,  # 64KB cap to avoid huge payload cost
         redaction_token: str = "[REDACTED]",
+        min_severity: int = 1,  # Minimum severity to report
     ):
-        self.patterns: Dict[str, Pattern[str]] = dict(patterns) if patterns else dict(DLP_PATTERNS)
+        # Use guards/dlp pattern registry if available
+        self.pattern_registry = pattern_registry or DLPPatternRegistry()
+        
+        # Legacy support: accept raw patterns dict
+        if patterns:
+            # Convert legacy patterns to registry format
+            for name, pattern in patterns.items():
+                if name not in self.pattern_registry.get_all_patterns():
+                    # Register as custom pattern
+                    sensitive_pattern = SensitivePattern(
+                        name=name,
+                        category=PatternCategory.SECRET_TOKEN,
+                        pattern=pattern,
+                        severity=8,
+                        description=f"Custom pattern: {name}"
+                    )
+                    self.pattern_registry.register_pattern(sensitive_pattern)
+        
+        # Get all patterns from registry
+        self.patterns: Dict[str, Pattern[str]] = {
+            name: pat.pattern
+            for name, pat in self.pattern_registry.get_all_patterns().items()
+        }
+        
         self.redact = redact
         self.max_scan_chars = int(max_scan_chars) if max_scan_chars and max_scan_chars > 0 else 65536
         self.redaction_token = redaction_token
+        self.min_severity = min_severity
 
     def enrich(self, event: EgressEvent) -> None:
         """
@@ -68,6 +84,8 @@ class DLPEnricher:
 
         Adds:
           - event.evidence["dlp_hits"] = ["PATTERN_A", ...]
+          - event.evidence["dlp_pattern_categories"] = ["api_key", "pii_email", ...]
+          - event.evidence["dlp_max_severity"] = 10 (highest severity found)
         Optionally:
           - redacts secrets in-place inside certain evidence fields
           - event.evidence["dlp_redacted"] = True
@@ -78,15 +96,32 @@ class DLPEnricher:
 
         # Extract text to scan (bounded)
         text = self._extract_text_for_scan(evidence)
-        if not text:
+        if not text or not text.strip():
             return
 
         hits: Set[str] = set()
-        for name, pattern in self.patterns.items():
+        detected_patterns: List[SensitivePattern] = []
+        
+        # Scan using pattern registry
+        all_patterns = self.pattern_registry.get_all_patterns()
+        if not all_patterns:
+            # Pattern registry not initialized - skip silently (fail-open)
+            return
+        
+        for name, sensitive_pattern in all_patterns.items():
+            # Check severity threshold
+            if sensitive_pattern.severity < self.min_severity:
+                continue
+            
             try:
+                # Ensure pattern is a compiled regex
+                pattern = sensitive_pattern.pattern
+                if not hasattr(pattern, 'search'):
+                    continue
                 if pattern.search(text):
                     hits.add(name)
-            except re.error:
+                    detected_patterns.append(sensitive_pattern)
+            except (re.error, AttributeError, TypeError):
                 # If a bad pattern slips in, don't crash the pipeline
                 continue
 
@@ -94,7 +129,16 @@ class DLPEnricher:
             return
 
         evidence["dlp_hits"] = sorted(hits)
-
+        
+        # Add pattern categories
+        categories = list(set(p.category.value for p in detected_patterns))
+        evidence["dlp_pattern_categories"] = sorted(categories)
+        
+        # Add max severity
+        if detected_patterns:
+            max_severity = max(p.severity for p in detected_patterns)
+            evidence["dlp_max_severity"] = max_severity
+        
         # Optional redaction: mutate evidence to reduce secret leakage in traces
         if self.redact:
             did_redact = self._redact_evidence_in_place(evidence)
@@ -112,10 +156,11 @@ class DLPEnricher:
         parts: List[str] = []
 
         # Prefer scanning fields that commonly contain request/response content
+        # Order matters: request_body first for pre_call, body_preview/tool_output for post_call
         for key in (
+            "request_body",
             "tool_output",
             "output",
-            "request_body",
             "body_preview",
             "response",
             "raw_response",
@@ -124,10 +169,21 @@ class DLPEnricher:
         ):
             if key not in evidence:
                 continue
-            parts.append(self._coerce_to_text(evidence.get(key)))
+            value = evidence.get(key)
+            # Skip None, empty strings, and empty collections
+            if value is None:
+                continue
+            if isinstance(value, str) and not value.strip():
+                continue
+            if isinstance(value, (dict, list)) and len(value) == 0:
+                continue
+            
+            coerced = self._coerce_to_text(value)
+            if coerced and coerced.strip():  # Only add non-empty strings
+                parts.append(coerced)
 
         text = "\n".join(p for p in parts if p)
-        if not text:
+        if not text or not text.strip():
             return ""
 
         # Cap scan size (fast-path friendly)
@@ -320,4 +376,4 @@ class DLPEnricher:
         return did
 
 
-__all__ = ["DLPEnricher", "DLP_PATTERNS"]
+__all__ = ["DLPEnricher"]

@@ -8,7 +8,7 @@ Provides data access abstraction for SQLite cost storage.
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 
-from failcore.infra.storage.cost_tables import CostStorage
+from failcore.infra.storage.cost import CostStorage
 from failcore.utils.paths import get_database_path
 
 

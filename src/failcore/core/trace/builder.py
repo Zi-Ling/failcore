@@ -140,7 +140,7 @@ def build_run_start_event(
     )
 
 
-def build_step_start_event(
+def build_attempt_event(
     seq: int,
     run_context: Dict[str, Any],
     step_id: str,
@@ -149,7 +149,7 @@ def build_step_start_event(
     attempt: int = 1,
     depends_on: Optional[list] = None,
 ) -> TraceEvent:
-    """Build STEP_START event"""
+    """Build ATTEMPT event (business action start)"""
     # Build fingerprint (CRITICAL for replay)
     # Format: tool#params_hash (deterministic, not tied to run_id)
     import json
@@ -193,8 +193,8 @@ def build_step_start_event(
         ts=utc_now_iso(),
         level=LogLevel.INFO,
         event={
-            "type": EventType.STEP_START.value,
-            "severity": "ok",  # v0.1.2: severity for all events
+            "type": EventType.ATTEMPT.value,
+            "severity": "ok",  # Business action attempt
             "step": step_info,
             "data": {"payload": payload},
         },
@@ -276,7 +276,7 @@ def build_output_normalized_event(
     )
 
 
-def build_step_end_event(
+def build_result_event(
     seq: int,
     run_context: Dict[str, Any],
     step_id: str,
@@ -290,7 +290,7 @@ def build_step_end_event(
     warnings: Optional[list] = None,
     metrics: Optional[Dict[str, Any]] = None,
 ) -> TraceEvent:
-    """Build STEP_END event with optional cost metrics"""
+    """Build RESULT event (business action end) with optional cost metrics"""
     result = {
         "status": status.value,
         "phase": phase.value,
@@ -319,7 +319,7 @@ def build_step_end_event(
             }
         }
     
-    # v0.1.2: Determine severity based on status
+    # Determine severity based on status
     if status == TraceStepStatus.OK:
         severity = "ok"
     elif status == TraceStepStatus.BLOCKED:
@@ -333,8 +333,8 @@ def build_step_end_event(
         ts=utc_now_iso(),
         level=LogLevel.INFO if status == TraceStepStatus.OK else LogLevel.ERROR,
         event={
-            "type": EventType.STEP_END.value,
-            "severity": severity,  # v0.1.2: required severity
+            "type": EventType.RESULT.value,
+            "severity": severity,
             "step": {"id": step_id, "tool": tool, "attempt": attempt},
             "data": event_data,
         },

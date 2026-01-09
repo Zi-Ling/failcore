@@ -33,7 +33,7 @@ from .stages.dispatch import DispatchStage
 # Cost tracking availability check
 try:
     from ..cost import CostGuardian, CostEstimator, CostUsage, UsageExtractor
-    from ...infra.storage.cost_tables import CostStorage
+    from ...infra.storage.cost import CostStorage
     COST_AVAILABLE = True
 except ImportError:
     COST_AVAILABLE = False
@@ -251,7 +251,7 @@ class Executor:
         usage_extractor_instance = None
         
         if COST_AVAILABLE and self.config.enable_cost_tracking:
-            from ...infra.storage.cost_tables import CostStorage
+            from ...infra.storage.cost import CostStorage
             from ..cost import CostGuardian, CostEstimator, UsageExtractor
             cost_storage = CostStorage()
             cost_guardian_instance = cost_guardian or CostGuardian()
