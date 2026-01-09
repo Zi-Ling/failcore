@@ -37,6 +37,9 @@
 <script>
 let selectedEventIndex = null;
 
+// Store object URLs to revoke them later
+let activeObjectUrls = [];
+
 function selectEvent(idx) {
     selectedEventIndex = idx;
     
@@ -52,8 +55,26 @@ function selectEvent(idx) {
         return;
     }
     
+    // Clean up previous object URLs
+    activeObjectUrls.forEach(url => URL.revokeObjectURL(url));
+    activeObjectUrls = [];
+    
+    // Reset pending previews store
+    window.pendingPreviews = {};
+    
     const event = {{ events | tojson | safe }}[idx];
     inspectorContent.innerHTML = renderEventInspector(event);
+    
+    // Render pending HTML previews using Blob URLs
+    Object.entries(window.pendingPreviews || {}).forEach(([id, content]) => {
+        const iframe = document.getElementById(id);
+        if (iframe) {
+            const blob = new Blob([content], { type: 'text/html' });
+            const url = URL.createObjectURL(blob);
+            activeObjectUrls.push(url);
+            iframe.src = url;
+        }
+    });
 }
 
 function renderEventInspector(event) {
@@ -98,9 +119,13 @@ function renderEventData(data) {
     try {
         // Check if data contains HTML content (like report.html or audit.html)
         if (typeof data === 'string' && (data.trim().startsWith('<!DOCTYPE') || data.includes('<html'))) {
-            const safeContent = data.replace(/"/g, '&quot;');
+            // Generate unique ID and store content for post-render injection
+            const previewId = 'preview-' + Math.random().toString(36).substr(2, 9);
+            if (!window.pendingPreviews) window.pendingPreviews = {};
+            window.pendingPreviews[previewId] = data;
+            
             return `<div class="inspector-html-preview" style="height: 600px; resize: vertical; overflow: hidden; border: 1px solid var(--border);">
-                <iframe srcdoc="${safeContent}" style="width:100%;height:100%;border:none;background:white;"></iframe>
+                <iframe id="${previewId}" style="width:100%;height:100%;border:none;background:white;"></iframe>
             </div>`;
         }
         

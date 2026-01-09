@@ -263,14 +263,18 @@ window.previewArtifact = async function(artifactId, name) {
             activePreviewUrl = null;
         }
         
-        if (data.format === 'html') {
-            // SCHEME: Blob URL
+        // Robust format detection
+        const isHtml = data.format === 'html' || name.toLowerCase().endsWith('.html');
+        const isJson = data.format === 'json' || data.format === 'jsonl' || name.toLowerCase().endsWith('.json') || name.toLowerCase().endsWith('.jsonl');
+        
+        if (isHtml) {
+            // SCHEME: Blob URL (Most robust for HTML)
             const blob = new Blob([data.content], { type: 'text/html' });
             activePreviewUrl = URL.createObjectURL(blob);
             
-            body.innerHTML = `<iframe src="${activePreviewUrl}" class="preview-iframe"></iframe>`;
+            body.innerHTML = `<iframe src="${activePreviewUrl}" class="preview-iframe" title="Preview"></iframe>`;
             
-        } else if (data.format === 'json' || data.format === 'jsonl') {
+        } else if (isJson) {
             // JSON Rendering
             let codeHtml = '';
             let rawJson = data.content;
