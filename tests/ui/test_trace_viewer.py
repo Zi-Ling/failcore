@@ -6,7 +6,7 @@ Must read real trace store, not mock metrics
 
 import pytest
 from pathlib import Path
-from failcore.cli.trace_viewer import TraceViewer
+from failcore.cli.views.trace_viewer import TraceViewer
 
 
 class TestTraceViewer:
@@ -31,7 +31,6 @@ class TestTraceViewer:
         
         # Create a fake trace file in temp location for metrics
         import tempfile
-        import json
         import shutil
         
         with tempfile.TemporaryDirectory() as tmpdir:

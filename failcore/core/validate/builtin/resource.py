@@ -1,6 +1,6 @@
-# failcore/core/validate/validators/resource.py
+# failcore/core/validate/builtin/resource.py
 """
-Resource quota validators
+Resource quota builtin
 
 Prevent resource exhaustion attacks:
 1. File size limits
@@ -11,10 +11,7 @@ Prevent resource exhaustion attacks:
 from typing import Any, Optional
 import os
 
-from ..validator import (
-    PreconditionValidator,
-    ValidationResult,
-)
+from .contract import PreconditionValidator, ValidationResult
 
 
 def max_file_size_precondition(

@@ -41,6 +41,152 @@
     padding: 0;
 }
 
+/* Policy page styles */
+.policy-page, .validators-page, .editor-page, .explain-page, .diff-page {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.policy-status {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    margin: 20px 0;
+}
+
+.status-success {
+    color: var(--green-500);
+    font-weight: bold;
+}
+
+.status-warning {
+    color: var(--yellow-500);
+    font-weight: bold;
+}
+
+.policy-actions, .policy-docs {
+    margin: 30px 0;
+}
+
+.policy-actions ul, .policy-docs ul {
+    list-style: none;
+    padding: 0;
+}
+
+.policy-actions li {
+    margin: 10px 0;
+}
+
+.policy-actions a {
+    display: inline-block;
+    padding: 8px 16px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-primary);
+    text-decoration: none;
+    transition: all 0.2s;
+}
+
+.policy-actions a:hover {
+    background: var(--bg-secondary);
+    border-color: var(--blue-500);
+}
+
+.back-link {
+    color: var(--blue-500);
+    text-decoration: none;
+    display: inline-block;
+    margin-bottom: 20px;
+}
+
+.back-link:hover {
+    text-decoration: underline;
+}
+
+button {
+    padding: 8px 16px;
+    background: var(--blue-500);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 13px;
+    transition: background 0.2s;
+}
+
+button:hover {
+    background: var(--blue-600);
+}
+
+input[type="text"], textarea, select {
+    width: 100%;
+    padding: 8px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 13px;
+}
+
+input[type="text"]:focus, textarea:focus, select:focus {
+    outline: none;
+    border-color: var(--blue-500);
+}
+
+form div {
+    margin: 15px 0;
+}
+
+label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: bold;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 20px 0;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+table thead {
+    background: var(--bg-secondary);
+}
+
+table th, table td {
+    padding: 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+}
+
+table tbody tr:hover {
+    background: var(--bg-secondary);
+}
+
+.error {
+    color: var(--red-500);
+}
+
+.warning {
+    color: var(--yellow-500);
+}
+
+.info {
+    color: var(--blue-500);
+}
+
+.success {
+    color: var(--green-500);
+}
+
 body {
     font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
     line-height: 1.6;

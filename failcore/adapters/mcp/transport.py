@@ -136,7 +136,7 @@ class McpTransport(BaseTransport):
         return "2024-11-05"
 
     def _resolve_capabilities(self) -> Dict[str, Any]:
-        # Default to {} for maximum compatibility with strict validators
+        # Default to {} for maximum compatibility with strict builtin
         if self._cfg.client_capabilities is None:
             return {}
         return self._cfg.client_capabilities

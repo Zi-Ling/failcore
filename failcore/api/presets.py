@@ -6,16 +6,10 @@ This module re-exports all presets from failcore.presets package.
 Implementation is in failcore/presets/ directory.
 
 Three types of presets:
-1. validators - precondition/postcondition validators
+1. builtin - precondition/postcondition builtin
 2. policies - policies (resource access, cost control, etc.)
 3. tools - demo tools (minimal set, avoid builtins explosion)
 
-Example:
-    >>> from failcore import Session, presets
-    >>> session = Session(
-    ...     validator=presets.fs_safe(),
-    ...     policy=presets.read_only()
-    ... )
 """
 
 # Re-export from failcore.presets package

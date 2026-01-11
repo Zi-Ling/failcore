@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+
+{% block title %}Policy Diff - FailCore{% endblock %}
+
+{% block content %}
+    <style>
+        .diff-editor {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        .diff-editor textarea {
+            width: 100%;
+            height: 400px;
+            font-family: monospace;
+            background: #1e1e1e;
+            color: #d4d4d4;
+            border: 1px solid #ccc;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        [data-theme="light"] .diff-editor textarea {
+            background: #ffffff;
+            color: #000000;
+        }
+    </style>
+    <div class="diff-page">
+        <h1>Policy Diff Tool</h1>
+        <p><a href="/policy" class="back-link">&larr; Back to Policy Overview</a></p>
+        
+        <p>Compare two policies to see differences.</p>
+        
+        <div class="diff-editor">
+            <div>
+                <h3>Policy 1 (JSON)</h3>
+                <textarea id="policy1">{}</textarea>
+            </div>
+            <div>
+                <h3>Policy 2 (JSON)</h3>
+                <textarea id="policy2">{}</textarea>
+            </div>
+        </div>
+        
+        <button onclick="diffPolicies()">Compare</button>
+        
+        <div id="results"></div>
+    </div>
+    
+    <script>
+        async function diffPolicies() {
+            const policy1Text = document.getElementById('policy1').value;
+            const policy2Text = document.getElementById('policy2').value;
+            
+            try {
+                const policy1 = JSON.parse(policy1Text);
+                const policy2 = JSON.parse(policy2Text);
+                
+                const response = await fetch('/api/policy/diff', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ policy1, policy2 })
+                });
+                
+                const data = await response.json();
+                
+                let html = '<h2>Differences</h2>';
+                
+                if (data.added.length > 0) {
+                    html += `<p class="success">+ Added validators: ${data.added.join(', ')}</p>`;
+                }
+                
+                if (data.removed.length > 0) {
+                    html += `<p class="error">- Removed validators: ${data.removed.join(', ')}</p>`;
+                }
+                
+                if (data.modified.length > 0) {
+                    html += `<p class="warning">~ Modified validators: ${data.modified.map(m => m.id).join(', ')}</p>`;
+                    
+                    html += '<h3>Modifications Detail</h3>';
+                    data.modified.forEach(m => {
+                        html += `<div><h4>${m.id}</h4>`;
+                        html += `<p>Before: <code>${JSON.stringify(m.before)}</code></p>`;
+                        html += `<p>After: <code>${JSON.stringify(m.after)}</code></p></div>`;
+                    });
+                }
+                
+                if (data.added.length === 0 && data.removed.length === 0 && data.modified.length === 0) {
+                    html += '<p class="success">✓ No differences found</p>';
+                }
+                
+                document.getElementById('results').innerHTML = html;
+            } catch (e) {
+                document.getElementById('results').innerHTML = 
+                    `<p class="error">Error: ${e.message}</p>`;
+            }
+        }
+    </script>
+    </div>
+{% endblock %}

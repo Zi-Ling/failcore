@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block title %}Policy Management - FailCore{% endblock %}
+
+{% block content %}
+    <div class="policy-page">
+        <h1>Policy Management</h1>
+        
+        <div class="policy-status">
+            {% if policy_exists %}
+                <p class="status-success">✓ Policy directory initialized</p>
+                <p>Location: <code>{{ policy_dir }}</code></p>
+            {% else %}
+                <p class="status-warning">⚠ Policy directory not initialized</p>
+                <button onclick="initPolicy()">Initialize Policy Directory</button>
+            {% endif %}
+        </div>
+        
+        <div class="policy-actions">
+            <h2>Quick Actions</h2>
+            <ul>
+                <li><a href="/policy/validators">List Available Validators</a></li>
+                <li><a href="/policy/editor/active">Edit Active Policy</a></li>
+                <li><a href="/policy/editor/shadow">Edit Shadow Policy</a></li>
+                <li><a href="/policy/editor/breakglass">Edit Breakglass Policy</a></li>
+                <li><a href="/policy/editor/merged">View Merged Policy</a></li>
+                <li><a href="/policy/explain">Explain Tool Validation</a></li>
+                <li><a href="/policy/diff">Compare Policies</a></li>
+            </ul>
+        </div>
+        
+        <div class="policy-docs">
+            <h2>Documentation</h2>
+            <p>Policy files are stored in <code>.failcore/validate/</code></p>
+            <ul>
+                <li><strong>active.yaml</strong>: Main policy (enforced)</li>
+                <li><strong>shadow.yaml</strong>: Observation mode (logged only)</li>
+                <li><strong>breakglass.yaml</strong>: Emergency overrides (audited)</li>
+            </ul>
+        </div>
+    </div>
+    
+    <script>
+        async function initPolicy() {
+            try {
+                const response = await fetch('/api/policy/init', { method: 'POST' });
+                const data = await response.json();
+                if (data.success) {
+                    alert('Policy directory initialized successfully!');
+                    location.reload();
+                } else {
+                    alert('Failed to initialize: ' + JSON.stringify(data));
+                }
+            } catch (e) {
+                alert('Error: ' + e.message);
+            }
+        }
+    </script>
+    </div>
+{% endblock %}

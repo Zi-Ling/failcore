@@ -119,7 +119,7 @@ def safe_write(sandbox_root: str) -> Policy:
     
     For production use, combine with:
     - Path normalization/validation
-    - Filesystem validators (fs_safe)
+    - Filesystem builtin (fs_safe)
     - Additional security policies
     
     Args:

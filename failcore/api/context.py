@@ -15,7 +15,7 @@ from ..core.tools.registry import ToolRegistry
 from ..core.tools.spec import ToolSpec
 from ..core.tools.metadata import ToolMetadata
 from ..core.trace.recorder import JsonlTraceRecorder, NullTraceRecorder, TraceRecorder
-from ..core.validate.validator import ValidatorRegistry
+from ..core.validate import ValidatorRegistry
 from ..utils.paths import get_failcore_root, get_database_path, find_project_root
 from ..utils.path_resolver import PathResolver
 
@@ -274,7 +274,7 @@ class RunCtx:
             )
             self._tools.register_tool(spec, auto_assemble=True)
             
-            # Sync validators
+            # Sync builtin
             preconditions = self._tools.get_preconditions(tool_name)
             postconditions = self._tools.get_postconditions(tool_name)
             for precond in preconditions:

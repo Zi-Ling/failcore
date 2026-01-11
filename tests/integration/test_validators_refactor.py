@@ -49,8 +49,8 @@ def test_fs_safe_sandbox_deprecated():
 
 
 def test_security_module_import():
-    """Test security validators can be imported from core"""
-    from failcore.core.validate.validators.security import path_traversal_precondition
+    """Test security builtin can be imported from core"""
+    from failcore.core.validate.builtin.security import path_traversal_precondition
     
     checker = path_traversal_precondition("path", sandbox_root=os.getcwd())
     assert checker is not None
@@ -91,14 +91,14 @@ def test_path_traversal_detection():
 
 
 def test_validators_module_structure():
-    """Test validators module exports correctly"""
-    from failcore.core.validate import validators
+    """Test builtin module exports correctly"""
+    from failcore.core.validate import builtin
     
-    # Check contract validators
-    assert hasattr(validators, 'output_contract_postcondition')
+    # Check contract builtin
+    assert hasattr(builtin, 'output_contract_postcondition')
     
-    # Check security validators
-    assert hasattr(validators, 'path_traversal_precondition')
+    # Check security builtin
+    assert hasattr(builtin, 'path_traversal_precondition')
     
     print("✅ Validators module structure correct")
 

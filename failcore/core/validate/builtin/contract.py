@@ -1,13 +1,80 @@
-# failcore/core/validate/validators/contract.py
+# failcore/core/validate/builtin/contract.py
 """
-Contract-based validators for output validation
+Contract-based builtin for output validation
 
 Bridges contract/ layer with validate/ layer.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Callable, Literal
+from dataclasses import dataclass, field
 from failcore.core.contract import ExpectedKind, check_output, ContractResult
-from ..validator import PostconditionValidator, ValidationResult
+
+
+# Internal types for builtin validators
+@dataclass
+class ValidationResult:
+    """Validation result for builtin validators"""
+    message: str = ""
+    details: Dict[str, Any] = field(default_factory=dict)
+    severity: Literal["ok", "warn", "block"] = "ok"
+    validator: Optional[str] = None
+    code: Optional[str] = None
+    
+    @property
+    def valid(self) -> bool:
+        return self.severity != "block"
+    
+    @classmethod
+    def success(cls, message: str = "", **kwargs) -> "ValidationResult":
+        return cls(message=message, severity="ok", **kwargs)
+    
+    @classmethod
+    def warning(cls, message: str, details: Optional[Dict[str, Any]] = None, code: Optional[str] = None, **kwargs) -> "ValidationResult":
+        return cls(message=message, severity="warn", details=details or {}, code=code, **kwargs)
+    
+    @classmethod
+    def failure(cls, message: str, details: Optional[Dict[str, Any]] = None, code: Optional[str] = None, **kwargs) -> "ValidationResult":
+        return cls(message=message, severity="block", details=details or {}, code=code, **kwargs)
+
+
+@dataclass
+class PreconditionValidator:
+    """Precondition validator for builtin"""
+    name: str
+    condition: Callable[[Dict[str, Any]], ValidationResult]
+    message: str = ""
+    code: Optional[str] = None
+    
+    def validate(self, context: Dict[str, Any]) -> ValidationResult:
+        try:
+            return self.condition(context)
+        except Exception as e:
+            return ValidationResult.failure(
+                f"Precondition '{self.name}' check failed: {e}",
+                {"condition": self.name, "error": str(e)},
+                code=self.code or "PRECONDITION_ERROR",
+                validator=self.name,
+            )
+
+
+@dataclass
+class PostconditionValidator:
+    """Postcondition validator for builtin"""
+    name: str
+    condition: Callable[[Dict[str, Any]], ValidationResult]
+    message: str = ""
+    code: Optional[str] = None
+    
+    def validate(self, context: Dict[str, Any]) -> ValidationResult:
+        try:
+            return self.condition(context)
+        except Exception as e:
+            return ValidationResult.failure(
+                f"Postcondition '{self.name}' check failed: {e}",
+                {"condition": self.name, "error": str(e)},
+                code=self.code or "POSTCONDITION_ERROR",
+                validator=self.name,
+            )
 
 
 def output_contract_postcondition(

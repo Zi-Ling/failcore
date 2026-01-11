@@ -32,8 +32,8 @@ class ToolRegistry:
         
         self._tools: Dict[str, ToolFn] = {}
         self._specs: Dict[str, ToolSpec] = {}  # Store full ToolSpec
-        self._preconditions: Dict[str, List] = {}  # tool_name -> [validators]
-        self._postconditions: Dict[str, List] = {}  # tool_name -> [validators]
+        self._preconditions: Dict[str, List] = {}  # tool_name -> [builtin]
+        self._postconditions: Dict[str, List] = {}  # tool_name -> [builtin]
         self._presets: Dict[str, ValidationPreset] = {}  # tool_name -> preset
         
         # Rule assembler for automatic validation
@@ -72,7 +72,7 @@ class ToolRegistry:
         name = spec.name
         
         # Validate metadata constraints
-        # Consider strict mode enabled if: preset provided OR auto_assemble will add validators
+        # Consider strict mode enabled if: preset provided OR auto_assemble will add builtin
         has_strict = preset is not None or auto_assemble
         
         try:
@@ -145,11 +145,11 @@ class ToolRegistry:
         return self._specs.get(name)
     
     def get_preconditions(self, name: str) -> List:
-        """Get precondition validators for a tool"""
+        """Get precondition builtin for a tool"""
         return self._preconditions.get(name, [])
     
     def get_postconditions(self, name: str) -> List:
-        """Get postcondition validators for a tool"""
+        """Get postcondition builtin for a tool"""
         return self._postconditions.get(name, [])
     
     def list(self) -> list[str]:

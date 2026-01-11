@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+
+{% block title %}Policy Editor: {{ policy_type }} - FailCore{% endblock %}
+
+{% block content %}
+    <style>
+        #editor { 
+            width: 100%; 
+            height: 600px; 
+            font-family: monospace; 
+            border: 1px solid #ccc; 
+            padding: 10px;
+            background: #1e1e1e;
+            color: #d4d4d4;
+            border-radius: 4px;
+        }
+        [data-theme="light"] #editor {
+            background: #ffffff;
+            color: #000000;
+            border-color: #ccc;
+        }
+        .editor-actions {
+            margin: 10px 0;
+        }
+        .editor-actions button {
+            margin-right: 10px;
+        }
+    </style>
+    <div class="editor-page">
+        <h1>Policy Editor: {{ policy_type }}</h1>
+        <p><a href="/policy" class="back-link">&larr; Back to Policy Overview</a></p>
+        
+        <div class="editor-actions">
+            <button onclick="loadPolicy()">Load</button>
+            {% if policy_type != 'merged' %}
+            <button onclick="savePolicy()">Save</button>
+            {% endif %}
+            <select id="format" onchange="loadPolicy()">
+                <option value="yaml">YAML</option>
+                <option value="json">JSON</option>
+            </select>
+        </div>
+        
+        <textarea id="editor"></textarea>
+        
+        <div id="status"></div>
+    </div>
+    
+    <script>
+        const policyType = '{{ policy_type }}';
+        
+        async function loadPolicy() {
+            const format = document.getElementById('format').value;
+            try {
+                const response = await fetch(`/api/policy/show/${policyType}?format=${format}`);
+                const data = await response.json();
+                
+                if (data.content) {
+                    document.getElementById('editor').value = data.content;
+                    document.getElementById('status').innerHTML = 
+                        `<p class="success">Loaded ${policyType} policy</p>`;
+                } else {
+                    document.getElementById('status').innerHTML = 
+                        `<p class="error">Failed to load: ${JSON.stringify(data)}</p>`;
+                }
+            } catch (e) {
+                document.getElementById('status').innerHTML = 
+                    `<p class="error">Error: ${e.message}</p>`;
+            }
+        }
+        
+        async function savePolicy() {
+            const content = document.getElementById('editor').value;
+            const format = document.getElementById('format').value;
+            
+            try {
+                // Parse content
+                let policyData;
+                if (format === 'json') {
+                    policyData = JSON.parse(content);
+                } else {
+                    // For YAML, we need to convert to JSON first (simplified)
+                    alert('YAML saving requires backend conversion. Please use JSON format for now.');
+                    return;
+                }
+                
+                const response = await fetch(`/api/policy/save/${policyType}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(policyData)
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    document.getElementById('status').innerHTML = 
+                        `<p class="success">Saved successfully to ${data.file}</p>`;
+                } else {
+                    document.getElementById('status').innerHTML = 
+                        `<p class="error">Failed to save: ${JSON.stringify(data)}</p>`;
+                }
+            } catch (e) {
+                document.getElementById('status').innerHTML = 
+                    `<p class="error">Error: ${e.message}</p>`;
+            }
+        }
+        
+        // Load policy on page load
+        loadPolicy();
+    </script>
+    </div>
+{% endblock %}

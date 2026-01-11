@@ -12,7 +12,7 @@ def demo_tools():
     Demo tool set - for testing and demonstration only
     
     Tool names are prefixed with "demo." to clearly identify demo traffic
-    in traces, policies, and validators.
+    in traces, policies, and builtin.
     
     Includes:
     - demo.divide: Division (demonstrates failure on divide-by-zero)

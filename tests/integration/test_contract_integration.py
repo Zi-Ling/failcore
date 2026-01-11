@@ -172,7 +172,7 @@ class TestP1BehaviorConsistency:
         """
         registry = ValidatorRegistry()
         
-        # Register multiple validators
+        # Register multiple builtin
         # 1. WARN validator
         registry.register_postcondition(
             "test_tool",
@@ -216,7 +216,7 @@ class TestP1BehaviorConsistency:
         assert results[1].severity == "block"
         
         # ✅ Third validator NOT executed (fail_fast stopped)
-        assert len(results) == 2  # Only 2 validators ran
+        assert len(results) == 2  # Only 2 builtin ran
         
         print("✅ P1 用例 3: fail_fast 行为正确")
     
@@ -226,7 +226,7 @@ class TestP1BehaviorConsistency:
         """
         registry = ValidatorRegistry()
         
-        # Register two WARN validators
+        # Register two WARN builtin
         registry.register_postcondition(
             "test_tool",
             json_output_postcondition(strict_mode=False)
@@ -247,7 +247,7 @@ class TestP1BehaviorConsistency:
             mode="fail_fast"
         )
         
-        # ✅ Both validators executed (WARN doesn't stop)
+        # ✅ Both builtin executed (WARN doesn't stop)
         assert len(results) == 2
         assert all(r.severity == "warn" for r in results)
         
@@ -293,10 +293,10 @@ class TestP1BehaviorConsistency:
             make_validator("exact_validator")
         )
         
-        # Get validators
+        # Get builtin
         validators = registry.get_postconditions("api.user.create")
         
-        # ✅ All 3 validators returned
+        # ✅ All 3 builtin returned
         assert len(validators) == 3
         
         # ✅ Correct priority order

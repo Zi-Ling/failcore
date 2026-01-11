@@ -1,6 +1,6 @@
-# failcore/core/validate/validators/network.py
+# failcore/core/validate/builtin/network.py
 """
-Network security validators for SSRF prevention.
+Network security builtin for SSRF prevention.
 
 This module focuses on preventing:
 1) Unsafe protocols (scheme allowlist)
@@ -21,7 +21,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 from urllib.parse import urlparse
 import ipaddress
 
-from ..validator import PreconditionValidator, ValidationResult
+from .contract import PreconditionValidator, ValidationResult
 
 
 _DEFAULT_URL_PARAM_NAMES: Tuple[str, ...] = ("url", "uri", "endpoint", "host")

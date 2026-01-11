@@ -2,122 +2,135 @@
 
 **When your agent breaks, you don't need better prompts — you need to know what it actually did.**
 
-FailCore is a **minimal execution tracing and failure analysis toolkit** for LLM agents.
+FailCore is an **execution-time tracing and safety runtime** for LLM systems.
 
-It doesn't care how agents "think" — it cares about: **what was executed, why it failed, and can we replay it.**
+It does not care how agents *reason* or *plan*.  
+It focuses on **what was actually executed**, **what was blocked**, and **how to audit it after the fact**.
 
-> ⚠️ **Beta (0.1.2)** — core execution model, CLI, and trace format are stable; minor APIs may evolve.
-
----
-
-## ✨ What's New in v0.1.2
-
-- 🛡️ **Tool Metadata (Optional)** — Attach risk and side-effect hints to tools
-- 🔒 **Improved Security Checks** — Path traversal detection and basic sandbox enforcement
-- 📊 **Audit Reports** — HTML execution reports with failure and threat context
-- 🎯 **Semantic Status** — Clear distinction: `BLOCKED` (prevented) vs `FAIL` (error)
-- 🗄️ **Optional SQLite Ingestion** — Persist and query traces after execution
+> ⚠️ **Pre-release (0.1.x)**  
+> FailCore is under active development. APIs, CLI commands, and report formats may change.
 
 ---
 
 ## Why FailCore?
 
-**Traditional Agent Frameworks:**
-- ❌ No visibility into which tool call failed
-- ❌ Can't track agent permission violations
-- ❌ LLM output drift (text instead of JSON) goes undetected
-- ❌ Can't replay execution for root cause analysis
+Most agent frameworks focus on *decision making*.  
+FailCore focuses on the **moment actions touch the real world**.
 
-**FailCore Solution:**
-- ✅ **Auto-tracing** — Every tool call logged to `.jsonl` trace
-- ✅ **Security-aware execution** — Invalid or unsafe operations can be blocked before execution
-- ✅ **Contract validation** — Detect output type drift (TEXT vs JSON)
-- ✅ **Blackbox replay** — Audit execution without re-running LLM
-- ✅ **Readable reports** — HTML reports for post-run inspection
+**Without FailCore:**
+- ❌ Tool failures are buried in logs
+- ❌ Unsafe side effects are only discovered after damage
+- ❌ No execution-level audit trail
+- ❌ Debugging requires re-running expensive agents
+
+**With FailCore:**
+- ✅ **Execution-time enforcement** — block unsafe actions before they run
+- ✅ **Structured tracing** — every action recorded as evidence
+- ✅ **Clear outcomes** — `BLOCKED` vs `FAIL`
+- ✅ **Forensic reports** — inspect incidents offline
+- ✅ **Proxy-first design** — observe real traffic, not demos
 
 ---
 
-## Quick Start
+## Core Concept
 
-### Install (PyPI)
+FailCore acts as a **runtime safety layer** between:
+- LLM frameworks / SDKs  
+- and the real world (filesystem, network, processes)
+
+It is **not** an agent framework.  
+It is a **guardrail, recorder, and black box**.
+
+---
+
+## Installation
 
 ```bash
 pip install failcore
 ```
 
-> Pre-releases (TestPyPI):
-> ```bash
-> pip install -i https://test.pypi.org/simple \
->   --extra-index-url https://pypi.org/simple \
->   failcore
-> ```
-
-### Try the Demo
-
-```bash
-failcore sample
-failcore show
-```
-
-### Minimal API
-
-```python
-from failcore import Session, presets
-
-# Enable strict security mode (SSRF & Sandbox protection ON)
-session = Session(validator=presets.fs_safe(strict=True))
-
-@session.register
-def write_file(path: str, content: str):
-    with open(path, "w") as f:
-        f.write(content)
-
-# --- Simulation: LLM tries to attack ---
-# 1. Path Traversal Attack -> BLOCKED
-result = session.call("write_file", path="../etc/passwd", content="hack")
-print(f"Status: {result.status}")  # Output: BLOCKED
-print(f"Error: {result.error.message}") # Output: Path traversal detected
-
-# 2. SSRF Attack -> BLOCKED
-# (If you have network tools registered)
-```
+> ⚠️ Intended for evaluation and experimentation.
 
 ---
 
-## View Execution Records
+## Proxy-First Usage (Recommended)
+
+FailCore is primarily designed to run as a **local proxy** in front of LLM SDKs.
+
+```bash
+pip install "failcore[proxy]"
+```
+
+```bash
+failcore proxy
+```
+
+Configure your LLM client to route requests through FailCore.
+All tool calls, streaming output, and side effects are traced and audited.
+
+---
+
+## Minimal Runtime API
+
+FailCore no longer exposes session-style APIs.
+
+The core primitives are:
+
+```python
+from failcore import run, guard
+```
+
+Example (filesystem protection):
+
+```python
+from failcore import run, guard
+
+with run(policy="fs_safe", strict=True) as ctx:
+    @guard()
+    def write_file(path: str, content: str):
+        with open(path, "w") as f:
+            f.write(content)
+    
+    write_file("../etc/passwd", "hack")
+```
+
+Result:
+- Execution is **blocked**
+- Evidence is recorded
+- Trace is persisted for inspection
+
+---
+
+## Inspect Traces
 
 ```bash
 failcore list
-failcore show                 # last run
-failcore report               # generate HTML audit report
-failcore replay run <trace>   # replay/mock
+failcore show
+failcore report
+failcore replay run <trace>
 failcore replay diff <trace>
-failcore report <trace>  # generate HTML report
 ```
 
 ---
 
-## LangChain Integration (Optional)
+## Optional Integrations
+
+### LangChain
 
 ```bash
 pip install "failcore[langchain]"
 ```
 
-```python
-from failcore.adapters.langchain import create_langchain_toolkit
-
-toolkit = create_langchain_toolkit(session)
-# All agent tool calls are traced by FailCore
-```
+FailCore can wrap LangChain tools to enforce execution-time safety and tracing.
 
 ---
 
 ## Who Is This For?
 
-- 🔧 Building production-grade agent systems
-- 🐛 Debugging multi-step execution chains
-- 🔒 Enforcing execution and permission boundaries
-- 📊 Offline failure analysis and auditing
+- 🔒 Developers running LLMs with real side effects
+- 🐛 Debugging agent failures and hallucinated actions
+- 📊 Auditing and post-mortem analysis
+- 🧯 Adding a safety airbag to agent systems
 
 ---
 

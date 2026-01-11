@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+
+{% block title %}Policy Explain - FailCore{% endblock %}
+
+{% block content %}
+    <div class="explain-page">
+        <h1>Policy Explain Tool</h1>
+        <p><a href="/policy" class="back-link">&larr; Back to Policy Overview</a></p>
+        
+        <p>Test what validators would trigger for a tool call.</p>
+        
+        <form id="explain-form" onsubmit="explainTool(event)">
+            <div>
+                <label for="tool">Tool Name:</label>
+                <input type="text" id="tool" required placeholder="e.g. subprocess.run">
+            </div>
+            
+            <div>
+                <label for="params">Parameters (JSON):</label>
+                <textarea id="params" rows="5" placeholder='{"command": "ls -la"}'>{}</textarea>
+            </div>
+            
+            <button type="submit">Explain</button>
+        </form>
+        
+        <div id="results"></div>
+    </div>
+    
+    <script>
+        async function explainTool(event) {
+            event.preventDefault();
+            
+            const tool = document.getElementById('tool').value;
+            const paramsText = document.getElementById('params').value;
+            
+            try {
+                const params = JSON.parse(paramsText);
+                
+                const response = await fetch('/api/policy/explain', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ tool, params })
+                });
+                
+                const data = await response.json();
+                
+                let html = `<h2>Results for: ${data.tool}</h2>`;
+                html += `<p>Parameters: <code>${JSON.stringify(data.params)}</code></p>`;
+                
+                if (data.decisions.length === 0) {
+                    html += '<p class="success">✓ No validators triggered</p>';
+                } else {
+                    html += '<table><thead><tr><th>Icon</th><th>Code</th><th>Message</th><th>Validator</th><th>Enforcement</th><th>Allowed</th></tr></thead><tbody>';
+                    
+                    data.decisions.forEach(d => {
+                        const icon = d.enforcement === 'BLOCK' ? '✗' : 
+                                    d.enforcement === 'WARN' ? '⚠' : 'ℹ';
+                        const rowClass = d.enforcement === 'BLOCK' ? 'error' : 
+                                       d.enforcement === 'WARN' ? 'warning' : 'info';
+                        
+                        html += `<tr class="${rowClass}">
+                            <td>${icon}</td>
+                            <td><code>${d.code}</code></td>
+                            <td>${d.message}</td>
+                            <td>${d.validator_id}</td>
+                            <td>${d.enforcement}</td>
+                            <td>${d.allowed}</td>
+                        </tr>`;
+                    });
+                    
+                    html += '</tbody></table>';
+                    html += `<p><strong>Summary:</strong> Blocked: ${data.summary.blocked}, Warnings: ${data.summary.warnings}, Shadowed: ${data.summary.shadowed}</p>`;
+                }
+                
+                document.getElementById('results').innerHTML = html;
+            } catch (e) {
+                document.getElementById('results').innerHTML = 
+                    `<p class="error">Error: ${e.message}</p>`;
+            }
+        }
+    </script>
+    </div>
+{% endblock %}

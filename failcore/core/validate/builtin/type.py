@@ -1,6 +1,6 @@
-# failcore/core/validate/validators/type.py
+# failcore/core/validate/builtin/type.py
 """
-Type validation validators for input parameters
+Type validation builtin for input parameters
 
 Lightweight type gate focusing on:
 1. Basic type matching (isinstance)
@@ -12,10 +12,7 @@ For complex validation (email/url/nested schemas), use Pydantic models.
 """
 
 from typing import Any, Dict, List, Optional, Union, Type
-from ..validator import (
-    PreconditionValidator,
-    ValidationResult,
-)
+from .contract import PreconditionValidator, ValidationResult
 
 
 def type_check_precondition(

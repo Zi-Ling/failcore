@@ -426,7 +426,7 @@ def process_cleanup():
 def attach_preconditions_if_any(*, tools: ToolRegistry, validator: Any, tool_name: str):
     """
     Best-effort: if registry supports get_preconditions() and validator supports register_precondition(),
-    attach the builtin validators assembled by auto_assemble=True.
+    attach the builtin builtin assembled by auto_assemble=True.
     """
     if validator is None:
         return
@@ -650,7 +650,7 @@ def test_network_allow_hits_local_server(executor_harness, run_context_factory, 
 def test_network_block_prevents_hitting_local_server(executor_harness, run_context_factory, http_server, temp_sandbox):
     """
     block case: do NOT provide allowlist; builtin internal-ip-block should deny 127.0.0.1.
-    If your builtin validators do not block loopback, this test will fail (and that's a real signal).
+    If your builtin builtin do not block loopback, this test will fail (and that's a real signal).
     """
     srv, port = http_server
     CountingHandler.request_count = 0

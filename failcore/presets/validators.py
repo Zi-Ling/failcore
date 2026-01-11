@@ -1,4 +1,4 @@
-# failcore/presets/validators.py
+# failcore/presets/builtin.py
 """
 Validator Presets - Ready-to-use validator configurations
 
@@ -17,7 +17,7 @@ from ..core.validate.validator import (
 )
 
 
-# ===== Helper: Multi-param validators (Suggestion #1) =====
+# ===== Helper: Multi-param builtin (Suggestion #1) =====
 
 def file_path_precondition(
     *param_names: str,
@@ -201,7 +201,7 @@ def fs_safe(strict: bool = False, sandbox_root: str = None) -> ValidatorRegistry
     )
     
     # Suggestion #3: TODO - Add overwrite/append/mode checks
-    # Future: Add validators for:
+    # Future: Add builtin for:
     # - overwrite=False => file must not exist
     # - append=True => file must exist
     # - mode checks (e.g., "w", "a", "r+")
@@ -232,7 +232,7 @@ def fs_safe(strict: bool = False, sandbox_root: str = None) -> ValidatorRegistry
     
     # Strict mode: Add security checks (v0.1.2+)
     if strict:
-        from ..core.validate.validators.security import path_traversal_precondition
+        from ..core.validate.builtin.security import path_traversal_precondition
         
         # Determine sandbox root
         if sandbox_root is None:
@@ -346,7 +346,7 @@ def net_safe(
     
     # Strict mode: Add security checks (v0.1.3+)
     if strict:
-        from ..core.validate.validators.network import (
+        from ..core.validate.builtin.network import (
             url_safe_precondition,
             internal_ip_block_precondition,
             domain_whitelist_precondition,
@@ -442,7 +442,7 @@ def resource_limited(
         ...     max_collection_items=500
         ... ))
     """
-    from ..core.validate.validators.resource import (
+    from ..core.validate.builtin.resource import (
         max_file_size_precondition,
         max_payload_size_precondition,
         max_collection_size_precondition,
@@ -544,7 +544,7 @@ def combined_safe(
         max_collection_items=1000
     )
     
-    # Merge exact match validators
+    # Merge exact match builtin
     for tool_name, tool_validators in fs_registry._validators.items():
         for validator in tool_validators.pre:
             registry.register_precondition(tool_name, validator, is_prefix=False)
@@ -563,7 +563,7 @@ def combined_safe(
         for validator in tool_validators.post:
             registry.register_postcondition(tool_name, validator, is_prefix=False)
     
-    # Merge prefix validators
+    # Merge prefix builtin
     for prefix, tool_validators in fs_registry._prefix_validators.items():
         for validator in tool_validators.pre:
             registry.register_precondition(prefix, validator, is_prefix=True)

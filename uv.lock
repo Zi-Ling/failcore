@@ -382,6 +382,14 @@ otel = [
     { name = "opentelemetry-exporter-otlp-proto-http" },
     { name = "opentelemetry-sdk" },
 ]
+proxy = [
+    { name = "fastapi" },
+    { name = "uvicorn" },
+]
+server = [
+    { name = "fastapi" },
+    { name = "uvicorn" },
+]
 ui = [
     { name = "fastapi" },
     { name = "jinja2" },
@@ -391,7 +399,9 @@ ui = [
 [package.metadata]
 requires-dist = [
     { name = "build", marker = "extra == 'dev'", specifier = ">=1.2.2" },
-    { name = "fastapi", marker = "extra == 'ui'", specifier = ">=0.110" },
+    { name = "failcore", extras = ["server"], marker = "extra == 'proxy'" },
+    { name = "failcore", extras = ["server"], marker = "extra == 'ui'" },
+    { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.110" },
     { name = "jinja2", marker = "extra == 'ui'", specifier = ">=3.1" },
     { name = "langchain-core", marker = "extra == 'langchain'", specifier = ">=0.3.0,<2.0.0" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.2.0" },
@@ -401,9 +411,9 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.2" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6.0" },
     { name = "twine", marker = "extra == 'dev'", specifier = ">=5.1.1" },
-    { name = "uvicorn", marker = "extra == 'ui'", specifier = ">=0.23" },
+    { name = "uvicorn", marker = "extra == 'server'", specifier = ">=0.23" },
 ]
-provides-extras = ["langchain", "ui", "mcp", "otel", "dev"]
+provides-extras = ["server", "langchain", "ui", "proxy", "mcp", "otel", "dev"]
 
 [[package]]
 name = "fastapi"

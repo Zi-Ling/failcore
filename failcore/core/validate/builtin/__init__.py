@@ -1,4 +1,4 @@
-# failcore/core/validate/validators/base.py
+# failcore/core/validate/builtin/base.py
 """
 Validator implementations organized by category
 """
@@ -35,27 +35,27 @@ from .resource import (
 )
 
 __all__ = [
-    # Contract validators
+    # Contract builtin
     "output_contract_postcondition",
     "json_output_postcondition",
     "text_output_postcondition",
     
-    # Security validators
+    # Security builtin
     "path_traversal_precondition",
     
-    # Type validators
+    # Type builtin
     "type_check_precondition",
     "required_fields_precondition",
     "max_length_precondition",
     "pydantic_adapter_precondition",
     
-    # Network validators
+    # Network builtin
     "url_safe_precondition",
     "domain_whitelist_precondition",
     "internal_ip_block_precondition",
     "port_range_precondition",
     
-    # Resource validators
+    # Resource builtin
     "max_file_size_precondition",
     "max_payload_size_precondition",
     "max_collection_size_precondition",

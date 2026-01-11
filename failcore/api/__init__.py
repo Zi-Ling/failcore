@@ -12,13 +12,11 @@ New features:
 """
 
 from .run import run
-from .session import Session
 from .guard import guard
 from .result import Result
 
 __all__ = [
     "run",
-    "Session",
     "guard",
     "Result",
     "presets",

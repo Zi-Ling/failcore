@@ -12,6 +12,7 @@ from failcore.cli.commands import run_cmd
 from failcore.cli.commands import ui_cmd
 from failcore.cli.commands import proxy_cmd
 from failcore.cli.commands import service_cmd
+from failcore.cli.commands import policy_cmd
 
 
 def main():
@@ -30,6 +31,7 @@ def main():
     run_cmd.register_command(sub)
     ui_cmd.register_command(sub)
     proxy_cmd.register_command(sub)
+    policy_p = policy_cmd.register_command(sub)
     service_p = service_cmd.register_command(sub)
     trace_p = trace_cmd.register_command(sub)
     replay_p = replay_cmd.register_command(sub)
@@ -42,6 +44,10 @@ def main():
         return
 
     # Handle subcommands with nested parsers
+    if args.command == "policy" and not args.policy_command:
+        policy_p.print_help()
+        return
+    
     if args.command == "trace" and not args.trace_command:
         trace_p.print_help()
         return

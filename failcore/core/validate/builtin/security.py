@@ -1,8 +1,8 @@
-# failcore/core/validate/validators/security.py
+# failcore/core/validate/builtin/security.py
 r"""
-Security-focused validators for path traversal, sandbox enforcement, etc.
+Security-focused builtin for path traversal, sandbox enforcement, etc.
 
-This module provides validators for production security requirements:
+This module provides builtin for production security requirements:
 - Path traversal detection (../ attacks)
 - Sandbox boundary enforcement
 - Symlink/junction resolution checks
@@ -13,10 +13,7 @@ from pathlib import Path
 import os
 import sys
 from typing import Any, Dict
-from ..validator import (
-    PreconditionValidator,
-    ValidationResult,
-)
+from .contract import PreconditionValidator, ValidationResult
 from failcore.utils.paths import format_relative_path
 
 
@@ -44,7 +41,7 @@ def path_traversal_precondition(
         PreconditionValidator
     
     Example:
-        >>> from failcore.core.validate.validators.security import path_traversal_precondition
+        >>> from failcore.core.validate.builtin.security import path_traversal_precondition
         >>> registry.register_precondition(
         ...     "write_file",
         ...     path_traversal_precondition("path", sandbox_root="/app/workspace")

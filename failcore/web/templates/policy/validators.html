@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block title %}Available Validators - FailCore{% endblock %}
+
+{% block content %}
+    <div class="validators-page">
+        <h1>Available Validators</h1>
+        <p><a href="/policy" class="back-link">&larr; Back to Policy Overview</a></p>
+        
+        <div id="validators-list">
+            <p>Loading...</p>
+        </div>
+    </div>
+    
+    <script>
+        async function loadValidators() {
+            try {
+                const response = await fetch('/api/policy/validators');
+                const data = await response.json();
+                
+                const html = `
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Domain</th>
+                                <th>Description</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${data.validators.map(v => `
+                                <tr>
+                                    <td><code>${v.id}</code></td>
+                                    <td>${v.domain}</td>
+                                    <td>${v.description}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                    <p>Total: ${data.total} validators</p>
+                `;
+                
+                document.getElementById('validators-list').innerHTML = html;
+            } catch (e) {
+                document.getElementById('validators-list').innerHTML = 
+                    `<p class="error">Failed to load validators: ${e.message}</p>`;
+            }
+        }
+        
+        loadValidators();
+    </script>
+    </div>
+{% endblock %}
