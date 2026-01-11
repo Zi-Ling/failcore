@@ -3,58 +3,118 @@
 {% block title %}Policy Management - FailCore{% endblock %}
 
 {% block content %}
-    <div class="policy-page">
-        <h1>Policy Management</h1>
-        
-        <div class="policy-status">
-            {% if policy_exists %}
-                <p class="status-success">✓ Policy directory initialized</p>
-                <p>Location: <code>{{ policy_dir }}</code></p>
-            {% else %}
-                <p class="status-warning">⚠ Policy directory not initialized</p>
-                <button onclick="initPolicy()">Initialize Policy Directory</button>
-            {% endif %}
+<div class="overview">
+    <h1>⚡ Policy Management</h1>
+    
+    <div class="stats-grid">
+        <div class="stat-card {% if policy_exists %}stat-success{% else %}stat-errors{% endif %}">
+            <h3>Policy Status</h3>
+            <p class="stat-value">
+                {% if policy_exists %}
+                    <span class="status-badge status-success">INITIALIZED</span>
+                {% else %}
+                    <span class="status-badge status-error">NOT INITIALIZED</span>
+                {% endif %}
+            </p>
         </div>
-        
-        <div class="policy-actions">
-            <h2>Quick Actions</h2>
-            <ul>
-                <li><a href="/policy/validators">List Available Validators</a></li>
-                <li><a href="/policy/editor/active">Edit Active Policy</a></li>
-                <li><a href="/policy/editor/shadow">Edit Shadow Policy</a></li>
-                <li><a href="/policy/editor/breakglass">Edit Breakglass Policy</a></li>
-                <li><a href="/policy/editor/merged">View Merged Policy</a></li>
-                <li><a href="/policy/explain">Explain Tool Validation</a></li>
-                <li><a href="/policy/diff">Compare Policies</a></li>
-            </ul>
+        {% if policy_dir %}
+        <div class="stat-card">
+            <h3>Policy Directory</h3>
+            <p class="stat-value"><code style="font-size: 0.875rem;">{{ policy_dir }}</code></p>
         </div>
-        
-        <div class="policy-docs">
-            <h2>Documentation</h2>
-            <p>Policy files are stored in <code>.failcore/validate/</code></p>
-            <ul>
-                <li><strong>active.yaml</strong>: Main policy (enforced)</li>
-                <li><strong>shadow.yaml</strong>: Observation mode (logged only)</li>
-                <li><strong>breakglass.yaml</strong>: Emergency overrides (audited)</li>
-            </ul>
-        </div>
+        {% endif %}
     </div>
     
-    <script>
-        async function initPolicy() {
-            try {
-                const response = await fetch('/api/policy/init', { method: 'POST' });
-                const data = await response.json();
-                if (data.success) {
-                    alert('Policy directory initialized successfully!');
-                    location.reload();
-                } else {
-                    alert('Failed to initialize: ' + JSON.stringify(data));
-                }
-            } catch (e) {
-                alert('Error: ' + e.message);
-            }
-        }
-    </script>
+    {% if not policy_exists %}
+    <div class="trace-info-card">
+        <p style="margin-bottom: 1rem;">Policy directory not initialized. Click the button below to create the default policy files.</p>
+        <button onclick="initPolicy()" class="btn btn-primary">INITIALIZE POLICY DIRECTORY</button>
     </div>
+    {% else %}
+    <div class="trace-info-card">
+        <p style="color: var(--green-500); margin-bottom: 1rem;">✓ Policy directory initialized</p>
+        <p style="color: var(--text-secondary); font-size: 0.875rem;">Location: <code>{{ policy_dir }}</code></p>
+    </div>
+    {% endif %}
+    
+    <h2 style="margin-top: 2rem; margin-bottom: 1rem;">Quick Actions</h2>
+    <div class="runs-list">
+        <table class="runs-table">
+            <thead>
+                <tr>
+                    <th>ACTION</th>
+                    <th>DESCRIPTION</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><span class="badge">VALIDATORS</span></td>
+                    <td>List all available validators</td>
+                    <td><a href="/policy/validators" class="btn btn-sm">[VIEW]</a></td>
+                </tr>
+                <tr>
+                    <td><span class="badge">ACTIVE POLICY</span></td>
+                    <td>Edit main policy (enforced)</td>
+                    <td><a href="/policy/editor/active" class="btn btn-sm">[EDIT]</a></td>
+                </tr>
+                <tr>
+                    <td><span class="badge">SHADOW POLICY</span></td>
+                    <td>Edit shadow policy (observation mode)</td>
+                    <td><a href="/policy/editor/shadow" class="btn btn-sm">[EDIT]</a></td>
+                </tr>
+                <tr>
+                    <td><span class="badge">BREAKGLASS</span></td>
+                    <td>Edit emergency overrides (audited)</td>
+                    <td><a href="/policy/editor/breakglass" class="btn btn-sm">[EDIT]</a></td>
+                </tr>
+                <tr>
+                    <td><span class="badge">MERGED POLICY</span></td>
+                    <td>View merged policy (all layers combined)</td>
+                    <td><a href="/policy/editor/merged" class="btn btn-sm">[VIEW]</a></td>
+                </tr>
+                <tr>
+                    <td><span class="badge">EXPLAIN</span></td>
+                    <td>Simulate tool validation</td>
+                    <td><a href="/policy/explain" class="btn btn-sm">[TEST]</a></td>
+                </tr>
+                <tr>
+                    <td><span class="badge">DIFF</span></td>
+                    <td>Compare two policy files</td>
+                    <td><a href="/policy/diff" class="btn btn-sm">[COMPARE]</a></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    
+    <h2 style="margin-top: 2rem; margin-bottom: 1rem;">Policy Files</h2>
+    <div class="trace-info-card">
+        <p style="margin-bottom: 0.75rem;">Policy files are stored in <code>.failcore/validate/</code></p>
+        <div class="info-grid" style="margin-top: 1rem;">
+            <dt><strong>active.yaml</strong></dt>
+            <dd>Main policy (enforced)</dd>
+            <dt><strong>shadow.yaml</strong></dt>
+            <dd>Observation mode (logged only)</dd>
+            <dt><strong>breakglass.yaml</strong></dt>
+            <dd>Emergency overrides (audited)</dd>
+        </div>
+    </div>
+</div>
+
+<script>
+    async function initPolicy() {
+        try {
+            const response = await fetch('/api/policy/init', { method: 'POST' });
+            const data = await response.json();
+            if (data.success) {
+                alert('Policy directory initialized successfully!');
+                location.reload();
+            } else {
+                alert('Failed to initialize: ' + JSON.stringify(data));
+            }
+        } catch (e) {
+            alert('Error: ' + e.message);
+        }
+    }
+</script>
 {% endblock %}

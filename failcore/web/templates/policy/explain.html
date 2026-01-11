@@ -3,81 +3,102 @@
 {% block title %}Policy Explain - FailCore{% endblock %}
 
 {% block content %}
-    <div class="explain-page">
-        <h1>Policy Explain Tool</h1>
-        <p><a href="/policy" class="back-link">&larr; Back to Policy Overview</a></p>
-        
-        <p>Test what validators would trigger for a tool call.</p>
-        
-        <form id="explain-form" onsubmit="explainTool(event)">
-            <div>
-                <label for="tool">Tool Name:</label>
-                <input type="text" id="tool" required placeholder="e.g. subprocess.run">
-            </div>
-            
-            <div>
-                <label for="params">Parameters (JSON):</label>
-                <textarea id="params" rows="5" placeholder='{"command": "ls -la"}'>{}</textarea>
-            </div>
-            
-            <button type="submit">Explain</button>
-        </form>
-        
-        <div id="results"></div>
+<div class="overview">
+    <h1>⚡ Policy Explain Tool</h1>
+    
+    <div style="margin-bottom: 1rem;">
+        <a href="/policy" class="btn btn-sm">&larr; BACK</a>
     </div>
     
-    <script>
-        async function explainTool(event) {
-            event.preventDefault();
+    <div class="trace-info-card">
+        <p style="margin-bottom: 1rem;">Test what validators would trigger for a tool call without actually executing it.</p>
+    </div>
+    
+    <form id="explain-form" onsubmit="explainTool(event)" style="margin-top: 2rem;">
+        <div class="trace-info-card" style="margin-bottom: 1rem;">
+            <div class="info-grid">
+                <dt><label for="tool">TOOL NAME</label></dt>
+                <dd>
+                    <input type="text" id="tool" required placeholder="e.g. subprocess.run" 
+                           style="width: 100%; padding: 0.5rem; font-family: 'SF Mono', Monaco, monospace; font-size: 0.875rem;">
+                </dd>
+                <dt><label for="params">PARAMETERS (JSON)</label></dt>
+                <dd>
+                    <textarea id="params" rows="8" placeholder='{"command": "ls -la"}' 
+                              style="width: 100%; padding: 0.5rem; font-family: 'SF Mono', Monaco, monospace; font-size: 0.875rem; background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-primary);">{}</textarea>
+                </dd>
+            </div>
+        </div>
+        
+        <button type="submit" class="btn btn-primary">EXPLAIN</button>
+    </form>
+    
+    <div id="results" style="margin-top: 2rem;"></div>
+</div>
+
+<script>
+    async function explainTool(event) {
+        event.preventDefault();
+        
+        const tool = document.getElementById('tool').value;
+        const paramsText = document.getElementById('params').value;
+        
+        try {
+            const params = JSON.parse(paramsText);
             
-            const tool = document.getElementById('tool').value;
-            const paramsText = document.getElementById('params').value;
+            const response = await fetch('/api/policy/explain', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tool, params })
+            });
             
-            try {
-                const params = JSON.parse(paramsText);
+            const data = await response.json();
+            
+            let html = `<h2 style="margin-bottom: 1rem;">Results for: <span class="badge">${data.tool}</span></h2>`;
+            html += `<div class="trace-info-card" style="margin-bottom: 1rem;"><p style="color: var(--text-secondary); font-size: 0.875rem;">Parameters: <code>${JSON.stringify(data.params)}</code></p></div>`;
+            
+            if (data.decisions.length === 0) {
+                html += '<div class="trace-info-card"><p style="color: var(--green-500);">✓ No validators triggered</p></div>';
+            } else {
+                html += '<div class="runs-list"><table class="runs-table"><thead><tr><th>STATUS</th><th>CODE</th><th>MESSAGE</th><th>VALIDATOR</th><th>ENFORCEMENT</th><th>ALLOWED</th></tr></thead><tbody>';
                 
-                const response = await fetch('/api/policy/explain', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ tool, params })
+                data.decisions.forEach(d => {
+                    const statusClass = d.enforcement === 'BLOCK' ? 'status-blocked' : 
+                                       d.enforcement === 'WARN' ? 'status-error' : 'status-unknown';
+                    const statusText = d.enforcement === 'BLOCK' ? 'BLOCKED' : 
+                                      d.enforcement === 'WARN' ? 'WARN' : 'SHADOW';
+                    
+                    html += `<tr>
+                        <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+                        <td><code class="run-id">${d.code}</code></td>
+                        <td>${d.message}</td>
+                        <td><span class="badge">${d.validator_id}</span></td>
+                        <td>${d.enforcement}</td>
+                        <td>${d.allowed ? '<span style="color: var(--green-500);">YES</span>' : '<span style="color: var(--red-500);">NO</span>'}</td>
+                    </tr>`;
                 });
                 
-                const data = await response.json();
+                html += '</tbody></table></div>';
                 
-                let html = `<h2>Results for: ${data.tool}</h2>`;
-                html += `<p>Parameters: <code>${JSON.stringify(data.params)}</code></p>`;
-                
-                if (data.decisions.length === 0) {
-                    html += '<p class="success">✓ No validators triggered</p>';
-                } else {
-                    html += '<table><thead><tr><th>Icon</th><th>Code</th><th>Message</th><th>Validator</th><th>Enforcement</th><th>Allowed</th></tr></thead><tbody>';
-                    
-                    data.decisions.forEach(d => {
-                        const icon = d.enforcement === 'BLOCK' ? '✗' : 
-                                    d.enforcement === 'WARN' ? '⚠' : 'ℹ';
-                        const rowClass = d.enforcement === 'BLOCK' ? 'error' : 
-                                       d.enforcement === 'WARN' ? 'warning' : 'info';
-                        
-                        html += `<tr class="${rowClass}">
-                            <td>${icon}</td>
-                            <td><code>${d.code}</code></td>
-                            <td>${d.message}</td>
-                            <td>${d.validator_id}</td>
-                            <td>${d.enforcement}</td>
-                            <td>${d.allowed}</td>
-                        </tr>`;
-                    });
-                    
-                    html += '</tbody></table>';
-                    html += `<p><strong>Summary:</strong> Blocked: ${data.summary.blocked}, Warnings: ${data.summary.warnings}, Shadowed: ${data.summary.shadowed}</p>`;
-                }
-                
-                document.getElementById('results').innerHTML = html;
-            } catch (e) {
-                document.getElementById('results').innerHTML = 
-                    `<p class="error">Error: ${e.message}</p>`;
+                html += `<div class="trace-info-card" style="margin-top: 1rem;">
+                    <div class="info-grid">
+                        <dt><strong>BLOCKED</strong></dt>
+                        <dd><span style="color: var(--red-500);">${data.summary.blocked}</span></dd>
+                        <dt><strong>WARNINGS</strong></dt>
+                        <dd><span style="color: var(--yellow-500);">${data.summary.warnings}</span></dd>
+                        <dt><strong>SHADOWED</strong></dt>
+                        <dd><span style="color: var(--text-muted);">${data.summary.shadowed}</span></dd>
+                        <dt><strong>TOTAL</strong></dt>
+                        <dd>${data.summary.total}</dd>
+                    </div>
+                </div>`;
             }
+            
+            document.getElementById('results').innerHTML = html;
+        } catch (e) {
+            document.getElementById('results').innerHTML = 
+                `<div class="trace-info-card"><p style="color: var(--red-500);">Error: ${e.message}</p></div>`;
         }
-    </script>
-    </div>
+    }
+</script>
 {% endblock %}

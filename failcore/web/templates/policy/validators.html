@@ -3,51 +3,64 @@
 {% block title %}Available Validators - FailCore{% endblock %}
 
 {% block content %}
-    <div class="validators-page">
-        <h1>Available Validators</h1>
-        <p><a href="/policy" class="back-link">&larr; Back to Policy Overview</a></p>
-        
-        <div id="validators-list">
-            <p>Loading...</p>
-        </div>
+<div class="overview">
+    <h1>⚡ Available Validators</h1>
+    
+    <div style="margin-bottom: 1rem;">
+        <a href="/policy" class="btn btn-sm">&larr; BACK</a>
     </div>
     
-    <script>
-        async function loadValidators() {
-            try {
-                const response = await fetch('/api/policy/validators');
-                const data = await response.json();
-                
+    <div id="validators-list">
+        <div class="empty-state">
+            <p>Loading validators...</p>
+        </div>
+    </div>
+</div>
+
+<script>
+    async function loadValidators() {
+        try {
+            const response = await fetch('/api/policy/validators');
+            const data = await response.json();
+            
+            if (data.validators && data.validators.length > 0) {
                 const html = `
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>ID</th>
-                                <th>Domain</th>
-                                <th>Description</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${data.validators.map(v => `
+                    <div class="runs-list">
+                        <table class="runs-table">
+                            <thead>
                                 <tr>
-                                    <td><code>${v.id}</code></td>
-                                    <td>${v.domain}</td>
-                                    <td>${v.description}</td>
+                                    <th>ID</th>
+                                    <th>DOMAIN</th>
+                                    <th>DESCRIPTION</th>
                                 </tr>
-                            `).join('')}
-                        </tbody>
-                    </table>
-                    <p>Total: ${data.total} validators</p>
+                            </thead>
+                            <tbody>
+                                ${data.validators.map(v => `
+                                    <tr>
+                                        <td><code class="run-id">${v.id}</code></td>
+                                        <td><span class="badge">${v.domain}</span></td>
+                                        <td>${v.description || '—'}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div style="margin-top: 1rem; color: var(--text-secondary); font-size: 0.875rem;">
+                        Total: <strong>${data.total}</strong> validators
+                    </div>
                 `;
                 
                 document.getElementById('validators-list').innerHTML = html;
-            } catch (e) {
+            } else {
                 document.getElementById('validators-list').innerHTML = 
-                    `<p class="error">Failed to load validators: ${e.message}</p>`;
+                    '<div class="empty-state"><p>No validators registered</p></div>';
             }
+        } catch (e) {
+            document.getElementById('validators-list').innerHTML = 
+                `<div class="empty-state"><p style="color: var(--red-500);">Failed to load validators: ${e.message}</p></div>`;
         }
-        
-        loadValidators();
-    </script>
-    </div>
+    }
+    
+    loadValidators();
+</script>
 {% endblock %}

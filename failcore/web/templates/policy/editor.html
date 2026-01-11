@@ -3,48 +3,73 @@
 {% block title %}Policy Editor: {{ policy_type }} - FailCore{% endblock %}
 
 {% block content %}
-    <style>
-        #editor { 
-            width: 100%; 
-            height: 600px; 
-            font-family: monospace; 
-            border: 1px solid #ccc; 
-            padding: 10px;
-            background: #1e1e1e;
-            color: #d4d4d4;
-            border-radius: 4px;
-        }
-        [data-theme="light"] #editor {
-            background: #ffffff;
-            color: #000000;
-            border-color: #ccc;
-        }
-        .editor-actions {
-            margin: 10px 0;
-        }
-        .editor-actions button {
-            margin-right: 10px;
-        }
-    </style>
-    <div class="editor-page">
-        <h1>Policy Editor: {{ policy_type }}</h1>
-        <p><a href="/policy" class="back-link">&larr; Back to Policy Overview</a></p>
-        
-        <div class="editor-actions">
-            <button onclick="loadPolicy()">Load</button>
-            {% if policy_type != 'merged' %}
-            <button onclick="savePolicy()">Save</button>
-            {% endif %}
-            <select id="format" onchange="loadPolicy()">
-                <option value="yaml">YAML</option>
-                <option value="json">JSON</option>
-            </select>
-        </div>
-        
-        <textarea id="editor"></textarea>
-        
-        <div id="status"></div>
+<style>
+    #editor { 
+        width: 100%; 
+        height: 600px; 
+        font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+        font-size: 0.875rem;
+        border: 1px solid var(--border); 
+        padding: 1rem;
+        background: var(--bg-secondary);
+        color: var(--text-primary);
+        resize: vertical;
+        line-height: 1.5;
+    }
+    
+    #editor:focus {
+        outline: none;
+        border-color: var(--blue-500);
+    }
+    
+    .editor-toolbar {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        margin-bottom: 1rem;
+    }
+    
+    .editor-toolbar select {
+        padding: 0.375rem 0.875rem;
+        background: var(--bg-secondary);
+        border: 1px solid var(--border);
+        color: var(--text-primary);
+        font-family: inherit;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+    
+    #status {
+        margin-top: 1rem;
+        padding: 0.75rem 1rem;
+        background: var(--bg-secondary);
+        border: 1px solid var(--border);
+        font-size: 0.875rem;
+    }
+</style>
+<div class="overview">
+    <h1>⚡ Policy Editor: <span class="badge">{{ policy_type.upper() }}</span></h1>
+    
+    <div style="margin-bottom: 1rem;">
+        <a href="/policy" class="btn btn-sm">&larr; BACK</a>
     </div>
+    
+    <div class="editor-toolbar">
+        <button onclick="loadPolicy()" class="btn btn-sm">LOAD</button>
+        {% if policy_type != 'merged' %}
+        <button onclick="savePolicy()" class="btn btn-sm btn-primary">SAVE</button>
+        {% endif %}
+        <select id="format" onchange="loadPolicy()">
+            <option value="yaml">YAML</option>
+            <option value="json">JSON</option>
+        </select>
+    </div>
+    
+    <textarea id="editor"></textarea>
+    
+    <div id="status"></div>
+</div>
     
     <script>
         const policyType = '{{ policy_type }}';
