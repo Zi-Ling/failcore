@@ -230,8 +230,9 @@ except FailCoreError as e:
     print(e.message)
     # 输出: 私有网络访问被阻止：'169.254.169.254'
     
-    print(e.result.suggestion)
-    # 输出: 仅使用公共互联网 URL。私有 IP 和 localhost 因安全原因被阻止。
+    if e.suggestion:
+        print(e.suggestion)
+        # 输出: 仅使用公共互联网 URL。私有 IP 和 localhost 因安全原因被阻止。
     
     print(e.result.error_code)
     # 输出: SSRF_BLOCKED

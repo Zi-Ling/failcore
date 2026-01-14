@@ -28,15 +28,15 @@ FailCore can act as an MCP client, protecting MCP tool calls.
 ### Configure MCP Transport
 
 ```python
-from failcore.adapters.mcp import McpTransport, McpTransportConfig
-from failcore.core.tools.runtime import ToolRuntime
-from failcore.core.tools.runtime.middleware import PolicyMiddleware
+from failcore.infra.transports.mcp import McpTransport, McpTransportConfig
+from failcore.infra.transports.mcp.session import McpSessionConfig
+from failcore.core.runtime import ToolRuntime
+from failcore.core.runtime.middleware import PolicyMiddleware
 
 # Configure MCP transport
 mcp_config = McpTransportConfig(
     session=McpSessionConfig(
-        command="npx",
-        args=["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed/dir"]
+        command=["npx", "-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed/dir"]
     )
 )
 
@@ -75,7 +75,7 @@ result = await runtime.call(
 MCP filesystem tools automatically apply `fs_safe` policy:
 
 ```python
-from failcore.core.tools.runtime.middleware import PolicyMiddleware
+from failcore.core.runtime.middleware import PolicyMiddleware
 from failcore.core.validate.templates import fs_safe_policy
 
 # Create filesystem safety policy
@@ -235,7 +235,8 @@ try:
     )
 except FailCoreError as e:
     print(f"Policy denied: {e.message}")
-    print(f"Suggestion: {e.result.suggestion}")
+    if e.suggestion:
+        print(f"Suggestion: {e.suggestion}")
 ```
 
 ---
@@ -295,7 +296,7 @@ runtime = ToolRuntime(
 ### Custom Middleware
 
 ```python
-from failcore.core.tools.runtime.middleware import Middleware
+from failcore.core.runtime.middleware import Middleware
 
 class CustomMiddleware(Middleware):
     async def on_call_start(self, tool, args, ctx, emit):
@@ -323,7 +324,7 @@ runtime = ToolRuntime(
 ### Retry Logic
 
 ```python
-from failcore.core.tools.runtime.middleware import RetryMiddleware
+from failcore.core.runtime.middleware import RetryMiddleware
 
 runtime = ToolRuntime(
     transport=transport,

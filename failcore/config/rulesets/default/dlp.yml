@@ -1,0 +1,159 @@
+# failcore/config/rulesets/default/dlp.yml
+# Data Loss Prevention (DLP) Patterns
+
+name: dlp
+version: "1.0.0"
+description: "Default DLP patterns for detecting sensitive data"
+
+metadata:
+  maintainer: "FailCore Team"
+  last_updated: "2026-01-14"
+
+rules:
+  # API Keys
+  - rule_id: "DLP-001"
+    name: "OpenAI API Key"
+    category: "dlp.api_key"
+    severity: "critical"
+    description: "Detects OpenAI API keys (sk-...)"
+    action: "block"
+    patterns:
+      - pattern_type: "regex"
+        value: "sk-[A-Za-z0-9]{32,}"
+        flags: "i"
+    examples:
+      - "sk-1234567890abcdefghijklmnopqrstuv"
+    false_positive_rate: 0.001
+    
+  - rule_id: "DLP-002"
+    name: "AWS Access Key"
+    category: "dlp.api_key"
+    severity: "critical"
+    description: "Detects AWS access keys (AKIA...)"
+    action: "block"
+    patterns:
+      - pattern_type: "regex"
+        value: "AKIA[0-9A-Z]{16}"
+        flags: "i"
+    examples:
+      - "AKIAIOSFODNN7EXAMPLE"
+    false_positive_rate: 0.001
+  
+  - rule_id: "DLP-003"
+    name: "GitHub Token"
+    category: "dlp.api_key"
+    severity: "critical"
+    description: "Detects GitHub personal access tokens"
+    action: "block"
+    patterns:
+      - pattern_type: "regex"
+        value: "ghp_[A-Za-z0-9]{36,}"
+        flags: "i"
+    examples:
+      - "ghp_1234567890abcdefghijklmnopqrstuvwxyz"
+    false_positive_rate: 0.001
+  
+  - rule_id: "DLP-004"
+    name: "Generic API Key Pattern"
+    category: "dlp.api_key"
+    severity: "high"
+    description: "Detects generic API key patterns"
+    action: "warn"
+    patterns:
+      - pattern_type: "regex"
+        value: "api[_-]?key['\"]?\\s*[:=]\\s*['\"]?[A-Za-z0-9_\\-]{20,}"
+        flags: "i"
+    examples:
+      - "api_key: abc123def456ghi789jkl"
+    false_positive_rate: 0.05
+  
+  # PII - Email
+  - rule_id: "DLP-101"
+    name: "Email Address"
+    category: "dlp.pii"
+    severity: "medium"
+    description: "Detects email addresses"
+    action: "sanitize"
+    patterns:
+      - pattern_type: "regex"
+        value: "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}"
+        flags: ""
+    examples:
+      - "user@example.com"
+    false_positive_rate: 0.01
+  
+  # PII - Phone
+  - rule_id: "DLP-102"
+    name: "US Phone Number"
+    category: "dlp.pii"
+    severity: "medium"
+    description: "Detects US phone numbers"
+    action: "sanitize"
+    patterns:
+      - pattern_type: "regex"
+        value: "\\+?1?[-.]?\\(?\\d{3}\\)?[-.]?\\d{3}[-.]?\\d{4}"
+        flags: ""
+    examples:
+      - "(555) 123-4567"
+      - "+1-555-123-4567"
+    false_positive_rate: 0.02
+  
+  # PII - SSN
+  - rule_id: "DLP-103"
+    name: "US Social Security Number"
+    category: "dlp.pii"
+    severity: "critical"
+    description: "Detects US Social Security Numbers"
+    action: "block"
+    patterns:
+      - pattern_type: "regex"
+        value: "\\d{3}-\\d{2}-\\d{4}"
+        flags: ""
+    examples:
+      - "123-45-6789"
+    false_positive_rate: 0.001
+  
+  # Secrets
+  - rule_id: "DLP-201"
+    name: "Private Key Header"
+    category: "dlp.secret"
+    severity: "critical"
+    description: "Detects private key headers"
+    action: "block"
+    patterns:
+      - pattern_type: "regex"
+        value: "-----BEGIN [A-Z ]+ PRIVATE KEY-----"
+        flags: ""
+    examples:
+      - "-----BEGIN RSA PRIVATE KEY-----"
+    false_positive_rate: 0.0
+  
+  - rule_id: "DLP-202"
+    name: "Generic Password Pattern"
+    category: "dlp.secret"
+    severity: "high"
+    description: "Detects generic password assignments"
+    action: "warn"
+    patterns:
+      - pattern_type: "regex"
+        value: "password['\"]?\\s*[:=]\\s*['\"]?[^\\s]{6,}"
+        flags: "i"
+    examples:
+      - "password: secret123"
+    false_positive_rate: 0.1
+  
+  # Payment Cards
+  - rule_id: "DLP-301"
+    name: "Credit Card Number"
+    category: "dlp.payment"
+    severity: "critical"
+    description: "Detects credit card numbers (basic pattern)"
+    action: "block"
+    patterns:
+      - pattern_type: "regex"
+        value: "\\b(?:\\d{4}[-\\s]?){3}\\d{4}\\b"
+        flags: ""
+    examples:
+      - "4111 1111 1111 1111"
+      - "4111-1111-1111-1111"
+    false_positive_rate: 0.05

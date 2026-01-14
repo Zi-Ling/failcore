@@ -28,15 +28,15 @@ FailCore 可以作为 MCP 客户端，保护 MCP 工具调用。
 ### 配置 MCP 传输
 
 ```python
-from failcore.adapters.mcp import McpTransport, McpTransportConfig
-from failcore.core.tools.runtime import ToolRuntime
-from failcore.core.tools.runtime.middleware import PolicyMiddleware
+from failcore.infra.transports.mcp import McpTransport, McpTransportConfig
+from failcore.infra.transports.mcp.session import McpSessionConfig
+from failcore.core.runtime import ToolRuntime
+from failcore.core.runtime.middleware import PolicyMiddleware
 
 # 配置 MCP 传输
 mcp_config = McpTransportConfig(
     session=McpSessionConfig(
-        command="npx",
-        args=["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed/dir"]
+        command=["npx", "-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed/dir"]
     )
 )
 
@@ -75,7 +75,7 @@ result = await runtime.call(
 MCP 文件系统工具自动应用 `fs_safe` 策略：
 
 ```python
-from failcore.core.tools.runtime.middleware import PolicyMiddleware
+from failcore.core.runtime.middleware import PolicyMiddleware
 from failcore.core.validate.templates import fs_safe_policy
 
 # 创建文件系统安全策略
@@ -235,7 +235,8 @@ try:
     )
 except FailCoreError as e:
     print(f"策略拒绝: {e.message}")
-    print(f"建议: {e.result.suggestion}")
+    if e.suggestion:
+        print(f"建议: {e.suggestion}")
 ```
 
 ---
@@ -295,7 +296,7 @@ runtime = ToolRuntime(
 ### 自定义中间件
 
 ```python
-from failcore.core.tools.runtime.middleware import Middleware
+from failcore.core.runtime.middleware import Middleware
 
 class CustomMiddleware(Middleware):
     async def on_call_start(self, tool, args, ctx, emit):
@@ -323,7 +324,7 @@ runtime = ToolRuntime(
 ### 重试逻辑
 
 ```python
-from failcore.core.tools.runtime.middleware import RetryMiddleware
+from failcore.core.runtime.middleware import RetryMiddleware
 
 runtime = ToolRuntime(
     transport=transport,

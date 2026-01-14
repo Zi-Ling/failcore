@@ -1,0 +1,99 @@
+# failcore/config/rulesets/default/drift.yml
+# Drift Detection Configuration
+
+name: drift
+version: "1.0.0"
+description: "Default configuration for parameter drift detection"
+
+metadata:
+  maintainer: "FailCore Team"
+  last_updated: "2026-01-14"
+
+# Thresholds
+thresholds:
+  # Magnitude change thresholds
+  magnitude_threshold_medium: 2.0  # 2x change triggers medium severity
+  magnitude_threshold_high: 5.0    # 5x change triggers high severity
+  
+  # Drift score thresholds for inflection point detection
+  inflection_threshold_medium: 10.0
+  inflection_threshold_high: 50.0
+
+# Baseline Strategy
+baseline:
+  strategy: "golden_trace"  # "golden_trace", "first_n", "segmented"
+  first_n_steps: 5  # For first_n strategy
+  min_steps_for_baseline: 3
+
+# Field Ignore Rules
+ignore_fields:
+  global:
+    - "timestamp"
+    - "request_id"
+    - "trace_id"
+    - "session_id"
+    - "run_id"
+    - "step_id"
+    - "metadata"
+    - "_internal"
+  
+  # Tool-specific ignore fields
+  tool_specific:
+    http_request:
+      - "request_id"
+      - "correlation_id"
+      - "user_agent"
+      - "timestamp"
+    
+    api_call:
+      - "request_time"
+      - "request_timestamp"
+      - "nonce"
+      - "csrf_token"
+    
+    db_query:
+      - "query_id"
+      - "execution_time"
+      - "timestamp"
+
+# Domain Extraction Rules
+domain_extraction:
+  path:
+    # Extract first N components as domain
+    components: 2
+    normalize_separators: true
+    strip_trailing_slash: true
+  
+  url:
+    # Extract hostname as domain
+    extract_host: true
+    strip_port: true
+    normalize_scheme: false
+
+# Scoring Weights
+scoring:
+  weights:
+    value_changed: 1.0
+    magnitude_changed_medium: 5.0
+    magnitude_changed_high: 10.0
+    domain_changed: 15.0
+  
+  # Cumulative score = sum of all drift deltas up to current step
+  use_cumulative: true
+
+# Annotation Configuration
+annotations:
+  enabled: true
+  
+  # Severity thresholds for annotations
+  severity_thresholds:
+    low: 1.0
+    medium: 5.0
+    high: 10.0
+  
+  # Include examples in annotations
+  include_examples: true
+  max_examples: 3
+  
+  # Generate suggestions for drift mitigation
+  generate_suggestions: true

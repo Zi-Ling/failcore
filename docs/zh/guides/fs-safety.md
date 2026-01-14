@@ -211,8 +211,9 @@ except FailCoreError as e:
     print(e.message)
     # 输出: 路径遍历检测到：'../../etc/passwd'
     
-    print(e.result.suggestion)
-    # 输出: 使用相对路径，不要使用 '..' - 示例：'data/file.txt' 而不是 '../../etc/passwd'
+    if e.suggestion:
+        print(e.suggestion)
+        # 输出: 使用相对路径，不要使用 '..' - 示例：'data/file.txt' 而不是 '../../etc/passwd'
     
     print(e.result.remediation)
     # 输出: {'action': 'sanitize_path', 'template': "移除 '..'：{sanitized_path}", 'vars': {'sanitized_path': 'etc/passwd'}}

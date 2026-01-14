@@ -8,6 +8,7 @@ This document provides a complete overview of FailCore's directory structure, wi
 - [Core Modules](#core-modules)
 - [CLI & UI](#cli-ui)
 - [Infrastructure](#infrastructure)
+- [Gateways](#gateways)
 - [Adapters](#adapters)
 - [Other Components](#other-components)
 
@@ -18,12 +19,12 @@ This document provides a complete overview of FailCore's directory structure, wi
 ```
 failcore/
 ├── api/          # Public API surface for SDK integration
-├── core/         # Core execution engine and safety systems
+├── core/         # Core execution engine and safety systems (portable business logic)
 ├── cli/          # Command-line interface
-├── infra/        # Infrastructure layer (storage, logging, observability)
-├── adapters/     # Framework integrations (LangChain, MCP, etc.)
+├── infra/        # Infrastructure layer (non-portable implementations: IO, OS, framework deps)
+├── gateways/     # Deployable services (HTTP Proxy, MCP Gateway, etc.)
+├── adapters/     # Framework integrations (LangChain, etc.)
 ├── hooks/        # Runtime patches for stdlib interception
-├── presets/      # Pre-configured tool packs and policies
 ├── utils/        # Shared utilities
 └── web/          # Web UI and API server
 ```
@@ -58,7 +59,9 @@ core/
 ├── contract/        # Contract validation
 ├── audit/           # Audit analysis
 ├── validate/        # Schema validation
-├── proxy/           # Proxy server components
+├── proxy/           # Proxy core logic (protocol-agnostic pipeline)
+├── runtime/         # Tool runtime (execution-time pipeline)
+├── transports/      # Transport abstraction (BaseTransport interface)
 ├── trace/           # Trace management
 ├── tools/           # Built-in tool implementations
 └── [other modules]
@@ -379,27 +382,69 @@ audit/
 
 ---
 
-### core/proxy/ - Proxy Server
+### core/proxy/ - Proxy Core Logic
 
-**Purpose**: HTTP proxy server for zero-code integration. Intercepts LLM API calls, applies gates, and forwards to upstream providers. Enables drop-in replacement via `OPENAI_BASE_URL` environment variable.
+**Purpose**: Protocol-agnostic proxy business logic. Contains request processing pipeline, stream handling logic, and abstract interfaces. Server implementation moved to `gateways/proxy/`, IO implementations moved to `infra/proxy/`.
 
 ```
 proxy/
 ├── __init__.py
-├── server.py        # Proxy server (ASGI app)
-├── pipeline.py      # Request processing pipeline
-├── upstream.py      # Upstream HTTP client
-├── stream.py        # Streaming handler
-├── app.py           # Proxy application
-└── [config in core/config/proxy.py]
+├── pipeline.py      # Request processing pipeline (core logic)
+├── stream.py        # Stream handling logic
+└── interfaces.py    # Abstract interfaces (UpstreamClient, etc.)
 ```
 
-**Key Features**:
-- ASGI-based HTTP server
-- Streaming support
-- Egress gate integration (blocking capability)
-- Transparent forwarding
-- Provider detection
+**Key Components**:
+- `ProxyPipeline`: Core request processing logic
+- `StreamHandler`: Stream processing logic
+- `UpstreamClient`: Abstract interface for upstream HTTP clients
+- `UpstreamResponse`: Response data model
+
+**Architecture Note**: This layer contains only portable business logic. ASGI server implementation is in `gateways/proxy/`, HTTP client implementation is in `infra/proxy/`.
+
+---
+
+### core/runtime/ - Tool Runtime
+
+**Purpose**: Execution-time pipeline for tool invocation. Orchestrates transport, middleware, and execution flow.
+
+```
+runtime/
+├── __init__.py
+├── runtime.py       # ToolRuntime (main execution pipeline)
+├── types.py         # Runtime types (CallContext, etc.)
+├── middleware/      # Middleware implementations
+│   ├── base.py      # Base middleware interface
+│   ├── policy.py    # Policy middleware
+│   ├── validation.py # Validation middleware
+│   ├── audit.py     # Audit middleware
+│   ├── receipt.py   # Receipt middleware
+│   └── replay.py    # Replay middleware
+└── transports/      # Transport factory
+    └── factory.py   # Transport creation factory
+```
+
+**Key Components**:
+- `ToolRuntime`: Main execution pipeline that orchestrates transport, middleware, and execution
+- `CallContext`: Execution context (run_id, trace, etc.)
+- `Middleware`: Middleware interface for cross-cutting concerns
+- `TransportFactory`: Factory for creating transports (MCP, Proxy, Local)
+
+---
+
+### core/transports/ - Transport Abstraction
+
+**Purpose**: Abstract interface for tool transports. Defines the contract between `ToolRuntime` and concrete tool backends.
+
+```
+transports/
+├── __init__.py
+└── base.py          # BaseTransport interface
+```
+
+**Key Components**:
+- `BaseTransport`: Abstract protocol defining transport contract
+- Concrete implementations in `infra/transports/` (MCP, Proxy, Local)
 
 ---
 
@@ -512,15 +557,16 @@ web/
 
 ### infra/ - Infrastructure Layer
 
-**Purpose**: Cross-cutting infrastructure concerns including storage, logging, observability, and lifecycle management.
+**Purpose**: Non-portable implementations including storage, logging, observability, lifecycle management, and concrete transport/IO implementations.
 
 ```
 infra/
 ├── storage/         # Persistence layer
 │   ├── sqlite_store.py  # SQLite database (runs, steps, events)
 │   ├── ingest.py        # Trace ingestion
-│   ├── trace_writer.py  # Trace file writer
-│   └── cost_tables.py   # Cost tables
+│   ├── trace.py         # Trace storage
+│   ├── cost.py          # Cost storage
+│   └── job.py           # Job storage
 ├── audit/           # Audit output
 │   └── writer.py        # Audit JSONL writer
 ├── observability/   # Observability integration
@@ -530,8 +576,44 @@ infra/
 │       └── writer.py    # OTEL writer
 ├── lifecycle/       # Lifecycle management
 │   └── janitor.py       # Cleanup and maintenance
-└── logging/         # Logging configuration
+├── logging/         # Logging configuration
+├── transports/      # Concrete transport implementations
+│   ├── mcp/             # MCP transport (stdio-based)
+│   │   ├── transport.py # McpTransport (BaseTransport impl)
+│   │   ├── session.py   # McpSession (stdio session mgmt)
+│   │   ├── codec.py     # JsonRpcCodec (message encoding)
+│   │   ├── security.py  # McpSecurity (protocol security)
+│   │   └── egress.py    # McpEgressIntegration
+│   └── proxy/           # Proxy transport (HTTP forwarding)
+│       └── transport.py # ProxyTransport (BaseTransport impl)
+└── proxy/           # Proxy IO implementations
+    └── upstream.py      # HttpxUpstreamClient (HTTP client)
 ```
+
+**Key Design Principle**: This layer contains all OS/framework-dependent code. Core layer depends on abstractions defined in `core/transports/` and `core/proxy/interfaces.py`, while this layer provides concrete implementations.
+
+---
+
+## Gateways
+
+### gateways/ - Deployable Services
+
+**Purpose**: Deployable services that intercept and govern external execution requests. These are data-plane entry points that compose core business logic with infrastructure implementations.
+
+```
+gateways/
+└── proxy/           # HTTP Proxy Gateway
+    ├── __init__.py
+    ├── server.py    # ProxyServer (ASGI application)
+    └── app.py       # create_proxy_app (ASGI factory)
+```
+
+**Key Components**:
+- `ProxyServer`: ASGI application that intercepts LLM API calls
+- `create_proxy_app`: Factory function for creating complete ASGI app
+- Composes `core/proxy/ProxyPipeline` with `infra/proxy/HttpxUpstreamClient`
+
+**Architecture Note**: Gateways are deployable services that sit at the data plane boundary. They use core business logic from `core/` and concrete implementations from `infra/`.
 
 ---
 
@@ -539,24 +621,17 @@ infra/
 
 ### adapters/ - Framework Integrations
 
-**Purpose**: Integration adapters for popular frameworks, enabling FailCore to work with existing codebases.
+**Purpose**: Lightweight integration adapters for popular frameworks, enabling FailCore to work with existing codebases. These are thin wrappers that bridge external frameworks to FailCore's execution model.
 
 ```
 adapters/
-├── langchain/       # LangChain integration
-│   ├── wrapper.py      # Tool wrapper
-│   ├── detector.py     # LangChain tool detection
-│   └── mapper.py       # Event mapping
-├── mcp/             # Model Context Protocol integration
-│   ├── transport.py    # MCP transport
-│   ├── codec.py        # Message encoding/decoding
-│   ├── session.py      # Session management
-│   ├── security.py     # Security hooks
-│   └── egress_integration.py # Egress integration
-├── proxy/           # Proxy adapter
-│   └── transport.py    # Proxy transport
-└── sdk/             # SDK integration
+└── langchain/       # LangChain integration
+    ├── wrapper.py      # Tool wrapper
+    ├── detector.py     # LangChain tool detection
+    └── mapper.py       # Event mapping
 ```
+
+**Architecture Note**: MCP and Proxy transports have been moved to `infra/transports/` as they are infrastructure implementations, not lightweight adapters. The `adapters/` directory now contains only framework-specific integration code.
 
 ---
 
@@ -588,16 +663,19 @@ hooks/
 └── os_patch.py         # os module interception
 ```
 
-### presets/ - Presets
+### core/presets/ - Presets
 
 **Purpose**: Pre-configured tool packs, policies, and validators for common use cases.
 
 ```
-presets/
-├── tools.py         # Tool presets
-├── policies.py      # Policy presets
-└── validators.py    # Validator presets
+core/presets/
+├── registry.py      # Preset registry
+└── packs/            # Preset packs
+    ├── filesystem_safe.py  # Filesystem safety preset
+    └── http_safe.py        # HTTP safety preset
 ```
+
+**Note**: Presets are part of the core layer as they define portable business logic (policy definitions, tool configurations).
 
 ### utils/ - Utilities
 
@@ -615,6 +693,18 @@ utils/
 
 ## Architecture Decision Records
 
+### Three-Layer Architecture
+
+FailCore follows a three-layer architecture pattern:
+
+1. **`core/` - Portable Business Logic**: Pure business logic with no OS/framework dependencies. Contains policy evaluation, tracing, audit, and side-effect modeling. Protocol-agnostic.
+
+2. **`infra/` - Non-Portable Implementations**: OS and framework-dependent code. Contains storage (SQLite), HTTP clients (httpx), stdio sessions (subprocess), and concrete transport implementations (MCP, Proxy).
+
+3. **`gateways/` - Deployable Services**: Data-plane entry points that compose core logic with infrastructure. Examples: HTTP Proxy Gateway, MCP Gateway.
+
+**Dependency Direction**: infra/ depends on core/ abstractions; core/ never imports infrastructure/. gateways/ compose both.
+
 ### Key Architectural Constraints
 
 1. **Dual Gate Model**: Preflight gate (tool boundary) + Egress gate (proxy boundary) provide unified decision semantics
@@ -624,6 +714,7 @@ utils/
 5. **Target Duality**: `inferred` (pre-execution) + `observed` (post-execution) with priority: observed > inferred
 6. **Neutral Rules**: Rules defined in `core/rules/`, shared by gates and enrichers (no circular dependency)
 7. **Fail-Open Default**: System never blocks on internal errors (graceful degradation)
+8. **Dependency Inversion**: Core depends on abstractions (`BaseTransport`, `UpstreamClient`), infrastructure implements them
 
 ### Migration Notes
 
@@ -631,11 +722,18 @@ utils/
 - **DLP patterns** migrating from `guards/dlp/patterns` to `core/rules/dlp`
 - **Semantic rules** migrating from `guards/semantic/rules` to `core/rules/semantic`
 - **Side-effect types** migrating from `guards/effects/side_effects` to `core/rules/effects`
+- **MCP Transport** moved from `adapters/mcp/` to `infra/transports/mcp/` (infrastructure implementation)
+- **Proxy Transport** moved from `adapters/proxy/` to `infra/transports/proxy/` (infrastructure implementation)
+- **Proxy Server** moved from `core/proxy/server.py` to `gateways/proxy/server.py` (deployable service)
+- **Proxy Upstream Client** moved from `core/proxy/upstream.py` to `infra/proxy/upstream.py` (IO implementation)
+- **ToolRuntime** moved from `core/tools/runtime/` to `core/runtime/` (simplified structure)
+- **BaseTransport** moved from `core/tools/runtime/transports/base.py` to `core/transports/base.py` (abstraction layer)
 
 ---
 
 ## Version History
 
+- **v0.3.0**: Three-layer architecture (core/infra/gateways), transport abstraction, runtime refactoring
 - **v0.2.0**: Unified event model (ATTEMPT/EGRESS), gate abstraction, rules layer
 - **v0.1.3**: Previous trace schema
 - **v0.1.2**: Legacy trace schema

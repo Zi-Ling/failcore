@@ -1,42 +1,54 @@
+# failcore/core/rules/__init__.py
 """
-Core Rules - Neutral decision rules layer
+Unified Rule System
 
-This layer contains shared rule definitions used by both gates and enrichers.
-It is dependency-neutral and sits below both guards and enrichers.
-
-Architecture:
-- rules/dlp     - DLP pattern definitions
-- rules/semantic - Semantic rule definitions  
-- rules/effects  - Side-effect type definitions
-- rules/schemas  - Unified field schemas
-
-Design principles:
-1. Rules are declarative data, not execution logic
-2. Both gates (decision) and enrichers (evidence) use same rules
-3. No dependencies on guards or enrichers
-4. Version-controlled rule definitions
+Provides a unified rule system for all guard modules (DLP, Semantic, Effects, Taint, Drift)
 """
 
-from .dlp import DLPPatternRegistry, SensitivePattern, PatternCategory
-from .semantic import SemanticRule, RuleCategory, RuleSeverity, RuleRegistry
-from .effects import SideEffectType, SideEffectCategory
-from .schemas import TargetSchema, VerdictSchema, EvidenceSchema
+from .models import (
+    RuleSeverity,
+    RuleCategory,
+    RuleAction,
+    RuleMetadata,
+    Pattern,
+    Rule,
+    RuleSet,
+    PolicyMatrix,
+    ThresholdConfig,
+    ToolMapping,
+)
+
+from .loader import (
+    RuleSetLoader,
+    CompositeLoader,
+)
+
+from .registry import (
+    RuleRegistry,
+)
+
+from .engine import (
+    RuleMatch,
+    RuleEngineResult,
+    RuleEngine,
+)
 
 __all__ = [
-    # DLP
-    "DLPPatternRegistry",
-    "SensitivePattern", 
-    "PatternCategory",
-    # Semantic
-    "SemanticRule",
-    "RuleCategory",
+    # New unified system
     "RuleSeverity",
+    "RuleCategory",
+    "RuleAction",
+    "RuleMetadata",
+    "Pattern",
+    "Rule",
+    "RuleSet",
+    "PolicyMatrix",
+    "ThresholdConfig",
+    "ToolMapping",
+    "RuleSetLoader",
+    "CompositeLoader",
     "RuleRegistry",
-    # Effects
-    "SideEffectType",
-    "SideEffectCategory",
-    # Schemas
-    "TargetSchema",
-    "VerdictSchema",
-    "EvidenceSchema",
+    "RuleMatch",
+    "RuleEngineResult",
+    "RuleEngine",
 ]

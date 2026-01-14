@@ -211,7 +211,8 @@ except FailCoreError as e:
     print(e.message)
     # Output: Path traversal detected: '../../etc/passwd'
     
-    print(e.result.suggestion)
+    if e.suggestion:
+        print(e.suggestion)
     # Output: Use relative paths, don't use '..' - Example: 'data/file.txt' instead of '../../etc/passwd'
     
     print(e.result.remediation)

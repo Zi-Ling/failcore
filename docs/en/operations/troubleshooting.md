@@ -210,8 +210,7 @@ with run(policy="safe") as ctx:
 ```python
 mcp_config = McpTransportConfig(
     session=McpSessionConfig(
-        command="npx",  # Verify command exists
-        args=["-y", "@modelcontextprotocol/server-filesystem", "/path"]
+        command=["npx", "-y", "@modelcontextprotocol/server-filesystem", "/path"]  # Verify npx is in PATH
     )
 )
 ```

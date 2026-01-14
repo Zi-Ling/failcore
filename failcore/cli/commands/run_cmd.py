@@ -180,8 +180,8 @@ def _parse_run_rest(rest: List[str]) -> tuple[str, List[str], str]:
 
 async def _run_mcp(args):
     """Run MCP adapter with managed or passthrough mode."""
-    from failcore.adapters.mcp.transport import McpTransport, McpTransportConfig
-    from failcore.adapters.mcp.session import McpSessionConfig
+    from failcore.infra.transports.mcp import McpTransport, McpTransportConfig
+    from failcore.infra.transports.mcp.session import McpSessionConfig
 
     try:
         mode, command, mode_note = _parse_run_rest(args.rest)

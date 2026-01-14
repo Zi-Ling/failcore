@@ -38,16 +38,15 @@ pip install "failcore[mcp]"
 ### 配置 MCP 传输
 
 ```python
-from failcore.adapters.mcp import McpTransport, McpTransportConfig
-from failcore.adapters.mcp.session import McpSessionConfig
-from failcore.core.tools.runtime import ToolRuntime
-from failcore.core.tools.runtime.middleware import PolicyMiddleware
+from failcore.infra.transports.mcp import McpTransport, McpTransportConfig
+from failcore.infra.transports.mcp.session import McpSessionConfig
+from failcore.core.runtime import ToolRuntime
+from failcore.core.runtime.middleware import PolicyMiddleware
 
 # 配置 MCP 会话
 mcp_config = McpTransportConfig(
     session=McpSessionConfig(
-        command="npx",
-        args=["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed/dir"]
+        command=["npx", "-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed/dir"]
     )
 )
 
@@ -77,7 +76,7 @@ for tool in tools:
 ### 调用 MCP 工具
 
 ```python
-from failcore.core.tools.runtime.types import CallContext
+from failcore.core.runtime.types import CallContext
 
 # 使用策略保护调用工具
 result = await runtime.call(
@@ -213,8 +212,7 @@ result = await runtime.call(
 ```python
 mcp_config = McpTransportConfig(
     session=McpSessionConfig(
-        command="python",
-        args=["-m", "my_mcp_server", "--config", "config.json"]
+        command=["python", "-m", "my_mcp_server", "--config", "config.json"]
     ),
     provider="custom-mcp",
     protocol_version="2024-11-05"
@@ -247,8 +245,7 @@ runtime2 = ToolRuntime(transport=transport2, ...)
 # 检查服务器命令
 mcp_config = McpTransportConfig(
     session=McpSessionConfig(
-        command="npx",  # 确保命令在 PATH 中
-        args=["-y", "@modelcontextprotocol/server-filesystem", "/path"]
+        command=["npx", "-y", "@modelcontextprotocol/server-filesystem", "/path"]  # 确保 npx 在 PATH 中
     )
 )
 ```

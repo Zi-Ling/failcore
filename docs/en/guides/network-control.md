@@ -231,7 +231,8 @@ except FailCoreError as e:
     print(e.message)
     # Output: Private network access blocked: '169.254.169.254'
     
-    print(e.result.suggestion)
+    if e.suggestion:
+        print(e.suggestion)
     # Output: Use public internet URLs only. Private IPs and localhost are blocked for security.
     
     print(e.result.error_code)

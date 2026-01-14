@@ -1,0 +1,143 @@
+# failcore/config/rulesets/default/taint.yml
+# Taint Tracking Configuration
+
+name: taint
+version: "1.0.0"
+description: "Default configuration for taint tracking"
+
+metadata:
+  maintainer: "FailCore Team"
+  last_updated: "2026-01-14"
+
+# Source Tools (produce sensitive data)
+source_tools:
+  file_sources:
+    tools:
+      - "read_file"
+      - "read_dir"
+      - "read_directory"
+      - "list_files"
+      - "cat_file"
+    taint_source: "file"
+    default_sensitivity: "internal"
+  
+  database_sources:
+    tools:
+      - "db_query"
+      - "db_fetch"
+      - "db_select"
+      - "sql_query"
+      - "query_database"
+    taint_source: "database"
+    default_sensitivity: "confidential"
+  
+  api_sources:
+    tools:
+      - "api_call"
+      - "http_get"
+      - "http_request"
+      - "fetch_url"
+      - "rest_api_call"
+    taint_source: "api"
+    default_sensitivity: "internal"
+  
+  user_input_sources:
+    tools:
+      - "get_user_input"
+      - "prompt_user"
+      - "read_stdin"
+      - "user_query"
+    taint_source: "user_input"
+    default_sensitivity: "internal"
+  
+  environment_sources:
+    tools:
+      - "get_env"
+      - "read_env"
+      - "get_environment_variable"
+      - "os_environ"
+    taint_source: "environment"
+    default_sensitivity: "confidential"
+  
+  secret_sources:
+    tools:
+      - "read_secret"
+      - "get_secret"
+      - "get_password"
+      - "get_credential"
+      - "read_key"
+    taint_source: "secret"
+    default_sensitivity: "secret"
+
+# Sink Tools (consume sensitive data)
+sink_tools:
+  file_sinks:
+    tools:
+      - "write_file"
+      - "create_file"
+      - "save_file"
+      - "append_to_file"
+    risk_level: "medium"
+  
+  database_sinks:
+    tools:
+      - "db_insert"
+      - "db_update"
+      - "db_execute"
+      - "sql_execute"
+    risk_level: "medium"
+  
+  network_sinks:
+    tools:
+      - "api_post"
+      - "http_post"
+      - "send_request"
+      - "post_data"
+    risk_level: "high"
+  
+  external_sinks:
+    tools:
+      - "send_email"
+      - "send_sms"
+      - "upload_file"
+      - "publish_message"
+      - "log_external"
+      - "webhook_call"
+    risk_level: "critical"
+
+# Sensitivity to Action Mapping
+sensitivity_policies:
+  public:
+    action: "allow"
+    description: "Public data can flow anywhere"
+  
+  internal:
+    action: "sanitize"
+    strict_mode_action: "allow"
+    description: "Internal data should be sanitized before external sinks"
+  
+  confidential:
+    action: "require_approval"
+    strict_mode_action: "block"
+    description: "Confidential data requires approval or blocking"
+  
+  pii:
+    action: "block"
+    description: "PII must be blocked from external sinks"
+  
+  secret:
+    action: "block"
+    description: "Secrets must never flow to sinks"
+
+# Propagation Configuration
+propagation:
+  enabled: true
+  mode: "whole"  # "whole" or "paths" (field-level tracking)
+  max_path_depth: 3
+  max_paths_per_step: 100
+  
+  # Auto-detection confidence thresholds
+  binding_confidence:
+    high: 0.9
+    medium: 0.6
+    low: 0.3

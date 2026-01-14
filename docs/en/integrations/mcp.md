@@ -38,16 +38,15 @@ pip install "failcore[mcp]"
 ### Configure MCP Transport
 
 ```python
-from failcore.adapters.mcp import McpTransport, McpTransportConfig
-from failcore.adapters.mcp.session import McpSessionConfig
-from failcore.core.tools.runtime import ToolRuntime
-from failcore.core.tools.runtime.middleware import PolicyMiddleware
+from failcore.infra.transports.mcp import McpTransport, McpTransportConfig
+from failcore.infra.transports.mcp.session import McpSessionConfig
+from failcore.core.runtime import ToolRuntime
+from failcore.core.runtime.middleware import PolicyMiddleware
 
 # Configure MCP session
 mcp_config = McpTransportConfig(
     session=McpSessionConfig(
-        command="npx",
-        args=["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed/dir"]
+        command=["npx", "-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed/dir"]
     )
 )
 
@@ -77,7 +76,7 @@ for tool in tools:
 ### Call MCP Tools
 
 ```python
-from failcore.core.tools.runtime.types import CallContext
+from failcore.core.runtime.types import CallContext
 
 # Call tool with policy protection
 result = await runtime.call(
@@ -213,8 +212,7 @@ result = await runtime.call(
 ```python
 mcp_config = McpTransportConfig(
     session=McpSessionConfig(
-        command="python",
-        args=["-m", "my_mcp_server", "--config", "config.json"]
+        command=["python", "-m", "my_mcp_server", "--config", "config.json"]
     ),
     provider="custom-mcp",
     protocol_version="2024-11-05"
@@ -247,8 +245,7 @@ If MCP server fails to start:
 # Check server command
 mcp_config = McpTransportConfig(
     session=McpSessionConfig(
-        command="npx",  # Ensure command is in PATH
-        args=["-y", "@modelcontextprotocol/server-filesystem", "/path"]
+        command=["npx", "-y", "@modelcontextprotocol/server-filesystem", "/path"]  # Ensure npx is in PATH
     )
 )
 ```

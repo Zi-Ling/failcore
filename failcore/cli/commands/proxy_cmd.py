@@ -10,16 +10,14 @@ Minimal, production-oriented CLI:
 
 import argparse
 import sys
-import time
 from pathlib import Path
-from typing import Optional
 
 from failcore.core.proxy import (
     ProxyConfig,
-    ProxyServer,
     ProxyPipeline,
     StreamHandler,
 )
+from failcore.gateways.proxy import ProxyServer
 from failcore.core.egress import (
     EgressEngine,
     TraceSink,
@@ -29,7 +27,7 @@ from failcore.core.egress import (
 )
 
 
-from failcore.core.proxy.upstream import HttpxUpstreamClient
+from failcore.infra.proxy import HttpxUpstreamClient
 
 # ----------------------------
 # CLI registration
@@ -160,7 +158,6 @@ def run_proxy(args):
     )
 
     # ---- Create EventWriter for ATTEMPT/RESULT events ----
-    from datetime import datetime, timezone
     from failcore.utils.paths import to_failcore_relative
     from failcore.core.trace.writer import EventWriter
     

@@ -1,0 +1,142 @@
+# failcore/config/rulesets/default/effects.yml
+# Side-Effect Detection Rules
+
+name: effects
+version: "1.0.0"
+description: "Default rules for detecting and classifying side-effects"
+
+metadata:
+  maintainer: "FailCore Team"
+  last_updated: "2026-01-14"
+
+# Tool to Effect Type Mappings
+tool_mappings:
+  filesystem_read:
+    keywords:
+      - "read"
+      - "file"
+      - "dir"
+      - "list"
+      - "ls"
+      - "cat"
+    exact_matches:
+      - "read_file"
+      - "read_directory"
+      - "list_files"
+      - "cat_file"
+    effect_type: "filesystem.read"
+    category: "filesystem"
+  
+  filesystem_write:
+    keywords:
+      - "write"
+      - "create"
+      - "save"
+      - "append"
+    exact_matches:
+      - "write_file"
+      - "create_file"
+      - "save_file"
+      - "append_to_file"
+    effect_type: "filesystem.write"
+    category: "filesystem"
+  
+  filesystem_delete:
+    keywords:
+      - "delete"
+      - "remove"
+      - "rm"
+      - "unlink"
+    exact_matches:
+      - "delete_file"
+      - "remove_file"
+      - "rm_file"
+    effect_type: "filesystem.delete"
+    category: "filesystem"
+  
+  network_egress:
+    keywords:
+      - "http"
+      - "request"
+      - "fetch"
+      - "get"
+      - "post"
+      - "api"
+    exact_matches:
+      - "http_request"
+      - "api_call"
+      - "fetch_url"
+      - "http_get"
+      - "http_post"
+    effect_type: "network.egress"
+    category: "network"
+  
+  process_spawn:
+    keywords:
+      - "exec"
+      - "run"
+      - "execute"
+      - "spawn"
+      - "subprocess"
+      - "command"
+    exact_matches:
+      - "exec_command"
+      - "run_command"
+      - "spawn_process"
+      - "subprocess_run"
+    effect_type: "process.spawn"
+    category: "exec"
+
+# Boundary Policies
+boundaries:
+  filesystem:
+    allowed_roots:
+      - "./"
+      - "./data/"
+      - "./workspace/"
+      - "/tmp/"
+    blocked_paths:
+      - "/etc/"
+      - "/root/"
+      - "/sys/"
+      - "/proc/"
+      - "C:\\Windows\\"
+      - "C:\\Program Files\\"
+    
+  network:
+    allowed_domains:
+      - "*.example.com"
+      - "api.openai.com"
+    blocked_hosts:
+      - "127.0.0.1"
+      - "localhost"
+      - "169.254.169.254"  # AWS metadata
+      - "::1"
+    blocked_cidrs:
+      - "10.0.0.0/8"
+      - "172.16.0.0/12"
+      - "192.168.0.0/16"
+  
+  exec:
+    allowed_commands:
+      - "ls"
+      - "cat"
+      - "echo"
+      - "pwd"
+    blocked_commands:
+      - "rm"
+      - "dd"
+      - "mkfs"
+      - "chmod"
+      - "chown"
+
+# Default Actions by Effect Category
+default_actions:
+  filesystem.read: "allow"
+  filesystem.write: "warn"
+  filesystem.delete: "block"
+  network.egress: "warn"
+  network.ingress: "block"
+  network.private: "block"
+  process.spawn: "warn"
+  process.kill: "block"
