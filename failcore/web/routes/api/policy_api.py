@@ -1,3 +1,4 @@
+# failcore/web/route/api/policy.py
 """
 Policy management API endpoints
 """
@@ -7,9 +8,9 @@ from fastapi import APIRouter, HTTPException, Request
 from typing import Dict, Any, List
 import traceback
 
-from ....core.validate.registry import get_global_registry
-from ....core.validate.bootstrap import auto_register
-from ....core.validate.loader import (
+from failcore.core.validate.registry import get_global_registry
+from failcore.core.validate.bootstrap import auto_register
+from failcore.core.validate.loader import (
     get_policy_dir,
     ensure_policy_files,
     load_policy,
@@ -17,9 +18,9 @@ from ....core.validate.loader import (
     dump_policy,
     save_policy,
 )
-from ....core.validate.contracts import Policy, EnforcementMode
-from ....core.validate.engine import ValidationEngine
-from ....core.validate.contracts.v1.context import ContextV1
+from failcore.core.validate.contracts import Policy, EnforcementMode
+from failcore.core.validate.engine import ValidationEngine
+from failcore.core.validate.contracts.v1.context import ContextV1
 
 
 router = APIRouter(prefix="/api/policy", tags=["policy"])

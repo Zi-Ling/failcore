@@ -161,7 +161,7 @@ class Executor:
         session_resources: Optional[Any] = None,  # SessionResources (PREFERRED, enforces resource ownership)
         recorder: Optional[TraceRecorder] = None,  # DEPRECATED: use session_resources
         policy: Optional[Policy] = None,
-        validator: Optional[ValidatorRegistry] = None,
+        validation_engine: Optional[Any] = None,  # Optional ValidationEngine
         config: Optional[ExecutorConfig] = None,
         replayer: Optional[Replayer] = None,
         cost_guardian: Optional[CostGuardian] = None,
@@ -183,7 +183,7 @@ class Executor:
                 If provided, overrides individual resource parameters.
             recorder: Trace recorder (DEPRECATED: use session_resources)
             policy: Policy instance
-            validator: Validator registry
+            validation_engine: Optional ValidationEngine for validation
             config: Executor configuration
             replayer: Optional replayer instance
             cost_guardian: Optional cost guardian
@@ -239,7 +239,7 @@ class Executor:
             self.session_resources = None
         
         self.policy = policy or Policy()
-        self.validator = validator
+        self.validation_engine = validation_engine
         self.config = config or ExecutorConfig()
         self.replayer = replayer
         self._attempt_counter = {}
@@ -263,7 +263,7 @@ class Executor:
         cost_recorder = CostRecorder(cost_storage) if cost_storage else None
         replay_hook = ReplayExecutionHook(replayer) if replayer else None
         output_normalizer = OutputNormalizer()
-        step_validator = StepValidator(validator)
+        step_validator = StepValidator(validation_engine=self.validation_engine)
         summarize_config = SummarizeConfig(summarize_limit=self.config.summarize_limit)
         output_summarizer = OutputSummarizer(summarize_config)
         failure_builder = FailureBuilder(
@@ -323,7 +323,6 @@ class Executor:
             tools=tools,
             recorder=self.recorder,
             policy=self.policy,
-            validator=validator,
             cost_guardian=cost_guardian_instance,
             cost_estimator=cost_estimator_instance,
             cost_storage=cost_storage,

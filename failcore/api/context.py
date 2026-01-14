@@ -15,7 +15,9 @@ from ..core.tools.registry import ToolRegistry
 from ..core.tools.spec import ToolSpec
 from ..core.tools.metadata import ToolMetadata
 from ..core.trace.recorder import JsonlTraceRecorder, NullTraceRecorder, TraceRecorder
-from ..core.validate import ValidatorRegistry
+from ..core.validate.loader import load_merged_policy
+from ..core.validate.engine import ValidationEngine
+from ..core.validate.contracts import Policy
 from ..utils.paths import get_failcore_root, get_database_path, find_project_root
 from ..utils.path_resolver import PathResolver
 
@@ -25,6 +27,40 @@ CURRENT_RUN_CONTEXT: ContextVar[Optional["RunCtx"]] = ContextVar(
     "CURRENT_RUN_CONTEXT",
     default=None,
 )
+
+# Application-level validator registry (singleton at API layer)
+# This is created once and reused across runs for performance.
+# Core layer (ValidationEngine) only accepts explicit registry injection.
+_APP_REGISTRY: Optional["ValidatorRegistry"] = None
+_APP_REGISTRY_LOCK = None
+
+def _get_app_registry() -> "ValidatorRegistry":
+    """
+    Get or create application-level validator registry.
+    
+    This registry is created once and reused across runs for performance.
+    It is registered at the API layer, not in core, to maintain core extractability.
+    
+    Returns:
+        Application-level ValidatorRegistry instance
+    """
+    global _APP_REGISTRY, _APP_REGISTRY_LOCK
+    
+    if _APP_REGISTRY is None:
+        import threading
+        if _APP_REGISTRY_LOCK is None:
+            _APP_REGISTRY_LOCK = threading.Lock()
+        
+        with _APP_REGISTRY_LOCK:
+            if _APP_REGISTRY is None:
+                from ..core.validate.registry import ValidatorRegistry
+                from ..core.validate.bootstrap import register_builtin_validators
+                
+                _APP_REGISTRY = ValidatorRegistry()
+                register_builtin_validators(_APP_REGISTRY)
+                # Note: Plugins can be loaded here if needed
+    
+    return _APP_REGISTRY
 
 
 class RunCtx:
@@ -112,12 +148,18 @@ class RunCtx:
         # Tool registry
         self._tools = ToolRegistry(sandbox_root=sandbox)
         
-        # Validator registry
-        self._validator = ValidatorRegistry()
-        
-        # Load policy validator if specified
+        # Load policy and create validation engine if specified
+        self._policy_obj = None
+        self._validation_engine = None
         if policy:
-            self._load_policy_validator(policy, strict)
+            try:
+                self._policy_obj, self._validation_engine = self._load_policy(policy, strict)
+            except Exception as e:
+                raise ValueError(
+                    f"Failed to load policy '{policy}': {e}\n"
+                    f"Available policies: {', '.join(self._list_available_policies())}\n"
+                    f"Or create a policy file at .failcore/validate/{policy}.yaml"
+                ) from e
         
         # Store auto_ingest flag
         self._auto_ingest = auto_ingest
@@ -187,13 +229,12 @@ class RunCtx:
         
         # Create executor
         # Note: CostStorage is created inside Executor when cost tracking is enabled
-        policy_obj = None  # TODO: create Policy object from policy parameter
         self._executor = Executor(
             guard_config=self._guard_config,
             tools=self._tools,
             recorder=self._recorder,
-            validator=self._validator,
-            policy=policy_obj,
+            validation_engine=self._validation_engine,  # Pass ValidationEngine
+            policy=self._policy_obj,
             config=ExecutorConfig(enable_cost_tracking=enable_cost_tracking),
             cost_guardian=cost_guardian,
             cost_estimator=cost_estimator,
@@ -220,33 +261,117 @@ class RunCtx:
         # Step counter
         self._step_counter = 0
     
-    def _load_policy_validator(self, policy: str, strict: bool):
+    def _load_policy(self, policy: str, strict: bool) -> tuple[Optional[Policy], Optional[ValidationEngine]]:
         """
-        Load validator for the specified policy.
+        Load policy from file or preset name and create ValidationEngine.
+        
+        Policy loading strategy:
+        1. Try to load from .failcore/validate/ directory as policy name (e.g., "fs_safe" -> "fs_safe.yaml")
+        2. If not found, try common policy names in active.yaml metadata
+        3. If not found, fallback to builtin preset templates
         
         Args:
-            policy: Policy name
-            strict: Strict mode flag
+            policy: Policy name or path
+            strict: Strict mode flag (affects engine execution, not policy data)
+        
+        Returns:
+            (Policy object, ValidationEngine instance) or (None, None) if policy not found
         """
-        if policy == "safe":
-            # Combined preset: fs_safe + net_safe
-            from ..presets.validators import fs_safe, net_safe
-            fs_validator = fs_safe(strict=strict)
-            net_validator = net_safe(strict=strict)
-            # TODO: implement proper validator merging
-            # For now, just use fs_safe (most common case)
-            self._validator = fs_validator
-        elif policy == "fs_safe":
-            from ..presets.validators import fs_safe
-            validator = fs_safe(strict=strict)
-            self._validator = validator
-        elif policy == "net_safe":
-            from ..presets.validators import net_safe
-            validator = net_safe(strict=strict)
-            self._validator = validator
+        from pathlib import Path
+        from ..utils.paths import find_project_root
+        
+        # Try loading from .failcore/validate/ directory
+        project_root = find_project_root()
+        policy_dir = project_root / ".failcore" / "validate"
+        
+        # Strategy 1: Try policy name as filename
+        policy_file = policy_dir / f"{policy}.yaml"
+        if policy_file.exists():
+            from ..core.validate.loader import load_policy
+            policy_obj = load_policy(policy_file)
         else:
-            # Unknown policy: leave validator as-is
-            pass
+            # Strategy 2: Try loading active.yaml and check metadata for policy name
+            active_file = policy_dir / "active.yaml"
+            if active_file.exists():
+                from ..core.validate.loader import load_merged_policy
+                try:
+                    policy_obj = load_merged_policy(project_root)
+                    # Check if metadata name matches
+                    if policy_obj.metadata.get("name") != policy:
+                        # Try to find preset by name
+                        policy_obj = self._load_preset_policy(policy)
+                except Exception:
+                    policy_obj = self._load_preset_policy(policy)
+            else:
+                # Strategy 3: Use builtin preset
+                policy_obj = self._load_preset_policy(policy)
+        
+        if policy_obj is None:
+            # Return None, None to allow policy=None case (no validation)
+            return None, None
+        
+        # Inject runtime context (sandbox_root) into policy config
+        # This is runtime binding, not policy modification
+        if sandbox:
+            policy_obj = self._inject_sandbox_root(policy_obj, sandbox)
+        
+        # Create ValidationEngine with strict mode
+        # Strict mode affects execution behavior, not policy data
+        # Use application-level registry (singleton at API layer) for performance
+        registry = _get_app_registry()
+        engine = ValidationEngine(
+            registry=registry,
+            policy=policy_obj,
+            strict_mode=strict,
+        )
+        
+        return policy_obj, engine
+    
+    def _load_preset_policy(self, policy_name: str) -> Optional[Policy]:
+        """Load policy from builtin presets."""
+        from ..core.validate.templates import get_preset
+        
+        # Map common policy names to preset names
+        preset_map = {
+            "safe": "default_safe",
+            "fs_safe": "fs_safe",
+            "net_safe": "net_safe",
+            "shadow": "shadow_mode",
+            "permissive": "permissive",
+        }
+        
+        preset_name = preset_map.get(policy_name, policy_name)
+        preset_policy = get_preset(preset_name)
+        
+        if preset_policy:
+            # Return a copy to avoid modifying the preset
+            return preset_policy.model_copy(deep=True)
+        
+        return None
+    
+    def _inject_sandbox_root(self, policy: Policy, sandbox_root: str) -> Policy:
+        """
+        Inject sandbox_root into policy config (runtime binding, returns new policy).
+        
+        This creates a new Policy object with sandbox_root injected into validator configs.
+        The original policy is not modified.
+        """
+        # Create a deep copy
+        new_policy = policy.model_copy(deep=True)
+        
+        # Inject sandbox_root into path_traversal validator config
+        if "security_path_traversal" in new_policy.validators:
+            config = new_policy.validators["security_path_traversal"]
+            if config.config is None:
+                config.config = {}
+            config.config["sandbox_root"] = sandbox_root
+        
+        return new_policy
+    
+    def _list_available_policies(self) -> list[str]:
+        """List available policy names."""
+        from ..core.validate.templates import list_presets
+        return list_presets()
     
     def tool(self, fn: Callable[..., Any], metadata: Optional[ToolMetadata] = None) -> Callable[..., Any]:
         """
@@ -274,13 +399,8 @@ class RunCtx:
             )
             self._tools.register_tool(spec, auto_assemble=True)
             
-            # Sync builtin
-            preconditions = self._tools.get_preconditions(tool_name)
-            postconditions = self._tools.get_postconditions(tool_name)
-            for precond in preconditions:
-                self._validator.register_precondition(tool_name, precond)
-            for postcond in postconditions:
-                self._validator.register_postcondition(tool_name, postcond)
+            # Note: Validation is now handled by ValidationEngine via StepValidator
+            # Tool registration only registers the tool with metadata
         else:
             self._tools.register(tool_name, fn)
         

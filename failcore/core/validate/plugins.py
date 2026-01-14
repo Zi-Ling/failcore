@@ -33,7 +33,7 @@ import importlib.metadata
 import logging
 
 from .validator import BaseValidator
-from .registry import ValidatorRegistry, get_global_registry
+from .registry import ValidatorRegistry
 
 
 # Entry point group for builtin
@@ -102,18 +102,18 @@ def discover_plugin_validators() -> List[BaseValidator]:
     return validators
 
 
-def load_plugins(registry: Optional[ValidatorRegistry] = None) -> int:
+def load_plugins(registry: ValidatorRegistry) -> int:
     """
     Discover and register plugin builtin.
     
     Args:
-        registry: Registry to register plugins to (if None, uses global registry)
+        registry: Registry to register plugins to (required, no global registry)
     
     Returns:
         Number of plugins successfully loaded
     """
     if registry is None:
-        registry = get_global_registry()
+        raise ValueError("registry parameter is required (no global registry)")
     
     validators = discover_plugin_validators()
     

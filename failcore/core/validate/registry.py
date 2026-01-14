@@ -161,58 +161,12 @@ class ValidatorRegistry:
         )
 
 
-# Global registry instance
-_global_registry: Optional[ValidatorRegistry] = None
-_global_registry_lock = threading.Lock()
-
-
-def get_global_registry() -> ValidatorRegistry:
-    """
-    Get the global validator registry.
-    
-    The global registry is lazily initialized on first access.
-    
-    Returns:
-        Global ValidatorRegistry instance
-    """
-    global _global_registry
-    
-    if _global_registry is None:
-        with _global_registry_lock:
-            if _global_registry is None:
-                _global_registry = ValidatorRegistry()
-    
-    return _global_registry
-
-
-def set_global_registry(registry: ValidatorRegistry) -> None:
-    """
-    Set the global validator registry.
-    
-    This is useful for testing or custom initialization.
-    
-    Args:
-        registry: ValidatorRegistry instance to use as global registry
-    """
-    global _global_registry
-    with _global_registry_lock:
-        _global_registry = registry
-
-
-def reset_global_registry() -> None:
-    """
-    Reset the global registry.
-    
-    Useful for testing. Creates a new empty registry.
-    """
-    global _global_registry
-    with _global_registry_lock:
-        _global_registry = None
-
+# Note: Global registry functions have been removed for core extraction.
+# All code must explicitly pass a ValidatorRegistry instance.
+# For backward compatibility in FailCore runtime, create registry explicitly:
+#   registry = ValidatorRegistry()
+#   engine = ValidationEngine(registry=registry, policy=policy, strict_mode=strict)
 
 __all__ = [
     "ValidatorRegistry",
-    "get_global_registry",
-    "set_global_registry",
-    "reset_global_registry",
 ]

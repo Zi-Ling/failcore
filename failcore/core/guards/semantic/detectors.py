@@ -5,7 +5,7 @@ Detect malicious patterns using semantic rules
 """
 
 from typing import Dict, Any, List
-from .rules import SemanticRule, RuleRegistry, RuleSeverity
+from failcore.core.rules.semantic import SemanticRule, RuleRegistry, RuleSeverity
 from .verdict import SemanticVerdict, VerdictAction
 
 

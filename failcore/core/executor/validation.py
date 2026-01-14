@@ -4,15 +4,15 @@ Step Validation - parameter and precondition validation
 
 This module handles validation of steps before execution:
 - Basic parameter validation (structure, types)
-- Precondition validation (using ValidatorRegistry)
+- Precondition validation (using ValidationEngine)
 """
 
 from typing import Tuple, Optional, Dict, Any
 from dataclasses import dataclass
 
 from failcore.core.types.step import Step
-from ..validate import ValidatorRegistry
 from failcore.core.types.step import RunContext
+from ..validate.contracts import Context as ValidationContext
 
 
 @dataclass
@@ -30,16 +30,21 @@ class StepValidator:
     Step validation logic
     
     Handles both basic parameter validation and precondition validation.
+    
+    Uses ValidationEngine exclusively. This is the SINGLE validation point.
     """
     
-    def __init__(self, validator_registry: Optional[ValidatorRegistry] = None):
+    def __init__(
+        self,
+        validation_engine: Optional[Any] = None,  # ValidationEngine
+    ):
         """
         Initialize validator
         
         Args:
-            validator_registry: Optional ValidatorRegistry for precondition checks
+            validation_engine: Optional ValidationEngine (if None, validation is skipped)
         """
-        self.validator = validator_registry
+        self.validation_engine = validation_engine
     
     def validate_basic(self, step: Step) -> Tuple[bool, str]:
         """
@@ -73,7 +78,10 @@ class StepValidator:
         ctx: RunContext,
     ) -> Optional[ValidationFailure]:
         """
-        Validate step preconditions
+        Validate step preconditions using ValidationEngine.
+        
+        This is the SINGLE validation point in the execution pipeline.
+        No other middleware or stage should perform validation.
         
         Args:
             step: Step to validate
@@ -82,28 +90,33 @@ class StepValidator:
         Returns:
             ValidationFailure if validation fails, None otherwise
         """
-        if not self.validator or not self.validator.has_preconditions(step.tool):
+        # Skip validation if no engine (policy=None case)
+        if not self.validation_engine:
             return None
         
-        validation_context = {
-            "step": step,
-            "params": step.params,
-            "ctx": ctx,
-        }
+        # Create ValidationContext from Step and RunContext
+        validation_ctx = ValidationContext(
+            tool=step.tool,
+            params=step.params,
+            run_id=ctx.run_id,
+            step_id=step.id,
+        )
         
-        validation_results = self.validator.validate_preconditions(step.tool, validation_context)
+        # Evaluate using ValidationEngine
+        decisions = self.validation_engine.evaluate(validation_ctx)
         
-        for result in validation_results:
-            if not result.valid:
-                # Extract suggestion/remediation from ValidationResult.details
-                details = result.details or {}
-                suggestion = details.get("suggestion")
-                remediation = details.get("remediation")
+        # Check for blocking decisions
+        for decision in decisions:
+            if decision.is_blocking:
+                # Extract details from evidence
+                evidence = decision.evidence or {}
+                suggestion = evidence.get("suggestion")
+                remediation = evidence.get("remediation")
                 
                 return ValidationFailure(
-                    code=result.code or "PRECONDITION_FAILED",
-                    message=result.message,
-                    details=details,
+                    code=decision.code,
+                    message=decision.message,
+                    details=evidence,
                     suggestion=suggestion,
                     remediation=remediation,
                 )

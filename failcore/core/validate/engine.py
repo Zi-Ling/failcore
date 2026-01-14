@@ -18,7 +18,6 @@ It only orchestrates builtin registered in the registry.
 from __future__ import annotations
 
 from typing import Dict, List, Optional
-import os
 from datetime import datetime
 
 from .contracts import (
@@ -29,6 +28,7 @@ from .contracts import (
     ValidatorConfig,
     EnforcementMode,
 )
+from .constants import MetaKeys
 from .validator import BaseValidator
 
 
@@ -58,8 +58,8 @@ class ValidationEngine:
     
     def __init__(
         self,
+        registry: "ValidatorRegistry",
         policy: Optional[Policy] = None,
-        registry: Optional["ValidatorRegistry"] = None,
         strict_mode: bool = False,
     ):
         """
@@ -67,9 +67,11 @@ class ValidationEngine:
         
         Args:
             policy: Validation policy (if None, uses permissive defaults)
-            registry: Validator registry (if None, uses global registry)
+            registry: Validator registry (required, no global registry)
             strict_mode: If True, short-circuit on first BLOCK decision
         """
+        if registry is None:
+            raise ValueError("registry parameter is required (no global registry)")
         self.policy = policy or Policy()
         self.registry = registry
         self.strict_mode = strict_mode
@@ -98,6 +100,12 @@ class ValidationEngine:
         # Get builtin to execute
         if validators is None:
             validators = self._get_validators_to_execute()
+            
+            # Defensive check: ensure all required validators are registered (fail-fast)
+            # This prevents users from bypassing factory functions (create_default_engine)
+            if self.policy and self.policy.validators:
+                from .bootstrap import ensure_registered
+                ensure_registered(self.registry, self.policy)
         
         # Sort by priority
         validators = self._sort_validators(validators)
@@ -143,7 +151,7 @@ class ValidationEngine:
             # Apply enforcement mode
             for decision in validator_decisions:
                 decision = self._apply_enforcement_mode(decision, config)
-                decision = self._apply_override(decision, config)
+                decision = self._apply_override(decision, config, context)
                 decisions.append(decision)
             
             # Short-circuit on BLOCK (strict mode only)
@@ -151,6 +159,10 @@ class ValidationEngine:
                 blocking = [d for d in validator_decisions if d.is_blocking]
                 if blocking:
                     break
+        
+        # Deduplicate decisions (merge duplicates from multiple validators)
+        from .deduplication import deduplicate_decisions
+        decisions = deduplicate_decisions(decisions)
         
         return decisions
     
@@ -187,9 +199,7 @@ class ValidationEngine:
     
     def _get_validators_to_execute(self) -> List[BaseValidator]:
         """Get list of enabled builtin from registry"""
-        if not self.registry:
-            return []
-        
+        # Registry is required (enforced in __init__)
         # Get all builtin from registry
         all_validators = self.registry.list_validators()
         
@@ -233,15 +243,24 @@ class ValidationEngine:
         """
         Apply enforcement mode to decision.
         
-        - SHADOW: Convert BLOCK → WARN
-        - WARN: Convert BLOCK → WARN
-        - BLOCK: No change
+        Enforcement mode from policy:
+        - SHADOW: Convert BLOCK → WARN (observe only)
+        - WARN: Convert BLOCK → WARN (warn but don't block)
+        - BLOCK: No change (enforce blocking)
+        
+        Strict mode override (runtime execution mode):
+        - strict=True: Elevate all WARN/SHADOW → BLOCK
+        - strict=False: Lower BLOCK → WARN (if config allows)
+        
+        Note: Strict mode does NOT modify the policy object, only affects
+        the decision at execution time.
         """
         if not config:
             return decision
         
         mode = config.enforcement
         
+        # First, apply policy-defined enforcement mode
         if mode == EnforcementMode.SHADOW and decision.is_blocking:
             # Shadow mode: observe only
             decision.decision = DecisionOutcome.WARN
@@ -255,12 +274,34 @@ class ValidationEngine:
             decision.evidence["enforcement_mode"] = "warn"
             decision.evidence["original_decision"] = "block"
         
+        # Then, apply strict mode override (runtime execution mode)
+        # Strict mode: elevate WARN/SHADOW → BLOCK
+        if self.strict_mode:
+            if decision.decision == DecisionOutcome.WARN:
+                original_mode = decision.evidence.get("enforcement_mode", "warn")
+                decision.decision = DecisionOutcome.BLOCK
+                decision.evidence["strict_mode_override"] = True
+                decision.evidence["enforcement_mode"] = f"{original_mode}_elevated_by_strict"
+                decision.evidence["original_decision"] = original_mode
+                decision.message = f"[STRICT] {decision.message}"
+        
+        # Non-strict mode: lower BLOCK → WARN (only if config allows)
+        elif not self.strict_mode:
+            if decision.is_blocking and mode in (EnforcementMode.WARN, EnforcementMode.SHADOW):
+                # Already handled above, but if somehow we have a BLOCK
+                # with WARN/SHADOW enforcement, lower it
+                decision.decision = DecisionOutcome.WARN
+                decision.evidence["strict_mode_override"] = True
+                decision.evidence["enforcement_mode"] = f"{mode.value}_enforced"
+                decision.evidence["original_decision"] = "block"
+        
         return decision
     
     def _apply_override(
         self,
         decision: Decision,
-        config: Optional[ValidatorConfig]
+        config: Optional[ValidatorConfig],
+        context: Context,
     ) -> Decision:
         """
         Apply override if configured.
@@ -284,28 +325,85 @@ class ValidationEngine:
         if not self.policy.global_override.enabled:
             return decision
         
+        # Fail-closed: if enabled but expires_at is None, reject override
+        if not self.policy.global_override.expires_at:
+            # Log violation but don't block (evidence is logged)
+            decision.evidence["override_rejected"] = True
+            decision.evidence["override_rejection_reason"] = "expires_at_required_when_enabled"
+            decision.evidence["override_config"] = {
+                "enabled": True,
+                "expires_at": None,
+                "error": "Global override enabled but expires_at is not set. Override rejected for safety."
+            }
+            return decision  # Return original decision (block)
+        
+        # Get current time from context metadata (injected by caller)
+        # For core extraction: timestamp must be provided in context.metadata
+        current_time = None
+        if hasattr(context, 'metadata') and context.metadata:
+            timestamp_str = context.metadata.get(MetaKeys.TIMESTAMP)
+            if timestamp_str:
+                try:
+                    current_time = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                except Exception:
+                    # Parse error: reject override (fail-closed)
+                    decision.evidence["override_rejected"] = True
+                    decision.evidence["override_rejection_reason"] = "timestamp_parse_error"
+                    return decision
+        
         # Check override token
+        override_token = None
         if self.policy.global_override.require_token:
-            token_var = self.policy.global_override.token_env_var
-            token = os.environ.get(token_var)
-            if not token:
+            # Get token from context metadata (injected by caller)
+            # For core extraction: override_token must be provided in context.metadata
+            if hasattr(context, 'metadata') and context.metadata:
+                override_token = context.metadata.get(MetaKeys.OVERRIDE_TOKEN)
+            if not override_token:
+                # No token provided: reject override (fail-closed)
+                decision.evidence["override_rejected"] = True
+                decision.evidence["override_rejection_reason"] = "override_token_missing"
                 return decision
         
-        # Check expiration
-        if self.policy.global_override.expires_at:
-            try:
-                expiry = datetime.fromisoformat(
-                    self.policy.global_override.expires_at.replace('Z', '+00:00')
-                )
-                if datetime.now(expiry.tzinfo) > expiry:
-                    return decision
-            except Exception:
+        # Check expiration (fail-closed: if parse fails, reject)
+        try:
+            expiry_str = self.policy.global_override.expires_at.replace('Z', '+00:00')
+            expiry = datetime.fromisoformat(expiry_str)
+            
+            # Check if timezone is present
+            if expiry.tzinfo is None:
+                decision.evidence["override_rejected"] = True
+                decision.evidence["override_rejection_reason"] = "expires_at_missing_timezone"
                 return decision
+            
+            # For core extraction: current_time must be provided in context.metadata
+            if current_time is None:
+                decision.evidence["override_rejected"] = True
+                decision.evidence["override_rejection_reason"] = "timestamp_missing"
+                return decision
+            
+            # Ensure current_time has timezone if expiry has timezone
+            if expiry.tzinfo and current_time.tzinfo is None:
+                current_time = current_time.replace(tzinfo=expiry.tzinfo)
+            
+            # Check if expired
+            if current_time > expiry:
+                # Override expired: reject
+                decision.evidence["override_rejected"] = True
+                decision.evidence["override_rejection_reason"] = "expired"
+                decision.evidence["override_expired_at"] = self.policy.global_override.expires_at
+                return decision
+        except Exception as e:
+            # Parse error: reject override (fail-closed)
+            decision.evidence["override_rejected"] = True
+            decision.evidence["override_rejection_reason"] = "expires_at_parse_error"
+            decision.evidence["override_parse_error"] = str(e)
+            return decision
         
         # Override is active: convert to ALLOW
         decision.decision = DecisionOutcome.ALLOW
         decision.evidence["override_active"] = True
         decision.evidence["override_reason"] = "emergency_override"
+        decision.evidence["override_expires_at"] = self.policy.global_override.expires_at
         decision.evidence["original_decision"] = "block"
         decision.overrideable = True
         decision.message = f"[OVERRIDE] {decision.message}"
@@ -323,9 +421,22 @@ class ValidationEngine:
         
         Returns True if an exception is active and not expired.
         """
+        # Get current time from context metadata (injected by caller)
+        # For core extraction: timestamp must be provided in context.metadata
+        current_time = None
+        if hasattr(context, 'metadata') and context.metadata:
+            timestamp_str = context.metadata.get(MetaKeys.TIMESTAMP)
+            if timestamp_str:
+                try:
+                    current_time = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                except Exception:
+                    # Parse error: treat as expired (fail-closed)
+                    return False
+        
         for exception in config.exceptions:
-            # Check expiration
-            if exception.is_expired():
+            # Check expiration (pass current_time if available)
+            # If current_time is None, exception.is_expired will treat as expired (fail-closed)
+            if exception.is_expired(current_time):
                 continue
             
             # Check scope match

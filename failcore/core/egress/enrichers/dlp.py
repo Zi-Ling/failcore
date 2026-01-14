@@ -82,6 +82,8 @@ class DLPEnricher:
         """
         Enrich event with DLP findings.
 
+        Uses scan cache to avoid duplicate scanning if gate already scanned this payload.
+
         Adds:
           - event.evidence["dlp_hits"] = ["PATTERN_A", ...]
           - event.evidence["dlp_pattern_categories"] = ["api_key", "pii_email", ...]
@@ -99,45 +101,57 @@ class DLPEnricher:
         if not text or not text.strip():
             return
 
-        hits: Set[str] = set()
-        detected_patterns: List[SensitivePattern] = []
+        # Get scan cache from event metadata (must be run-scoped)
+        # Cache should be injected by RunCtx or executor
+        scan_cache = getattr(event, "scan_cache", None)
+        if scan_cache is None:
+            # Try to get from event metadata
+            metadata = getattr(event, "metadata", {})
+            if isinstance(metadata, dict):
+                scan_cache = metadata.get("scan_cache")
         
-        # Scan using pattern registry
-        all_patterns = self.pattern_registry.get_all_patterns()
-        if not all_patterns:
-            # Pattern registry not initialized - skip silently (fail-open)
-            return
+        # If no cache available, we need to create one (for enricher compatibility)
+        # This is a fallback - ideally cache should be injected
+        if scan_cache is None:
+            from failcore.core.guards.cache import ScanCache
+            run_id = getattr(event, "run_id", None) or "enricher_fallback"
+            scan_cache = ScanCache(run_id=run_id)
         
-        for name, sensitive_pattern in all_patterns.items():
-            # Check severity threshold
-            if sensitive_pattern.severity < self.min_severity:
-                continue
-            
-            try:
-                # Ensure pattern is a compiled regex
-                pattern = sensitive_pattern.pattern
-                if not hasattr(pattern, 'search'):
-                    continue
-                if pattern.search(text):
-                    hits.add(name)
-                    detected_patterns.append(sensitive_pattern)
-            except (re.error, AttributeError, TypeError):
-                # If a bad pattern slips in, don't crash the pipeline
-                continue
-
+        # Use scanners interface (this is the ONLY way to scan)
+        from failcore.core.guards.scanners import scan_dlp
+        
+        step_id = getattr(event, "step_id", None)
+        
+        # Call scanner (will check cache first, then scan if needed)
+        # scan_dlp accepts Any payload and converts to string internally
+        scan_result = scan_dlp(
+            payload=text,
+            cache=scan_cache,
+            step_id=step_id,
+            pattern_registry=self.pattern_registry,
+        )
+        
+        # Extract results from ScanResult
+        results = scan_result.results
+        matches = results.get("matches", [])
+        
+        # Extract pattern names from matches
+        hits = set()
+        for match in matches:
+            pattern_name = match.get("pattern", "")
+            if pattern_name:
+                hits.add(pattern_name)
+        
         if not hits:
             return
-
+        
+        # Extract evidence
+        evidence_data = scan_result.evidence
         evidence["dlp_hits"] = sorted(hits)
-        
-        # Add pattern categories
-        categories = list(set(p.category.value for p in detected_patterns))
-        evidence["dlp_pattern_categories"] = sorted(categories)
-        
-        # Add max severity
-        if detected_patterns:
-            max_severity = max(p.severity for p in detected_patterns)
-            evidence["dlp_max_severity"] = max_severity
+        evidence["dlp_pattern_categories"] = evidence_data.get("matched_categories", [])
+        evidence["dlp_max_severity"] = results.get("max_severity", 0)
+        evidence["dlp_scan_cache_hit"] = scan_result.cache_key.payload_fingerprint is not None
+        evidence["dlp_scan_hash"] = scan_result.cache_key.payload_fingerprint
         
         # Optional redaction: mutate evidence to reduce secret leakage in traces
         if self.redact:

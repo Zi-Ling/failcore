@@ -61,11 +61,28 @@ class ExceptionV1(BaseModel):
     created_by: Optional[str] = Field(default=None, description="Creator identity")
     created_at: Optional[str] = Field(default=None, description="Creation timestamp")
     
-    def is_expired(self) -> bool:
-        """Check if exception has expired"""
+    def is_expired(self, current_time: Optional[datetime] = None) -> bool:
+        """
+        Check if exception has expired
+        
+        Args:
+            current_time: Current time to check against (required for core extraction)
+                         For core extraction, this must be provided by the caller
+                         If None, treats as expired (fail-closed)
+        
+        Returns:
+            True if exception has expired
+        """
         try:
             expiry = datetime.fromisoformat(self.expires_at.replace('Z', '+00:00'))
-            return datetime.now(expiry.tzinfo) > expiry
+            # For core extraction: current_time must be provided by the caller
+            # If None, treat as expired (fail-closed)
+            if current_time is None:
+                return True
+            # Ensure current_time has timezone if expiry has timezone
+            if expiry.tzinfo and current_time.tzinfo is None:
+                current_time = current_time.replace(tzinfo=expiry.tzinfo)
+            return current_time > expiry
         except Exception:
             return True  # Treat parse errors as expired
 

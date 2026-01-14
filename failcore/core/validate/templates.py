@@ -1,4 +1,4 @@
-# failcore/core/validate/presets.py
+# failcore/core/validate/templates.py
 """
 Policy Presets: Pre-configured policy templates.
 
@@ -48,7 +48,7 @@ def default_safe_policy() -> Policy:
                 enforcement=EnforcementMode.BLOCK,
                 priority=30,
                 config={
-                    "path_params": ["path", "file_path", "relative_path", "filename"],
+                    "path_params": ["path", "file_path", "relative_path"],
                     "sandbox_root": None,
                 },
             ),
@@ -59,7 +59,7 @@ def default_safe_policy() -> Policy:
                 enforcement=EnforcementMode.BLOCK,
                 priority=40,
                 config={
-                    "url_params": ["url", "uri", "endpoint", "host"],
+                    "url_params": ["url", "uri", "endpoint"],
                     "block_internal": True,
                     "allowed_schemes": ["http", "https"],
                     "allowed_ports": [80, 443],
@@ -114,7 +114,7 @@ def fs_safe_policy(sandbox_root: Optional[str] = None) -> Policy:
                 enforcement=EnforcementMode.BLOCK,
                 priority=30,
                 config={
-                    "path_params": ["path", "file_path", "relative_path", "filename", "output_path", "dst"],
+                    "path_params": ["path", "file_path", "relative_path", "output_path", "dst"],
                     "sandbox_root": sandbox_root,
                 },
             ),
@@ -160,7 +160,7 @@ def net_safe_policy(allowlist: Optional[list] = None) -> Policy:
                 enforcement=EnforcementMode.BLOCK,
                 priority=40,
                 config={
-                    "url_params": ["url", "uri", "endpoint", "host"],
+                    "url_params": ["url", "uri", "endpoint"],
                     "block_internal": True,
                     "allowed_schemes": ["http", "https"],
                     "allowed_ports": [80, 443, 8080, 8443],

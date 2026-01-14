@@ -1,63 +1,40 @@
-# failcore/core/validate/builtin/base.py
+# failcore/core/validate/builtin/__init__.py
 """
-Validator implementations organized by category
+Built-in validators for FailCore validation system.
+
+This module exports all built-in validators that implement the BaseValidator interface.
 """
 
-from .contract import (
-    output_contract_postcondition,
-    json_output_postcondition,
-    text_output_postcondition,
-)
+from __future__ import annotations
 
-from .security import (
-    path_traversal_precondition,
-)
+# Pre-condition validators
+from .pre.security import PathTraversalValidator
+from .pre.network import NetworkSSRFValidator
+from .pre.schema import TypeRequiredFieldsValidator
+from .pre.resource import ResourceFileSizeValidator
 
-from .type import (
-    type_check_precondition,
-    required_fields_precondition,
-    max_length_precondition,
-    pydantic_adapter_precondition,
-)
+# Output validators
+from .output.contract import OutputContractValidator
+from .output.dlp import DLPGuardValidator
+from .output.semantic import SemanticIntentValidator
+from .output.taint import TaintFlowValidator
 
-from .network import (
-    url_safe_precondition,
-    domain_whitelist_precondition,
-    internal_ip_block_precondition,
-    port_range_precondition,
-)
-
-from .resource import (
-    max_file_size_precondition,
-    max_payload_size_precondition,
-    max_collection_size_precondition,
-
-)
+# Post-condition validators
+from .post.drift import PostRunDriftValidator
 
 __all__ = [
-    # Contract builtin
-    "output_contract_postcondition",
-    "json_output_postcondition",
-    "text_output_postcondition",
+    # Pre-condition validators
+    "PathTraversalValidator",
+    "NetworkSSRFValidator",
+    "TypeRequiredFieldsValidator",
+    "ResourceFileSizeValidator",
     
-    # Security builtin
-    "path_traversal_precondition",
+    # Output validators
+    "OutputContractValidator",
+    "DLPGuardValidator",
+    "SemanticIntentValidator",
+    "TaintFlowValidator",
     
-    # Type builtin
-    "type_check_precondition",
-    "required_fields_precondition",
-    "max_length_precondition",
-    "pydantic_adapter_precondition",
-    
-    # Network builtin
-    "url_safe_precondition",
-    "domain_whitelist_precondition",
-    "internal_ip_block_precondition",
-    "port_range_precondition",
-    
-    # Resource builtin
-    "max_file_size_precondition",
-    "max_payload_size_precondition",
-    "max_collection_size_precondition",
+    # Post-condition validators
+    "PostRunDriftValidator",
 ]
-

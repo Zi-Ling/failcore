@@ -6,7 +6,7 @@ Middleware for semantic intent validation
 
 from typing import Dict, Any, Optional, Callable
 from .detectors import SemanticDetector
-from .rules import RuleRegistry, RuleSeverity
+from failcore.core.rules.semantic import RuleRegistry, RuleSeverity
 from .verdict import VerdictAction
 
 

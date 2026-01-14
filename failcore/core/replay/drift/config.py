@@ -7,6 +7,7 @@ Fields in the ignore list are excluded from drift comparison.
 """
 
 from typing import List, Set, Dict, Any, Optional
+from enum import Enum
 
 
 # Default fields to ignore during normalization (dynamic fields that change every call)
@@ -66,6 +67,14 @@ DRIFT_WEIGHT_DOMAIN_CHANGED: float = 5.0  # High weight
 INFLECTION_THRESHOLD_HIGH: float = 10.0  # Absolute threshold for high drift
 INFLECTION_CHANGE_RATE: float = 2.0  # 2x previous drift = inflection point
 
+# Baseline strategy options
+class BaselineStrategy(str, Enum):
+    """Baseline generation strategy"""
+    FIRST_OCCURRENCE = "first_occurrence"  # Use first occurrence (default, simple)
+    MEDIAN = "median"  # Use median value (robust to outliers)
+    PERCENTILE = "percentile"  # Use percentile value (configurable)
+    SEGMENTED = "segmented"  # Build baselines per segment
+
 
 class DriftConfig:
     """
@@ -89,6 +98,9 @@ class DriftConfig:
         drift_weight_domain_changed: float = DRIFT_WEIGHT_DOMAIN_CHANGED,
         inflection_threshold_high: float = INFLECTION_THRESHOLD_HIGH,
         inflection_change_rate: float = INFLECTION_CHANGE_RATE,
+        baseline_strategy: BaselineStrategy = BaselineStrategy.FIRST_OCCURRENCE,
+        baseline_percentile: float = 50.0,
+        baseline_segment_window: Optional[int] = None,
     ):
         """
         Initialize drift configuration
@@ -107,6 +119,9 @@ class DriftConfig:
             drift_weight_domain_changed: Weight for domain_changed drift (default: 5.0)
             inflection_threshold_high: High threshold for inflection point detection (default: 10.0)
             inflection_change_rate: Change rate multiplier for inflection point detection (default: 2.0)
+            baseline_strategy: Baseline generation strategy (default: FIRST_OCCURRENCE)
+            baseline_percentile: Percentile for percentile baseline (default: 50.0)
+            baseline_segment_window: Window size for segmented baseline (default: None)
         """
         self.ignore_fields = ignore_fields or DEFAULT_IGNORE_FIELDS.copy()
         self.tool_ignore_fields = tool_ignore_fields or TOOL_IGNORE_FIELDS.copy()
@@ -127,6 +142,11 @@ class DriftConfig:
         # Inflection point detection
         self.inflection_threshold_high = inflection_threshold_high
         self.inflection_change_rate = inflection_change_rate
+        
+        # Baseline strategy
+        self.baseline_strategy = baseline_strategy
+        self.baseline_percentile = baseline_percentile
+        self.baseline_segment_window = baseline_segment_window
     
     def get_ignore_fields(self, tool_name: str) -> Set[str]:
         """
@@ -189,6 +209,7 @@ def set_default_config(config: DriftConfig) -> None:
 
 __all__ = [
     "DriftConfig",
+    "BaselineStrategy",
     "get_default_config",
     "set_default_config",
     "DEFAULT_IGNORE_FIELDS",

@@ -16,7 +16,6 @@ from typing import Any, Dict, Optional, List, TYPE_CHECKING
 
 from failcore.core.types.step import Step, RunContext, StepOutput, StepError
 from ..tools import ToolProvider
-from ..validate import ValidatorRegistry
 from ..trace import TraceRecorder
 from ..policy.policy import Policy
 from ..cost import CostGuardian, CostEstimator, CostUsage, UsageExtractor
@@ -78,7 +77,6 @@ class ExecutionServices:
     tools: ToolProvider
     recorder: TraceRecorder
     policy: Policy
-    validator: Optional[ValidatorRegistry]
     
     # Cost services
     cost_guardian: Optional[CostGuardian]

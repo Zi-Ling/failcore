@@ -1,7 +1,14 @@
 """
-Taint Tracking - DLP Middleware
+Taint Tracking - Taint Middleware
 
-Data Loss Prevention at tool boundaries
+Lightweight taint tracking at tool boundaries for marking and propagation.
+This middleware is responsible ONLY for marking data sources and tracking taint propagation.
+
+NOTE: For DLP policy enforcement, use DLPMiddleware from guards.dlp.middleware.
+This middleware should be called BEFORE DLPMiddleware to mark taint, then DLP
+can use taint context to make policy decisions.
+
+Call order: TaintMiddleware (mark) -> DLPMiddleware (enforce policy)
 """
 
 from typing import Dict, Any, Optional, Callable
@@ -12,22 +19,29 @@ from .sanitizer import DataSanitizer
 
 
 class DLPAction(str, Enum):
-    """DLP policy actions"""
+    """DLP policy actions (kept for backward compatibility, but use guards.dlp.policies.DLPAction)"""
     ALLOW = "allow"              # Allow operation
     BLOCK = "block"              # Block operation
     SANITIZE = "sanitize"        # Sanitize data before operation
     REQUIRE_APPROVAL = "require_approval"  # Require human approval
 
 
-class DLPMiddleware:
+class TaintMiddleware:
     """
-    Data Loss Prevention middleware
+    Taint tracking middleware
+    
+    Responsibilities:
+    - Mark data sources (source tools) as tainted
+    - Track taint propagation through tool calls
+    - Provide taint context for DLP policy enforcement
     
     Integration flow:
-    1. on_call_start (source tool): Mark output as tainted
-    2. on_call_start (sink tool): Detect tainted inputs, apply DLP policy
-    3. DLP policy decides: BLOCK / SANITIZE / REQUIRE_APPROVAL
-    4. All actions logged to trace
+    1. on_call_start (source tool): Mark output as tainted in context
+    2. on_call_success (source tool): Record taint tags for outputs
+    3. on_call_start (sink tool): Provide taint context (DLP middleware uses this)
+    
+    NOTE: This middleware does NOT enforce DLP policies. It only tracks taint.
+    For policy enforcement, use DLPMiddleware from guards.dlp.middleware.
     """
     
     def __init__(
@@ -328,4 +342,7 @@ class DLPMiddleware:
         return any(keyword in tool_name.lower() for keyword in ["secret", "password", "token", "key", "credential"])
 
 
-__all__ = ["DLPMiddleware", "DLPAction"]
+# Backward compatibility alias (deprecated, use guards.dlp.middleware.DLPMiddleware)
+DLPMiddleware = TaintMiddleware
+
+__all__ = ["TaintMiddleware", "DLPAction", "DLPMiddleware"]  # DLPMiddleware for backward compatibility

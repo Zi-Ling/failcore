@@ -68,6 +68,10 @@ def register_command(subparsers):
     exp_p.add_argument("--tool", "-t", required=True, help="Tool name")
     exp_p.add_argument("--param", "-p", action="append", default=[],
                        help="Parameter in key=value format (can be repeated)")
+    exp_p.add_argument("--verbose", "-v", action="store_true",
+                       help="Show detailed evidence and all decisions")
+    exp_p.add_argument("--json", action="store_true",
+                       help="Output as JSON")
     exp_p.set_defaults(func=explain)
     
     # diff
@@ -226,7 +230,7 @@ def explain(args):
                 key, value = p.split("=", 1)
                 params[key] = value
         
-        # Load merged policy
+        # Load merged policy (active + shadow + breakglass)
         policy = load_merged_policy()
         
         # Create context
@@ -238,39 +242,26 @@ def explain(args):
         
         # Run validation
         auto_register()
-        engine = ValidationEngine()
-        decisions = engine.evaluate(context, policy)
+        engine = ValidationEngine(policy=policy)
+        decisions = engine.evaluate(context)
         
-        # Display results
-        print(f"\nValidation Results for: {args.tool}")
-        print(f"Parameters: {params}\n")
+        # Get triggered validators
+        triggered_validators = list(set(d.validator_id for d in decisions))
         
-        if not decisions:
-            print("[OK] No validators triggered")
-            return 0
+        # Create explanation
+        from failcore.core.validate.explain import explain_decisions
+        explanation = explain_decisions(decisions, policy, triggered_validators)
         
-        for decision in decisions:
-            icon = "[X]" if decision.enforcement == "BLOCK" else "[!]" if decision.enforcement == "WARN" else "[i]"
-            
-            print(f"{icon} {decision.code}: {decision.message}")
-            print(f"   Validator: {decision.validator_id}")
-            print(f"   Enforcement: {decision.enforcement}")
-            print(f"   Allowed: {decision.allowed}")
-            if decision.evidence:
-                print(f"   Evidence: {json.dumps(decision.evidence, indent=6)}")
-            print()
+        # Display results using enhanced explanation
+        verbose = getattr(args, 'verbose', False)
+        print(explanation.get_summary(verbose=verbose))
         
-        # Summary
-        blocked = sum(1 for d in decisions if d.enforcement == "BLOCK" and not d.allowed)
-        warned = sum(1 for d in decisions if d.enforcement == "WARN")
-        shadowed = sum(1 for d in decisions if d.enforcement == "SHADOW")
+        # Print JSON output if requested
+        if getattr(args, 'json', False):
+            import json
+            print("\n" + json.dumps(explanation.to_dict(), indent=2))
         
-        print(f"Summary:")
-        print(f"  Blocked: {blocked}")
-        print(f"  Warnings: {warned}")
-        print(f"  Shadowed: {shadowed}")
-        
-        return 1 if blocked > 0 else 0
+        return 0 if not explanation.is_blocked else 1
         
     except Exception as e:
         print(f"[ERROR] Failed to explain: {e}", file=sys.stderr)

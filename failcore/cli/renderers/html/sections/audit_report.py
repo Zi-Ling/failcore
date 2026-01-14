@@ -446,7 +446,7 @@ def _render_incident_chapters(view: AuditReportView) -> str:
         # Long-term: architectural changes
         mitigation_long = f"Consider implementing stricter policy constraints in your FailCore runtime configuration. " \
                          f"Add contract validation for {tool_name} to enforce type safety and boundary checks. " \
-                         f"Review and update validator presets in failcore.presets.validators to match your security baseline."
+                         f"Review and update policy files in .failcore/validate/ to match your security baseline."
         
         # Root cause - Two-layer structure
         immediate_cause = "Tool execution returned non-zero outcome."

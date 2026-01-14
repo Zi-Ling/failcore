@@ -18,11 +18,11 @@ rules:
     enforcement: "WARN"
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 import re
 from pathlib import Path
 
-from .contract import ValidationResult, PreconditionValidator
+from failcore.core.validate.builtin.output.contract import ValidationResult, PreconditionValidator
 
 
 def matches_tool_pattern(tool_name: str, pattern: str) -> bool:

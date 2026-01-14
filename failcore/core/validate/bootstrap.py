@@ -17,8 +17,17 @@ from typing import List, Optional
 import logging
 
 from .validator import BaseValidator
-from .registry import get_global_registry, ValidatorRegistry
-from .contracts import Context, Decision, ValidatorConfig, DecisionOutcome, RiskLevel
+from .registry import ValidatorRegistry
+from .contracts import Context, Decision, ValidatorConfig, DecisionOutcome, RiskLevel, Policy
+from .engine import ValidationEngine
+
+try:
+    from ..errors.exceptions import FailCoreError
+    from ..errors import codes
+except ImportError:
+    # Fallback if errors module is not available
+    FailCoreError = ValueError  # type: ignore
+    codes = None  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -73,16 +82,16 @@ def validation_result_to_decision(result, validator_id: str, rule_id: Optional[s
 
 
 def register_builtin_validators(
-    registry: Optional[ValidatorRegistry] = None
+    registry: ValidatorRegistry
 ) -> None:
     """
     Register all built-in builtin.
     
     Args:
-        registry: Registry to register to (if None, uses global registry)
+        registry: Registry to register to (required, no global registry)
     """
     if registry is None:
-        registry = get_global_registry()
+        raise ValueError("registry parameter is required (no global registry)")
     
     # Import builtin here to avoid circular imports
     # Note: We're wrapping legacy builtin for now
@@ -90,7 +99,7 @@ def register_builtin_validators(
     
     # Contract builtin
     try:
-        from .builtin.contract import (
+        from failcore.core.validate.builtin.output.contract import (
             output_contract_postcondition,
             json_output_postcondition,
             text_output_postcondition,
@@ -105,47 +114,7 @@ def register_builtin_validators(
     
     # Security builtin
     try:
-        from .builtin.security import path_traversal_precondition
-        
-        # Create a simple wrapper validator
-        class PathTraversalValidator(BaseValidator):
-            @property
-            def id(self) -> str:
-                return "security_path_traversal"
-            
-            @property
-            def domain(self) -> str:
-                return "security"
-            
-            def evaluate(
-                self,
-                context: Context,
-                config: Optional[ValidatorConfig] = None
-            ) -> List[Decision]:
-                # Get path parameter names from config
-                path_params = ["path", "file_path", "relative_path", "filename"]
-                if config and "path_params" in config.config:
-                    path_params = config.config["path_params"]
-                
-                # Get sandbox root from config
-                sandbox_root = None
-                if config and "sandbox_root" in config.config:
-                    sandbox_root = config.config["sandbox_root"]
-                
-                # Create legacy validator
-                validator = path_traversal_precondition(
-                    *path_params,
-                    sandbox_root=sandbox_root
-                )
-                
-                # Execute validation
-                result = validator.validate(context.to_dict())
-                
-                # Convert to DecisionV1
-                if result.valid:
-                    return []
-                
-                return [validation_result_to_decision(result, self.id)]
+        from failcore.core.validate.builtin.pre.security import PathTraversalValidator
         
         registry.register(PathTraversalValidator())
         logger.debug("Registered PathTraversalValidator")
@@ -154,63 +123,53 @@ def register_builtin_validators(
     except Exception as e:
         logger.warning(f"Error loading security builtin: {e}")
     
+    # DLP guard builtin
+    try:
+        from failcore.core.validate.builtin.output.dlp import DLPGuardValidator
+        
+        registry.register(DLPGuardValidator())
+        logger.debug("Registered DLPGuardValidator")
+    except ImportError as e:
+        logger.debug(f"Failed to import DLP builtin: {e}")
+    except Exception as e:
+        logger.warning(f"Error loading DLP builtin: {e}")
+    
+    # Semantic intent builtin
+    try:
+        from failcore.core.validate.builtin.output.semantic import SemanticIntentValidator
+        
+        registry.register(SemanticIntentValidator())
+        logger.debug("Registered SemanticIntentValidator")
+    except ImportError as e:
+        logger.debug(f"Failed to import semantic builtin: {e}")
+    except Exception as e:
+        logger.warning(f"Error loading semantic builtin: {e}")
+    
+    # Taint flow builtin
+    try:
+        from failcore.core.validate.builtin.output.taint import TaintFlowValidator
+        
+        registry.register(TaintFlowValidator())
+        logger.debug("Registered TaintFlowValidator")
+    except ImportError as e:
+        logger.debug(f"Failed to import taint flow builtin: {e}")
+    except Exception as e:
+        logger.warning(f"Error loading taint flow builtin: {e}")
+    
+    # Post-run drift builtin
+    try:
+        from failcore.core.validate.builtin.post.drift import PostRunDriftValidator
+        
+        registry.register(PostRunDriftValidator())
+        logger.debug("Registered PostRunDriftValidator")
+    except ImportError as e:
+        logger.debug(f"Failed to import drift builtin: {e}")
+    except Exception as e:
+        logger.warning(f"Error loading drift builtin: {e}")
+    
     # Network builtin
     try:
-        from .builtin.network import ssrf_precondition
-        
-        class NetworkSSRFValidator(BaseValidator):
-            @property
-            def id(self) -> str:
-                return "network_ssrf"
-            
-            @property
-            def domain(self) -> str:
-                return "network"
-            
-            def evaluate(
-                self,
-                context: Context,
-                config: Optional[ValidatorConfig] = None
-            ) -> List[Decision]:
-                # Get URL parameter names from config
-                url_params = ["url", "uri", "endpoint", "host"]
-                if config and "url_params" in config.config:
-                    url_params = config.config["url_params"]
-                
-                # Get other config
-                allowlist = None
-                block_internal = True
-                allowed_schemes = None
-                allowed_ports = None
-                forbid_userinfo = True
-                
-                if config:
-                    allowlist = config.config.get("allowlist")
-                    block_internal = config.config.get("block_internal", True)
-                    if "allowed_schemes" in config.config:
-                        allowed_schemes = set(config.config["allowed_schemes"])
-                    if "allowed_ports" in config.config:
-                        allowed_ports = set(config.config["allowed_ports"])
-                    forbid_userinfo = config.config.get("forbid_userinfo", True)
-                
-                # Create legacy validator
-                validator = ssrf_precondition(
-                    *url_params,
-                    allowlist=allowlist,
-                    block_internal=block_internal,
-                    allowed_schemes=allowed_schemes,
-                    allowed_ports=allowed_ports,
-                    forbid_userinfo=forbid_userinfo,
-                )
-                
-                # Execute validation
-                result = validator.validate(context.to_dict())
-                
-                # Convert to DecisionV1
-                if result.valid:
-                    return []
-                
-                return [validation_result_to_decision(result, self.id)]
+        from failcore.core.validate.builtin.pre.network import NetworkSSRFValidator
         
         registry.register(NetworkSSRFValidator())
         logger.debug("Registered NetworkSSRFValidator")
@@ -221,43 +180,7 @@ def register_builtin_validators(
     
     # Resource builtin
     try:
-        from .builtin.resource import (
-            max_file_size_precondition,
-            max_payload_size_precondition,
-        )
-        
-        class ResourceFileSizeValidator(BaseValidator):
-            @property
-            def id(self) -> str:
-                return "resource_file_size"
-            
-            @property
-            def domain(self) -> str:
-                return "resource"
-            
-            def evaluate(
-                self,
-                context: Context,
-                config: Optional[ValidatorConfig] = None
-            ) -> List[Decision]:
-                param_name = "path"
-                max_bytes = 100 * 1024 * 1024  # 100MB default
-                
-                if config:
-                    param_name = config.config.get("param_name", param_name)
-                    max_bytes = config.config.get("max_bytes", max_bytes)
-                
-                # Create legacy validator
-                validator = max_file_size_precondition(param_name, max_bytes=max_bytes)
-                
-                # Execute validation
-                result = validator.validate(context.to_dict())
-                
-                # Convert to DecisionV1
-                if result.valid:
-                    return []
-                
-                return [validation_result_to_decision(result, self.id)]
+        from failcore.core.validate.builtin.pre.resource import ResourceFileSizeValidator
         
         registry.register(ResourceFileSizeValidator())
         logger.debug("Registered ResourceFileSizeValidator")
@@ -268,41 +191,7 @@ def register_builtin_validators(
     
     # Type builtin
     try:
-        from .builtin.type import (
-            type_check_precondition,
-            required_fields_precondition,
-        )
-        
-        class TypeRequiredFieldsValidator(BaseValidator):
-            @property
-            def id(self) -> str:
-                return "type_required_fields"
-            
-            @property
-            def domain(self) -> str:
-                return "type"
-            
-            def evaluate(
-                self,
-                context: Context,
-                config: Optional[ValidatorConfig] = None
-            ) -> List[Decision]:
-                if not config or "required_fields" not in config.config:
-                    return []
-                
-                required_fields = config.config["required_fields"]
-                
-                # Create legacy validator
-                validator = required_fields_precondition(*required_fields)
-                
-                # Execute validation
-                result = validator.validate(context.to_dict())
-                
-                # Convert to DecisionV1
-                if result.valid:
-                    return []
-                
-                return [validation_result_to_decision(result, self.id)]
+        from failcore.core.validate.builtin.pre.schema import TypeRequiredFieldsValidator
         
         registry.register(TypeRequiredFieldsValidator())
         logger.debug("Registered TypeRequiredFieldsValidator")
@@ -312,18 +201,18 @@ def register_builtin_validators(
         logger.warning(f"Error loading type builtin: {e}")
 
 
-def is_bootstrapped(registry: Optional[ValidatorRegistry] = None) -> bool:
+def is_bootstrapped(registry: ValidatorRegistry) -> bool:
     """
     Check if built-in builtin are registered.
     
     Args:
-        registry: Registry to check (if None, uses global registry)
+        registry: Registry to check (required, no global registry)
     
     Returns:
         True if at least one built-in validator is registered
     """
     if registry is None:
-        registry = get_global_registry()
+        raise ValueError("registry parameter is required (no global registry)")
     
     return registry.count() > 0
 
@@ -351,9 +240,132 @@ def reset_auto_register_flag() -> None:
     _auto_registered = False
 
 
+def create_default_registry() -> ValidatorRegistry:
+    """
+    Create and register builtin validators registry (factory function).
+    
+    This function creates a new ValidatorRegistry instance and registers all
+    builtin validators. Each call creates a new instance (maintains extractability).
+    
+    For performance, use application-level singleton (see api/context.py).
+    
+    Returns:
+        New ValidatorRegistry instance with builtin validators registered
+    """
+    registry = ValidatorRegistry()
+    register_builtin_validators(registry)
+    return registry
+
+
+def ensure_registered(registry: ValidatorRegistry, policy: Policy) -> None:
+    """
+    Ensure all validators required by policy are registered.
+    
+    If any validator is missing, raises FailCoreError with clear fix guidance.
+    
+    Args:
+        registry: Validator registry to check
+        policy: Policy to check against
+    
+    Raises:
+        FailCoreError: If any required validator is missing from registry
+    """
+    if registry is None:
+        if FailCoreError != ValueError:
+            raise FailCoreError.validation(
+                message="registry parameter is required",
+                error_code=codes.INVALID_ARGUMENT if codes else "INVALID_ARGUMENT",
+            )
+        else:
+            raise ValueError("registry parameter is required")
+    
+    if policy is None:
+        return  # No policy to check
+    
+    # Get all validator IDs from policy (policy.validators is Dict[str, ValidatorConfig])
+    required_ids = set(policy.validators.keys())
+    
+    if not required_ids:
+        return  # No validators required
+    
+    # Check which validators are missing
+    missing = []
+    for validator_id in required_ids:
+        if registry.get(validator_id) is None:
+            missing.append(validator_id)
+    
+    if missing:
+        policy_name = policy.metadata.get("name", "unknown") if policy.metadata else "unknown"
+        # Get available validator IDs
+        available_ids = sorted([v.id for v in registry.list_validators()])
+        
+        message = f"Missing validators for policy '{policy_name}': {', '.join(missing)}"
+        suggestion = (
+            "Use create_default_registry() or create_default_engine() to automatically register builtin validators. "
+            "Or use get_default_registry() from failcore.api if available."
+        )
+        
+        if FailCoreError != ValueError and codes:
+            raise FailCoreError(
+                message=message,
+                error_code=codes.INVALID_ARGUMENT,
+                error_type="VALIDATION_ERROR",
+                phase="validate",
+                details={
+                    "policy_name": policy_name,
+                    "missing_validators": missing,
+                    "available_validators": available_ids,
+                },
+                suggestion=suggestion,
+            )
+        else:
+            raise ValueError(f"{message}. {suggestion}. Available validators: {', '.join(available_ids)}")
+
+
+def create_default_engine(
+    policy: Optional[Policy] = None,
+    registry: Optional[ValidatorRegistry] = None,
+    strict_mode: bool = False,
+) -> ValidationEngine:
+    """
+    Create default validation engine (factory function).
+    
+    This function creates a new ValidationEngine instance. Engine is created
+    new each time (may have state). Registry can be injected or created new.
+    
+    Args:
+        policy: Validation policy (if None, uses default policy)
+        registry: Validator registry (if None, creates new registry)
+        strict_mode: If True, short-circuit on first BLOCK decision
+    
+    Returns:
+        New ValidationEngine instance
+    
+    Note:
+        - Engine is created new each time (may have state)
+        - Registry can be reused (recommended for performance)
+        - If registry is None, creates new registry (maintains extractability)
+        - For performance, inject application-level registry singleton
+        - Validators are checked before engine creation (fail-fast)
+    """
+    if registry is None:
+        registry = create_default_registry()
+    
+    # Ensure all required validators are registered BEFORE creating engine (fail-fast)
+    if policy:
+        ensure_registered(registry, policy)
+    
+    engine = ValidationEngine(registry=registry, policy=policy, strict_mode=strict_mode)
+    
+    return engine
+
+
 __all__ = [
     "register_builtin_validators",
     "is_bootstrapped",
     "auto_register",
     "reset_auto_register_flag",
+    "create_default_registry",
+    "ensure_registered",
+    "create_default_engine",
 ]

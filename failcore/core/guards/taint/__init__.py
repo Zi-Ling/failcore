@@ -8,6 +8,7 @@ from .tag import TaintSource, DataSensitivity, TaintTag, TaintedData
 from .context import TaintContext
 from .sanitizer import DataSanitizer
 from .store import TaintStore
+from .middleware import TaintMiddleware, DLPMiddleware  # DLPMiddleware for backward compatibility
 
 __all__ = [
     "TaintSource",
@@ -17,4 +18,6 @@ __all__ = [
     "TaintContext",
     "DataSanitizer",
     "TaintStore",
+    "TaintMiddleware",
+    "DLPMiddleware",  # Backward compatibility alias
 ]

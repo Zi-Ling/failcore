@@ -1,4 +1,17 @@
 # failcore/core/tools/runtime/middleware/validation.py
+"""
+Validation Middleware - Trace/observation only (NOT validation logic).
+
+IMPORTANT: This middleware does NOT perform validation.
+Validation is done exclusively by StepValidator in the executor pipeline.
+
+This middleware is for:
+- Trace recording (observation)
+- Event emission (visibility)
+- NOT for policy enforcement or blocking
+
+All validation logic should use ValidationEngine via StepValidator.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -6,14 +19,19 @@ from typing import Any, Optional
 
 from .base import Middleware
 from ..types import CallContext, ToolEvent, ToolResult, ToolSpecRef
-from failcore.core.validate.validator import ValidatorRegistry
 
 
 @dataclass
 class ValidationMiddleware(Middleware):
-    """Execution-time validation gate using ValidatorRegistry."""
-    validator_registry: ValidatorRegistry
-
+    """
+    Validation middleware for trace/observation only.
+    
+    NOTE: This middleware does NOT perform validation or blocking.
+    Validation is handled exclusively by StepValidator in the executor pipeline.
+    
+    This middleware only emits trace events for visibility/observation.
+    """
+    
     async def on_call_start(
         self,
         tool: ToolSpecRef,
@@ -21,56 +39,26 @@ class ValidationMiddleware(Middleware):
         ctx: CallContext,
         emit,
     ) -> Optional[ToolResult]:
-        validation_ctx = {
-            "tool": tool.name,
-            "params": args,  # CRITICAL: validator expects "params" not "args"
-            "run_id": ctx.run_id,
-            "trace_id": ctx.trace_id,
-        }
-
-        results = self.validator_registry.validate_preconditions(tool.name, validation_ctx)
-
-        for r in results:
-            if not r.valid:
-                if emit:
-                    emit(ToolEvent(
-                        type="error",
-                        message=r.message or "Precondition validation failed",
-                        data={
-                            "stage": "pre",
-                            "validation_type": "precondition",
-                            "tool": tool.name,
-                            "run_id": ctx.run_id,
-                            "trace_id": ctx.trace_id,
-                            "code": r.code or "VALIDATION_FAILED",
-                            "details": r.details or {},
-                        },
-                    ))
-                
-                # Determine error type based on code
-                # Security/boundary violations are POLICY, format/schema issues are VALIDATION
-                error_code = r.code or "VALIDATION_FAILED"
-                is_security_violation = error_code in (
-                    "SANDBOX_VIOLATION",
-                    "PATH_TRAVERSAL",
-                    "SSRF_BLOCKED",
-                    "RATE_LIMIT_EXCEEDED",
-                )
-                error_type = "POLICY" if is_security_violation else "VALIDATION"
-
-                return ToolResult(
-                    ok=False,
-                    content=None,
-                    raw=None,
-                    error={
-                        "type": error_type,
-                        "error_code": error_code,
-                        "message": r.message or "Precondition validation failed",
-                        "details": r.details or {},
-                        "retryable": False,  # Input validation/policy failures are not retryable
-                    },
-                )
-
+        """
+        Emit trace event for tool call start (observation only).
+        
+        NOTE: This does NOT validate or block. Validation is done by StepValidator.
+        """
+        if emit:
+            emit(ToolEvent(
+                type="log",
+                message=f"Tool call start: {tool.name}",
+                data={
+                    "stage": "pre",
+                    "validation_type": "observation",
+                    "tool": tool.name,
+                    "run_id": ctx.run_id,
+                    "trace_id": ctx.trace_id,
+                    "note": "Validation is performed by StepValidator, not this middleware",
+                },
+            ))
+        
+        # Never block - return None to continue execution
         return None
 
     async def on_call_success(
@@ -81,31 +69,21 @@ class ValidationMiddleware(Middleware):
         result: ToolResult,
         emit,
     ) -> None:
-        validation_ctx = {
-            "tool": tool.name,
-            "params": args,  # CRITICAL: validator expects "params" not "args"
-            "result": result.content,
-            "run_id": ctx.run_id,
-            "trace_id": ctx.trace_id,
-        }
-
-        results = self.validator_registry.validate_postconditions(tool.name, validation_ctx)
-
-        for r in results:
-            if not r.valid and emit:
-                emit(ToolEvent(
-                    type="log",
-                    message=r.message or "Postcondition validation failed",
-                    data={
-                        "stage": "post",
-                        "validation_type": "postcondition",
-                        "tool": tool.name,
-                        "run_id": ctx.run_id,
-                        "trace_id": ctx.trace_id,
-                        "code": r.code or "POSTCONDITION_FAILED",
-                        "details": r.details or {},
-                    },
-                ))
+        """
+        Emit trace event for tool call success (observation only).
+        """
+        if emit:
+            emit(ToolEvent(
+                type="log",
+                message=f"Tool call success: {tool.name}",
+                data={
+                    "stage": "post",
+                    "validation_type": "observation",
+                    "tool": tool.name,
+                    "run_id": ctx.run_id,
+                    "trace_id": ctx.trace_id,
+                },
+            ))
 
     async def on_call_error(
         self,

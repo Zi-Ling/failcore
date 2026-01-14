@@ -6,7 +6,6 @@ Ensures backward compatibility and new API work correctly.
 
 import os
 import tempfile
-from pathlib import Path
 
 
 def test_fs_safe_basic():
@@ -50,7 +49,7 @@ def test_fs_safe_sandbox_deprecated():
 
 def test_security_module_import():
     """Test security builtin can be imported from core"""
-    from failcore.core.validate.builtin.security import path_traversal_precondition
+    from failcore.core.validate.builtin.pre.security import path_traversal_precondition
     
     checker = path_traversal_precondition("path", sandbox_root=os.getcwd())
     assert checker is not None

@@ -107,14 +107,20 @@ def compute_drift(
             annotations=[],
         )
     
-    # Build baselines
-    baselines = build_baseline(snapshots, config)
+    # Compute drift points (need to do this first for segmented baseline)
+    # For non-segmented baselines, we can build baseline first
+    # For segmented, we need inflection points, so we do a two-pass approach
     
-    # Compute drift points
+    # Pass 1: Build initial baseline and detect inflection points
+    initial_baselines = build_baseline(snapshots, config, inflection_points=None)
+    initial_drift_points = compute_drift_points(snapshots, initial_baselines, config)
+    inflection_points = detect_inflection_points(initial_drift_points, config)
+    
+    # Pass 2: Rebuild baselines with inflection points (if segmented strategy)
+    baselines = build_baseline(snapshots, config, inflection_points=inflection_points)
+    
+    # Compute final drift points with updated baselines
     drift_points = compute_drift_points(snapshots, baselines, config)
-    
-    # Detect inflection points
-    inflection_points = detect_inflection_points(drift_points, config)
     
     # Generate annotations
     annotations = annotate_all_drift_points(drift_points, inflection_points)
