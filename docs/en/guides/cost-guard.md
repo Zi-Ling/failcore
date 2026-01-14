@@ -258,9 +258,15 @@ with run(max_cost_usd=0.01) as ctx:  # Too small
 
 ```python
 # Regularly check costs
+import json
+
 def check_cost(ctx):
-    trace = load_trace(ctx.trace_path)
-    total_cost = sum(step.get("cost_usd", 0) for step in trace)
+    events = []
+    with open(ctx.trace_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            if line.strip():
+                events.append(json.loads(line))
+    total_cost = sum(e.get("cost_usd", 0) for e in events if "cost_usd" in e)
     
     if total_cost > 5.0:
         print(f"Warning: Cost exceeded $5.00: ${total_cost}")

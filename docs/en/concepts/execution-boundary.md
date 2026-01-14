@@ -139,7 +139,7 @@ with run(policy="fs_safe") as ctx:
     # This will be blocked (write is not within boundary)
     try:
         write_file("output.txt", "data")
-    except PolicyDeny:
+    except FailCoreError:
         print("Write blocked by boundary")
 ```
 
@@ -285,7 +285,7 @@ def test_boundary():
         try:
             write_file("/etc/passwd", "hack")
             assert False, "Should be blocked"
-        except PolicyDeny:
+        except FailCoreError:
             pass  # Expected behavior
 ```
 

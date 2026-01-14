@@ -103,7 +103,7 @@ try:
         args={"path": "../../etc/passwd"},  # Path traversal
         ctx=ctx
     )
-except PolicyDeny:
+except FailCoreError:
     print("Path traversal blocked")
 ```
 
@@ -138,7 +138,7 @@ try:
         args={"url": "http://169.254.169.254/latest/meta-data/"},  # SSRF
         ctx=ctx
     )
-except PolicyDeny:
+except FailCoreError:
     print("SSRF blocked")
 ```
 
@@ -224,7 +224,7 @@ except FailCoreError as e:
 
 ### Policy Errors
 
-Policy violations return `PolicyDeny` exception:
+Policy violations return `FailCoreError` exception:
 
 ```python
 try:
@@ -233,8 +233,8 @@ try:
         args={"path": "../../etc/passwd"},
         ctx=ctx
     )
-except PolicyDeny as e:
-    print(f"Policy denied: {e.result.reason}")
+except FailCoreError as e:
+    print(f"Policy denied: {e.message}")
     print(f"Suggestion: {e.result.suggestion}")
 ```
 

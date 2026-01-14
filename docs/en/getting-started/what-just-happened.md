@@ -100,7 +100,7 @@ Records are saved to the trace file (`.jsonl` format).
 
 If tool succeeds, returns result.  
 If tool fails, raises exception.  
-If blocked by policy, raises `PolicyDeny` exception.
+If blocked by policy, raises `FailCoreError` exception.
 
 ---
 
@@ -124,7 +124,7 @@ Policy check failed, tool not executed.
 ```python
 try:
     write_file("/etc/passwd", "hack")
-except PolicyDeny as e:
+except FailCoreError as e:
     # Status: BLOCKED
     print(f"Blocked: {e}")
 ```
@@ -184,6 +184,7 @@ Only `PolicyStage` decides whether to block (returns `StepResult`).
 
 ```python
 from failcore import run, guard
+from failcore.core.errors import FailCoreError
 
 with run(policy="fs_safe", sandbox="./data") as ctx:
     @guard()
@@ -206,13 +207,13 @@ with run(policy="fs_safe", sandbox="./data") as ctx:
     # Call 2: Blocked
     try:
         write_file("/etc/passwd", "hack")
-    except PolicyDeny as e:
+    except FailCoreError as e:
         pass
     # Flow:
     # 1. Capture call: write_file("/etc/passwd", "hack")
     # 2. Validate parameters: ✓
     # 3. Policy check: path "/etc/passwd" is not within sandbox ✗
-    # 4. Block execution, raise PolicyDeny
+    # 4. Block execution, raise FailCoreError
     # 5. Record: STEP_END status=BLOCKED
     # 6. Tool function not executed
 ```

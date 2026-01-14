@@ -21,6 +21,7 @@ The network safety policy (`net_safe`) provides:
 
 ```python
 from failcore import run, guard
+from failcore.core.errors import FailCoreError
 import urllib.request
 
 with run(policy="net_safe") as ctx:
@@ -36,7 +37,7 @@ with run(policy="net_safe") as ctx:
     # This will be blocked (SSRF)
     try:
         fetch_url("http://169.254.169.254/latest/meta-data/")
-    except PolicyDeny:
+    except FailCoreError:
         print("SSRF blocked")
 ```
 
@@ -77,20 +78,20 @@ with run(policy="net_safe") as ctx:
     # ❌ Local loopback
     try:
         fetch_url("http://127.0.0.1:8080/api")
-    except PolicyDeny as e:
-        print(f"Blocked: {e.result.reason}")
+    except FailCoreError as e:
+        print(f"Blocked: {e.message}")
         # Output: Blocked: Private network access blocked: '127.0.0.1'
     
     # ❌ Private network
     try:
         fetch_url("http://192.168.1.1/admin")
-    except PolicyDeny:
+    except FailCoreError:
         print("Private network blocked")
     
     # ❌ AWS metadata
     try:
         fetch_url("http://169.254.169.254/latest/meta-data/")
-    except PolicyDeny:
+    except FailCoreError:
         print("AWS metadata service blocked")
     
     # ✅ Public URL
@@ -134,7 +135,7 @@ with run(policy="net_safe") as ctx:
     # ❌ File protocol
     try:
         fetch_url("file:///etc/passwd")
-    except PolicyDeny:
+    except FailCoreError:
         print("File protocol blocked")
 ```
 
@@ -226,8 +227,8 @@ FailCore provides detailed error messages:
 ```python
 try:
     fetch_url("http://169.254.169.254/latest/meta-data/")
-except PolicyDeny as e:
-    print(e.result.reason)
+except FailCoreError as e:
+    print(e.message)
     # Output: Private network access blocked: '169.254.169.254'
     
     print(e.result.suggestion)
@@ -282,7 +283,7 @@ def test_ssrf_protection():
         try:
             fetch_url("http://169.254.169.254/latest/meta-data/")
             assert False, "Should be blocked"
-        except PolicyDeny:
+        except FailCoreError:
             pass  # Expected behavior
 ```
 

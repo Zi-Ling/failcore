@@ -21,6 +21,7 @@
 
 ```python
 from failcore import run, guard
+from failcore.core.errors import FailCoreError
 
 with run(policy="fs_safe", sandbox="./data") as ctx:
     @guard()
@@ -34,8 +35,8 @@ with run(policy="fs_safe", sandbox="./data") as ctx:
     # 这会被阻止（路径遍历）
     try:
         write_file("../../etc/passwd", "hack")
-    except PolicyDeny:
-        print("路径遍历被阻止")
+    except FailCoreError as e:
+        print(f"路径遍历被阻止: {e}")
 ```
 
 ---
@@ -114,22 +115,22 @@ with run(policy="fs_safe", sandbox="./data") as ctx:
     # ❌ 路径遍历
     try:
         write_file("../../etc/passwd", "hack")
-    except PolicyDeny as e:
-        print(f"被阻止: {e.result.reason}")
+    except FailCoreError as e:
+        print(f"被阻止: {e.message}")
         # 输出: 被阻止: 路径遍历检测到：'../../etc/passwd'
     
     # ❌ 绝对路径
     try:
         write_file("/etc/passwd", "hack")
-    except PolicyDeny as e:
-        print(f"被阻止: {e.result.reason}")
+    except FailCoreError as e:
+        print(f"被阻止: {e.message}")
         # 输出: 被阻止: 绝对路径不允许：'/etc/passwd'
     
     # ❌ 超出沙箱
     try:
         write_file("../outside.txt", "data")
-    except PolicyDeny as e:
-        print(f"被阻止: {e.result.reason}")
+    except FailCoreError as e:
+        print(f"被阻止: {e.message}")
         # 输出: 被阻止: 路径将在沙箱外创建：'../outside.txt'
 ```
 
@@ -154,7 +155,7 @@ with run(policy="fs_safe", sandbox="./data") as ctx:
     large_content = "x" * (100 * 1024 * 1024)  # 100MB
     try:
         write_file("large.txt", large_content)
-    except PolicyDeny:
+    except FailCoreError:
         print("文件太大")
 ```
 
@@ -206,8 +207,8 @@ FailCore 提供 LLM 友好的错误消息：
 ```python
 try:
     write_file("../../etc/passwd", "hack")
-except PolicyDeny as e:
-    print(e.result.reason)
+except FailCoreError as e:
+    print(e.message)
     # 输出: 路径遍历检测到：'../../etc/passwd'
     
     print(e.result.suggestion)
@@ -260,7 +261,7 @@ def test_path_validation():
         try:
             write_file("../../etc/passwd", "hack")
             assert False, "应该被阻止"
-        except PolicyDeny:
+        except FailCoreError:
             pass  # 预期行为
 ```
 

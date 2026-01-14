@@ -21,6 +21,7 @@
 
 ```python
 from failcore import run, guard
+from failcore.core.errors import FailCoreError
 import urllib.request
 
 with run(policy="net_safe") as ctx:
@@ -35,7 +36,7 @@ with run(policy="net_safe") as ctx:
     # 这会被阻止（SSRF）
     try:
         fetch_url("http://169.254.169.254/latest/meta-data/")
-    except PolicyDeny:
+    except FailCoreError:
         print("SSRF 被阻止")
 ```
 
@@ -76,20 +77,20 @@ with run(policy="net_safe") as ctx:
     # ❌ 本地回环
     try:
         fetch_url("http://127.0.0.1:8080/api")
-    except PolicyDeny as e:
-        print(f"被阻止: {e.result.reason}")
+    except FailCoreError as e:
+        print(f"被阻止: {e.message}")
         # 输出: 被阻止: 私有网络访问被阻止：'127.0.0.1'
     
     # ❌ 私有网络
     try:
         fetch_url("http://192.168.1.1/admin")
-    except PolicyDeny:
+    except FailCoreError:
         print("私有网络被阻止")
     
     # ❌ AWS 元数据
     try:
         fetch_url("http://169.254.169.254/latest/meta-data/")
-    except PolicyDeny:
+    except FailCoreError:
         print("AWS 元数据服务被阻止")
     
     # ✅ 公共 URL
@@ -133,7 +134,7 @@ with run(policy="net_safe") as ctx:
     # ❌ 文件协议
     try:
         fetch_url("file:///etc/passwd")
-    except PolicyDeny:
+    except FailCoreError:
         print("文件协议被阻止")
 ```
 
@@ -225,8 +226,8 @@ FailCore 提供详细的错误消息：
 ```python
 try:
     fetch_url("http://169.254.169.254/latest/meta-data/")
-except PolicyDeny as e:
-    print(e.result.reason)
+except FailCoreError as e:
+    print(e.message)
     # 输出: 私有网络访问被阻止：'169.254.169.254'
     
     print(e.result.suggestion)
@@ -281,7 +282,7 @@ def test_ssrf_protection():
         try:
             fetch_url("http://169.254.169.254/latest/meta-data/")
             assert False, "应该被阻止"
-        except PolicyDeny:
+        except FailCoreError:
             pass  # 预期行为
 ```
 

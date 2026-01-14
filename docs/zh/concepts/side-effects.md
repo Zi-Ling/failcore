@@ -140,6 +140,7 @@ observed_side_effects = [
 
 ```python
 from failcore import run
+from failcore.core.errors.side_effect import SideEffectBoundaryCrossedError
 
 # 只允许文件系统读取
 with run(policy="fs_safe") as ctx:
@@ -311,13 +312,14 @@ class SideEffectEvent:
 在工具元数据中声明副作用：
 
 ```python
-from failcore.core.tools.metadata import ToolMetadata, SideEffect
+from failcore import run, guard
+from failcore.core.errors.side_effect import SideEffectBoundaryCrossedError
 
-@guard(metadata=ToolMetadata(
-    side_effect=SideEffect.FILESYSTEM
-))
-def write_file(path: str, content: str):
-    pass
+with run(policy="fs_safe") as ctx:
+    @guard(risk="high", effect="fs")
+    def write_file(path: str, content: str):
+        with open(path, "w") as f:
+            f.write(content)
 ```
 
 ### 2. 最小副作用
@@ -352,8 +354,13 @@ def test_side_effect_detection():
         write_file("test.txt", "data")
         
         # 检查追踪文件中的副作用记录
-        trace = load_trace(ctx.trace_path)
-        side_effects = [e for e in trace if e["event"] == "SIDE_EFFECT"]
+        import json
+        events = []
+        with open(ctx.trace_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                if line.strip():
+                    events.append(json.loads(line))
+        side_effects = [e for e in events if e.get("event") == "SIDE_EFFECT"]
         assert len(side_effects) > 0
         assert side_effects[0]["type"] == "filesystem.write"
 ```

@@ -100,7 +100,7 @@ def write_file(path: str, content: str):
 
 如果工具成功，返回结果。  
 如果工具失败，抛出异常。  
-如果被策略阻止，抛出 `PolicyDeny` 异常。
+如果被策略阻止，抛出 `FailCoreError` 异常。
 
 ---
 
@@ -124,7 +124,7 @@ result = write_file("test.txt", "Hello")
 ```python
 try:
     write_file("/etc/passwd", "hack")
-except PolicyDeny as e:
+except FailCoreError as e:
     # 状态: BLOCKED
     print(f"被阻止: {e}")
 ```
@@ -184,6 +184,7 @@ except PermissionError as e:
 
 ```python
 from failcore import run, guard
+from failcore.core.errors import FailCoreError
 
 with run(policy="fs_safe", sandbox="./data") as ctx:
     @guard()
@@ -206,13 +207,13 @@ with run(policy="fs_safe", sandbox="./data") as ctx:
     # 调用 2：被阻止
     try:
         write_file("/etc/passwd", "hack")
-    except PolicyDeny as e:
+    except FailCoreError as e:
         pass
     # 流程：
     # 1. 捕获调用：write_file("/etc/passwd", "hack")
     # 2. 验证参数：✓
     # 3. 策略检查：路径 "/etc/passwd" 不在沙箱内 ✗
-    # 4. 阻止执行，抛出 PolicyDeny
+    # 4. 阻止执行，抛出 FailCoreError
     # 5. 记录：STEP_END status=BLOCKED
     # 6. 不执行工具函数
 ```

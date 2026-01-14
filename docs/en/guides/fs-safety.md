@@ -21,6 +21,7 @@ The filesystem safety policy (`fs_safe`) provides:
 
 ```python
 from failcore import run, guard
+from failcore.core.errors import FailCoreError
 
 with run(policy="fs_safe", sandbox="./data") as ctx:
     @guard()
@@ -34,8 +35,8 @@ with run(policy="fs_safe", sandbox="./data") as ctx:
     # This will be blocked (path traversal)
     try:
         write_file("../../etc/passwd", "hack")
-    except PolicyDeny:
-        print("Path traversal blocked")
+    except FailCoreError as e:
+        print(f"Path traversal blocked: {e}")
 ```
 
 ---
@@ -114,22 +115,22 @@ with run(policy="fs_safe", sandbox="./data") as ctx:
     # ❌ Path traversal
     try:
         write_file("../../etc/passwd", "hack")
-    except PolicyDeny as e:
-        print(f"Blocked: {e.result.reason}")
+    except FailCoreError as e:
+        print(f"Blocked: {e.message}")
         # Output: Blocked: Path traversal detected: '../../etc/passwd'
     
     # ❌ Absolute path
     try:
         write_file("/etc/passwd", "hack")
-    except PolicyDeny as e:
-        print(f"Blocked: {e.result.reason}")
+    except FailCoreError as e:
+        print(f"Blocked: {e.message}")
         # Output: Blocked: Absolute path not allowed: '/etc/passwd'
     
     # ❌ Outside sandbox
     try:
         write_file("../outside.txt", "data")
-    except PolicyDeny as e:
-        print(f"Blocked: {e.result.reason}")
+    except FailCoreError as e:
+        print(f"Blocked: {e.message}")
         # Output: Blocked: Path would be created outside sandbox: '../outside.txt'
 ```
 
@@ -154,7 +155,7 @@ with run(policy="fs_safe", sandbox="./data") as ctx:
     large_content = "x" * (100 * 1024 * 1024)  # 100MB
     try:
         write_file("large.txt", large_content)
-    except PolicyDeny:
+    except FailCoreError:
         print("File too large")
 ```
 
@@ -206,8 +207,8 @@ FailCore provides LLM-friendly error messages:
 ```python
 try:
     write_file("../../etc/passwd", "hack")
-except PolicyDeny as e:
-    print(e.result.reason)
+except FailCoreError as e:
+    print(e.message)
     # Output: Path traversal detected: '../../etc/passwd'
     
     print(e.result.suggestion)
@@ -260,7 +261,7 @@ def test_path_validation():
         try:
             write_file("../../etc/passwd", "hack")
             assert False, "Should be blocked"
-        except PolicyDeny:
+        except FailCoreError:
             pass  # Expected behavior
 ```
 

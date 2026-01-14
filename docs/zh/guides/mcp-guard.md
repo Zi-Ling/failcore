@@ -103,7 +103,7 @@ try:
         args={"path": "../../etc/passwd"},  # 路径遍历
         ctx=ctx
     )
-except PolicyDeny:
+except FailCoreError:
     print("路径遍历被阻止")
 ```
 
@@ -138,7 +138,7 @@ try:
         args={"url": "http://169.254.169.254/latest/meta-data/"},  # SSRF
         ctx=ctx
     )
-except PolicyDeny:
+except FailCoreError:
     print("SSRF 被阻止")
 ```
 
@@ -224,7 +224,7 @@ except FailCoreError as e:
 
 ### 策略错误
 
-策略违规返回 `PolicyDeny` 异常：
+策略违规返回 `FailCoreError` 异常：
 
 ```python
 try:
@@ -233,8 +233,8 @@ try:
         args={"path": "../../etc/passwd"},
         ctx=ctx
     )
-except PolicyDeny as e:
-    print(f"策略拒绝: {e.result.reason}")
+except FailCoreError as e:
+    print(f"策略拒绝: {e.message}")
     print(f"建议: {e.result.suggestion}")
 ```
 

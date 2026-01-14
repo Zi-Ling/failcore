@@ -387,7 +387,7 @@ def test_policy():
         try:
             write_file("../../etc/passwd", "hack")
             assert False, "Should be blocked"
-        except PolicyDeny:
+        except FailCoreError:
             pass  # Expected behavior
 ```
 

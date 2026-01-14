@@ -311,13 +311,13 @@ Side-effect checks occur before policy checks:
 Declare side effects in tool metadata:
 
 ```python
-from failcore.core.tools.metadata import ToolMetadata, SideEffect
+from failcore import run, guard
 
-@guard(metadata=ToolMetadata(
-    side_effect=SideEffect.FILESYSTEM
-))
-def write_file(path: str, content: str):
-    pass
+with run(policy="fs_safe") as ctx:
+    @guard(risk="high", effect="fs")
+    def write_file(path: str, content: str):
+        with open(path, "w") as f:
+            f.write(content)
 ```
 
 ### 2. Minimize Side Effects
@@ -352,8 +352,13 @@ def test_side_effect_detection():
         write_file("test.txt", "data")
         
         # Check side-effect records in trace file
-        trace = load_trace(ctx.trace_path)
-        side_effects = [e for e in trace if e["event"] == "SIDE_EFFECT"]
+        import json
+        events = []
+        with open(ctx.trace_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                if line.strip():
+                    events.append(json.loads(line))
+        side_effects = [e for e in events if e.get("event") == "SIDE_EFFECT"]
         assert len(side_effects) > 0
         assert side_effects[0]["type"] == "filesystem.write"
 ```
