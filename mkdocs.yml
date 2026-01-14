@@ -13,7 +13,6 @@ theme:
   name: material
   language: en
   features:
-    - navigation.instant
     - navigation.sections
     - content.code.copy
   icon:
@@ -28,19 +27,104 @@ plugins:
           name: English
           default: true
           build: true
+          nav:
+            - Home: index.md
+            - Introduction:
+              - What is FailCore: introduction/what-is-failcore.md
+              - When You Need It: introduction/when-you-need-it.md
+            - Getting Started:
+              - Installation: getting-started/install.md
+              - First Run: getting-started/first-run.md
+              - What Just Happened: getting-started/what-just-happened.md
+              - Deployment Patterns: getting-started/deployment-patterns.md
+            - Core Concepts:
+              - Execution Boundary: concepts/execution-boundary.md
+              - Side Effects: concepts/side-effects.md
+              - Policy: concepts/policy.md
+              - Trace and Replay: concepts/trace-and-replay.md
+            - Guides:
+              - Filesystem Safety: guides/fs-safety.md
+              - Network Control: guides/network-control.md
+              - Cost Control: guides/cost-guard.md
+              - MCP Protection: guides/mcp-guard.md
+            - Tools:
+              - CLI Tools: tools/cli.md
+              - Web UI: tools/ui.md
+              - Reports: tools/reports.md
+            - Integrations:
+              - Overview: integrations/overview.md
+              - LangChain: integrations/langchain.md
+              - MCP: integrations/mcp.md
+            - Reference:
+              - Configuration: reference/configuration.md
+              - Policy Syntax: reference/policy-syntax.md
+              - Error Codes: reference/error-codes.md
+            - Operations:
+              - Deployment: operations/deployment.md
+              - Logging & Audit: operations/logging-audit.md
+              - Troubleshooting: operations/troubleshooting.md
+            - Design:
+              - Why Not Docker: design/why-not-docker.md
+              - Why Not Only Prompt: design/why-not-only-prompt.md
+              - Philosophy: design/philosophy.md
+            - Appendix:
+              - FAQ: appendix/faq.md
+              - Glossary: appendix/glossary.md
+              - Roadmap: appendix/roadmap.md
         - locale: zh
           name: 简体中文
           build: true
+          nav:
+            - 首页: zh/index.md
+            - 介绍:
+              - 什么是 FailCore: zh/introduction/what-is-failcore.md
+              - 何时需要 FailCore: zh/introduction/when-you-need-it.md
+            - 快速开始:
+              - 安装: zh/getting-started/install.md
+              - 首次运行: zh/getting-started/first-run.md
+              - 发生了什么: zh/getting-started/what-just-happened.md
+              - 部署模式: zh/getting-started/deployment-patterns.md
+            - 核心概念:
+              - 执行边界: zh/concepts/execution-boundary.md
+              - 副作用: zh/concepts/side-effects.md
+              - 策略: zh/concepts/policy.md
+              - 追踪和重放: zh/concepts/trace-and-replay.md
+            - 指南:
+              - 文件系统安全: zh/guides/fs-safety.md
+              - 网络控制: zh/guides/network-control.md
+              - 成本控制: zh/guides/cost-guard.md
+              - MCP 保护: zh/guides/mcp-guard.md
+            - 工具:
+              - CLI 工具: zh/tools/cli.md
+              - Web UI: zh/tools/ui.md
+              - 报告: zh/tools/reports.md
+            - 集成:
+              - 概述: zh/integrations/overview.md
+              - LangChain: zh/integrations/langchain.md
+              - MCP: zh/integrations/mcp.md
+            - 参考:
+              - 配置: zh/reference/configuration.md
+              - 策略语法: zh/reference/policy-syntax.md
+              - 错误代码: zh/reference/error-codes.md
+            - 运维:
+              - 部署: zh/operations/deployment.md
+              - 日志和审计: zh/operations/logging-audit.md
+              - 故障排除: zh/operations/troubleshooting.md
+            - 设计:
+              - 为什么不是 Docker: zh/design/why-not-docker.md
+              - 为什么不只是提示: zh/design/why-not-only-prompt.md
+              - 设计哲学: zh/design/philosophy.md
+            - 附录:
+              - 常见问题: zh/appendix/faq.md
+              - 术语表: zh/appendix/glossary.md
+              - 路线图: zh/appendix/roadmap.md
 
 extra:
   alternate:
     - name: English
-      link: ./
+      link: /failcore/
       lang: en
     - name: 简体中文
-      link: ./zh/
+      link: /failcore/zh/
       lang: zh
 
-nav:
-  - Home: index.md
-  - Getting Started: getting-started.md
