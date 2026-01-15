@@ -1,7 +1,4 @@
-.idea/
-.venv/
 .failcore/
-dist/
 tests/
 examples/
 .pylintrc
@@ -35,4 +32,3 @@ htmlcov/
 Thumbs.db
 .vscode/
 .idea/
-
