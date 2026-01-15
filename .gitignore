@@ -1,8 +1,10 @@
-/examples
-/.venv
-/.failcore
-/dist
-/tests
+.idea/
+.venv/
+.failcore/
+dist/
+tests/
+examples/
+.pylintrc
 
 # Python
 __pycache__/
