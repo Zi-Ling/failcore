@@ -544,7 +544,7 @@ class RunCtx:
                 pass
         
         # Analysis features (drift, optimizer) - controlled by config
-        from ..core.config.analysis import is_drift_enabled, is_optimizer_enabled
+        from ...config.analysis import is_drift_enabled, is_optimizer_enabled
         
         if self._trace_path and Path(self._trace_path).exists():
             # Drift analysis (if enabled by config)

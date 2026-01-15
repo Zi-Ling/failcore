@@ -8,8 +8,8 @@ from fastapi import APIRouter, HTTPException, Request
 from typing import Dict, Any, List
 import traceback
 
-from failcore.core.validate.registry import get_global_registry
-from failcore.core.validate.bootstrap import auto_register
+from failcore.core.validate.registry import ValidatorRegistry
+from failcore.core.validate.bootstrap import create_default_registry, auto_register
 from failcore.core.validate.loader import (
     get_policy_dir,
     ensure_policy_files,
@@ -30,8 +30,7 @@ router = APIRouter(prefix="/api/policy", tags=["policy"])
 async def list_validators() -> Dict[str, Any]:
     """List all available validators"""
     try:
-        auto_register()
-        registry = get_global_registry()
+        registry = auto_register()
         validators = registry.list_validators()
         
         result = []
@@ -244,9 +243,9 @@ async def explain(data: Dict[str, Any]) -> Dict[str, Any]:
         )
         
         # Run validation
-        auto_register()
-        engine = ValidationEngine()
-        decisions = engine.evaluate(context, policy)
+        registry = auto_register()
+        engine = ValidationEngine(registry=registry, policy=policy)
+        decisions = engine.evaluate(context)
         
         # Format results
         results = []

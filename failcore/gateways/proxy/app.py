@@ -13,7 +13,7 @@ from typing import Optional
 
 from failcore.core.proxy import ProxyConfig, ProxyPipeline, StreamHandler
 from failcore.core.egress import EgressEngine, TraceSink, UsageEnricher, DLPEnricher, TaintEnricher
-from failcore.gateways.proxy import ProxyServer
+# ProxyServer imported lazily in create_proxy_app() to avoid circular dependency
 
 
 def create_proxy_app(
@@ -36,6 +36,8 @@ def create_proxy_app(
     pipeline = ProxyPipeline(egress_engine=egress_engine, upstream_client=upstream_client)
     streaming_handler = StreamHandler(strict_mode=config.streaming_strict_mode)
 
+    # Lazy import to avoid circular dependency
+    from failcore.gateways.proxy.server import ProxyServer
     server = ProxyServer(config=config, pipeline=pipeline, streaming_handler=streaming_handler)
 
     return server.app, egress_engine

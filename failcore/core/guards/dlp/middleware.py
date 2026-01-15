@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Dict, Any, Optional, Callable
 
 from .policies import DLPAction, DLPPolicy, PolicyMatrix
-from .patterns import DLPPatternRegistry
+from failcore.core.rules import RuleRegistry
 from ..taint.tag import TaintTag, DataSensitivity, TaintSource
 from ..taint.context import TaintContext
 from ..taint.sanitizer import DataSanitizer
@@ -35,7 +35,7 @@ class DLPMiddleware:
         self,
         taint_context: Optional[TaintContext] = None,
         sanitizer: Optional[DataSanitizer] = None,
-        pattern_registry: Optional[DLPPatternRegistry] = None,
+        rule_registry: Optional[RuleRegistry] = None,
         policy_matrix: Optional[PolicyMatrix] = None,
         strict_mode: bool = True,
         enabled: bool = True,
@@ -53,7 +53,21 @@ class DLPMiddleware:
         """
         self.taint_context = taint_context or TaintContext()
         self.sanitizer = sanitizer or DataSanitizer()
-        self.pattern_registry = pattern_registry or DLPPatternRegistry()
+        # Load default DLP ruleset if not provided
+        if rule_registry is None:
+            from failcore.infra.rulesets import FileSystemLoader
+            from failcore.core.rules.loader import CompositeLoader
+            from pathlib import Path
+            
+            default_path = Path(__file__).parent.parent.parent.parent.parent / "config" / "rulesets" / "default"
+            loader = CompositeLoader([
+                FileSystemLoader(Path.home() / ".failcore" / "rulesets"),
+                FileSystemLoader(default_path),
+            ])
+            rule_registry = RuleRegistry(loader)
+            rule_registry.load_ruleset("dlp")
+        
+        self.rule_registry = rule_registry
         self.policy_matrix = policy_matrix or PolicyMatrix(strict_mode=strict_mode)
         self.enabled = enabled
     
@@ -153,7 +167,7 @@ class DLPMiddleware:
         elif policy.action == DLPAction.SANITIZE:
             return self._sanitize_params(tool_name, params, taint_tags, policy, emit)
         
-        elif policy.action == DLPAction.REQUIRE_APPROVAL:
+        elif policy.action == DLPAction.WARN_APPROVAL_NEEDED:
             return self._require_approval(tool_name, params, taint_tags, max_sensitivity, context)
         
         elif policy.action == DLPAction.WARN:

@@ -10,8 +10,8 @@ from __future__ import annotations
 from typing import Optional
 
 from .interface import Gate, GateContext, GateVerdict
-from ..events.attempt import AttemptEvent, AttemptStatus
-from ..rules.schemas import VerdictAction, VerdictSchema, TargetSchema, TargetType
+from ..events.attempt import AttemptEvent, AttemptStatus, VerdictSchema, TargetSchema, TargetType
+from ..guards.semantic.verdict import VerdictAction
 
 
 class PreflightGate:

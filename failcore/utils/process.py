@@ -7,12 +7,22 @@ timeouts, and fallback strategies.
 """
 
 import os
-import signal
 import subprocess
 import sys
 import time
 from typing import Optional, Tuple
 import logging
+
+# Platform-specific imports
+if sys.platform != "win32":
+    import signal
+    # Unix-only signal constants
+    SIGKILL = signal.SIGKILL
+    SIGTERM = signal.SIGTERM
+else:
+    # Windows doesn't have these signals
+    SIGKILL = None
+    SIGTERM = None
 
 logger = logging.getLogger(__name__)
 
@@ -152,16 +162,16 @@ def kill_process(
             # Unix: use signals
             try:
                 if force:
-                    os.kill(pid, signal.SIGKILL)
+                    os.kill(pid, SIGKILL)
                 else:
                     # Try SIGTERM first
-                    os.kill(pid, signal.SIGTERM)
+                    os.kill(pid, SIGTERM)
                     time.sleep(0.5)
                     
                     # Check if still alive
                     if pid_exists(pid, timeout=0.5):
                         # Force kill
-                        os.kill(pid, signal.SIGKILL)
+                        os.kill(pid, SIGKILL)
                 
                 success = True
             except ProcessLookupError:
@@ -267,13 +277,16 @@ def create_process_group() -> Optional[int]:
         return None
     else:
         # Unix: Create new session (becomes process group leader)
-        try:
-            pgid = os.setsid()
-            logger.debug(f"Created new process group: {pgid}")
-            return pgid
-        except OSError as e:
-            logger.error(f"Failed to create process group: {e}")
-            raise ProcessError(f"Failed to create process group: {e}")
+        if hasattr(os, 'setsid'):
+            try:
+                pgid = os.setsid()
+                logger.debug(f"Created new process group: {pgid}")
+                return pgid
+            except OSError as e:
+                logger.error(f"Failed to create process group: {e}")
+                raise ProcessError(f"Failed to create process group: {e}")
+        else:
+            raise ProcessError("os.setsid() not available on this platform")
 
 
 def get_process_group_creation_flags() -> int:
@@ -353,62 +366,79 @@ def kill_process_group(
                 return (False, error_msg)
         else:
             # Unix: Use os.killpg() for proper process group kill
-            logger.info(f"Killing process group {pgid} (Unix)")
-            
-            try:
-                if signal_escalation:
-                    # Try SIGTERM first
-                    try:
-                        os.killpg(pgid, signal.SIGTERM)
-                        logger.debug(f"Sent SIGTERM to process group {pgid}")
-                        
-                        # Wait briefly for graceful termination
-                        time.sleep(0.5)
-                        
-                        # Check if group leader still exists
-                        if pid_exists(pgid, timeout=0.5):
-                            # Still alive, escalate to SIGKILL
-                            os.killpg(pgid, signal.SIGKILL)
-                            logger.debug(f"Sent SIGKILL to process group {pgid}")
-                    except ProcessLookupError:
-                        # Process group already dead after SIGTERM
-                        pass
-                else:
-                    # Direct SIGKILL
-                    os.killpg(pgid, signal.SIGKILL)
+            if hasattr(os, 'killpg'):
+                logger.info(f"Killing process group {pgid} (Unix)")
                 
-                # Verify termination
-                elapsed = time.time() - start_time
-                remaining = max(0.1, timeout - elapsed)
-                
-                max_wait = min(remaining, 2.0)
-                wait_interval = 0.1
-                waited = 0.0
-                
-                while waited < max_wait:
-                    if not pid_exists(pgid, timeout=0.5):
-                        logger.info(f"Process group {pgid} terminated successfully")
-                        return (True, None)
-                    time.sleep(wait_interval)
-                    waited += wait_interval
-                
-                # Still alive after wait
-                error_msg = f"Process group {pgid} still alive after kill"
-                logger.error(error_msg)
-                return (False, error_msg)
-                
-            except ProcessLookupError:
-                # Process group already dead
-                logger.debug(f"Process group {pgid} already terminated")
-                return (True, None)
-            except PermissionError as e:
-                error_msg = f"Permission denied killing process group {pgid}: {e}"
-                logger.error(error_msg)
-                return (False, error_msg)
-            except OSError as e:
-                error_msg = f"OS error killing process group {pgid}: {e}"
-                logger.error(error_msg)
-                return (False, error_msg)
+                try:
+                    if signal_escalation:
+                        # Try SIGTERM first
+                        try:
+                            os.killpg(pgid, SIGTERM)
+                            logger.debug(f"Sent SIGTERM to process group {pgid}")
+                            
+                            # Wait briefly for graceful termination
+                            time.sleep(0.5)
+                            
+                            # Check if group leader still exists
+                            if pid_exists(pgid, timeout=0.5):
+                                # Still alive, escalate to SIGKILL
+                                os.killpg(pgid, SIGKILL)
+                                logger.debug(f"Sent SIGKILL to process group {pgid}")
+                        except ProcessLookupError:
+                            # Process group already dead after SIGTERM
+                            pass
+                    else:
+                        # Direct SIGKILL
+                        os.killpg(pgid, SIGKILL)
+                except ProcessLookupError:
+                    # Process group already dead
+                    logger.debug(f"Process group {pgid} already terminated")
+                    return (True, None)
+                except PermissionError as e:
+                    error_msg = f"Permission denied killing process group {pgid}: {e}"
+                    logger.error(error_msg)
+                    return (False, error_msg)
+                except OSError as e:
+                    error_msg = f"OS error killing process group {pgid}: {e}"
+                    logger.error(error_msg)
+                    return (False, error_msg)
+            else:
+                # Fallback: kill individual process
+                logger.warning("os.killpg() not available, killing individual process")
+                try:
+                    os.kill(pgid, SIGKILL if not signal_escalation else SIGTERM)
+                    
+                    # Verify termination
+                    elapsed = time.time() - start_time
+                    remaining = max(0.1, timeout - elapsed)
+                    
+                    max_wait = min(remaining, 2.0)
+                    wait_interval = 0.1
+                    waited = 0.0
+                    
+                    while waited < max_wait:
+                        if not pid_exists(pgid, timeout=0.5):
+                            logger.info(f"Process group {pgid} terminated successfully")
+                            return (True, None)
+                        time.sleep(wait_interval)
+                        waited += wait_interval
+                    
+                    # Still alive after wait
+                    error_msg = f"Process group {pgid} still alive after kill"
+                    logger.error(error_msg)
+                    return (False, error_msg)
+                except ProcessLookupError:
+                    # Process already dead
+                    logger.debug(f"Process {pgid} already terminated")
+                    return (True, None)
+                except PermissionError as e:
+                    error_msg = f"Permission denied killing process {pgid}: {e}"
+                    logger.error(error_msg)
+                    return (False, error_msg)
+                except OSError as e:
+                    error_msg = f"OS error killing process {pgid}: {e}"
+                    logger.error(error_msg)
+                    return (False, error_msg)
     
     except Exception as e:
         error_msg = f"Unexpected error killing process group {pgid}: {e}"

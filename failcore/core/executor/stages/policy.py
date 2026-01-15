@@ -541,7 +541,7 @@ class PolicyStage:
             ts=utc_now_iso(),
             level=LogLevel.INFO,
             event={
-                "type": EventType.POLICY_DECISION.value,  # Use existing event type
+                "type": EventType.RESULT.value,  # Policy decision recorded in RESULT event
                 "severity": "warn",
                 "step": {
                     "id": state.step.id,

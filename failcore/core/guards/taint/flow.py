@@ -115,8 +115,11 @@ class TaintFlowTracker:
         # Auto-detect field_path if not provided
         binding_confidence = "high"  # Default: explicit field_path
         if not field_path and params:
-            field_path, confidence = self._auto_detect_field_path_with_confidence(source_step_id, params)
-            binding_confidence = confidence or "low"
+            field_path = self._auto_detect_field_path(source_step_id, params)
+            if field_path:
+                binding_confidence = "medium"  # Auto-detected has lower confidence
+            else:
+                binding_confidence = "low"
         
         # Create edge
         edge = TaintEdge(

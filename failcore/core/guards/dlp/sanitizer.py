@@ -16,7 +16,7 @@ import json
 from typing import Any, Dict, List, Optional, Set, Tuple
 from enum import Enum
 
-from ..rules.dlp import PatternCategory, SensitivePattern
+from . import PatternCategory
 
 
 class RedactionMode(str, Enum):

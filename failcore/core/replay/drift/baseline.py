@@ -17,11 +17,6 @@ from .types import ParamSnapshot
 from .normalize import normalize_params
 from .config import DriftConfig, get_default_config, BaselineStrategy
 from .inflection import InflectionPoint
-    """Baseline generation strategy"""
-    FIRST_OCCURRENCE = "first_occurrence"  # Use first occurrence (default, simple)
-    MEDIAN = "median"  # Use median value (robust to outliers)
-    PERCENTILE = "percentile"  # Use percentile value (configurable)
-    SEGMENTED = "segmented"  # Build baselines per segment
 
 
 def build_baseline(

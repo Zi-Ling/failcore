@@ -288,7 +288,7 @@ class Executor:
         taint_store_instance = None
         
         if guard_config:
-            from ..config.guards import is_semantic_enabled, is_taint_enabled
+            from ...config.guards import is_semantic_enabled, is_taint_enabled
             
             # Semantic guard (if enabled in guard_config)
             if is_semantic_enabled(guard_config):

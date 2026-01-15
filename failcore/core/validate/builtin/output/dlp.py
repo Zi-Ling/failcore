@@ -14,7 +14,8 @@ from typing import Any, Dict, List, Optional, Set
 from failcore.core.guards.dlp.sanitizer import StructuredSanitizer
 from failcore.core.validate.validator import BaseValidator
 from failcore.core.validate.contracts import Context, Decision, ValidatorConfig, RiskLevel
-from failcore.core.rules.dlp import DLPPatternRegistry, PatternCategory
+from failcore.core.rules import RuleRegistry, RuleCategory
+from failcore.core.guards.dlp import PatternCategory  # Legacy compatibility
 from failcore.core.guards.dlp.policies import DLPAction, DLPPolicy, PolicyMatrix
 from failcore.core.guards.taint.tag import DataSensitivity, TaintTag
 from failcore.core.guards.taint.context import TaintContext
@@ -39,7 +40,7 @@ class DLPGuardValidator(BaseValidator):
     def __init__(
         self,
         taint_context: Optional[TaintContext] = None,
-        pattern_registry: Optional[DLPPatternRegistry] = None,
+        rule_registry: Optional[RuleRegistry] = None,
         sanitizer: Optional[StructuredSanitizer] = None,
     ):
         """
@@ -51,7 +52,21 @@ class DLPGuardValidator(BaseValidator):
             sanitizer: Structured sanitizer (optional, will create if None)
         """
         self.taint_context = taint_context
-        self.pattern_registry = pattern_registry or DLPPatternRegistry()
+        # Load default DLP ruleset if not provided
+        if rule_registry is None:
+            from failcore.infra.rulesets import FileSystemLoader
+            from failcore.core.rules.loader import CompositeLoader
+            from pathlib import Path
+            
+            default_path = Path(__file__).parent.parent.parent.parent.parent.parent / "config" / "rulesets" / "default"
+            loader = CompositeLoader([
+                FileSystemLoader(Path.home() / ".failcore" / "rulesets"),
+                FileSystemLoader(default_path),
+            ])
+            rule_registry = RuleRegistry(loader)
+            rule_registry.load_ruleset("dlp")
+        
+        self.rule_registry = rule_registry
         self.sanitizer = sanitizer
     
     @property
@@ -170,7 +185,7 @@ class DLPGuardValidator(BaseValidator):
                 payload=params,
                 cache=scan_cache,
                 step_id=context.step_id,
-                pattern_registry=self.pattern_registry,
+                rule_registry=self.rule_registry,
             )
             
             # Extract matches from ScanResult
@@ -304,11 +319,31 @@ class DLPGuardValidator(BaseValidator):
         matches = []
         min_severity = config.get("min_severity", 1)
         
-        # Recursively scan all string values
+        # Recursively scan all string values using scan_dlp
+        from failcore.core.guards.scanners import scan_dlp
+        from failcore.core.guards.cache import ScanCache
+        
+        # Create temporary cache for scanning
+        temp_cache = ScanCache(run_id="validator_scan")
+        
         def scan_value(value: Any) -> None:
             if isinstance(value, str):
-                text_matches = self.pattern_registry.scan_text(value, min_severity=min_severity)
-                matches.extend(text_matches)
+                # Use scan_dlp for scanning
+                scan_result = scan_dlp(
+                    payload=value,
+                    cache=temp_cache,
+                    rule_registry=self.rule_registry,
+                )
+                # Convert results to matches format
+                for match in scan_result.results.get("matches", []):
+                    from types import SimpleNamespace
+                    pattern_obj = SimpleNamespace(
+                        name=match.get("pattern", "unknown"),
+                        category=SimpleNamespace(value=match.get("category", "unknown")),
+                        severity=match.get("severity", 0),
+                    )
+                    if match.get("severity", 0) >= min_severity:
+                        matches.append((match.get("matched_text", ""), pattern_obj))
             elif isinstance(value, dict):
                 for v in value.values():
                     scan_value(v)
@@ -338,11 +373,12 @@ class DLPGuardValidator(BaseValidator):
         if pattern_matches:
             for _, pattern in pattern_matches:
                 # Map pattern category to sensitivity
-                if pattern.category in (PatternCategory.API_KEY, PatternCategory.SECRET_TOKEN, PatternCategory.PRIVATE_KEY):
+                category_value = pattern.category.value if hasattr(pattern.category, 'value') else str(pattern.category)
+                if category_value in ("dlp.api_key", "dlp.secret"):
                     sensitivities.append(DataSensitivity.SECRET)
-                elif pattern.category in (PatternCategory.PII_EMAIL, PatternCategory.PII_PHONE, PatternCategory.PII_SSN):
+                elif category_value == "dlp.pii":
                     sensitivities.append(DataSensitivity.PII)
-                elif pattern.category == PatternCategory.PAYMENT_CARD:
+                elif category_value == "dlp.payment":
                     sensitivities.append(DataSensitivity.CONFIDENTIAL)
                 else:
                     sensitivities.append(DataSensitivity.INTERNAL)

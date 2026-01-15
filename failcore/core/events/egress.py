@@ -20,7 +20,17 @@ from typing import Optional, Any, Dict, List
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from ..rules.schemas import EvidenceSchema, TargetSchema
+from .attempt import TargetSchema
+
+
+@dataclass
+class EvidenceSchema:
+    """Evidence schema for enricher findings"""
+    source: str  # Enricher name
+    finding: str  # Finding description
+    severity: str = "info"  # info, warn, error
+    confidence: float = 1.0
+    metadata: Optional[Dict[str, Any]] = None
 
 
 @dataclass

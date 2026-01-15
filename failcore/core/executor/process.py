@@ -232,9 +232,9 @@ class CgroupsExecutor(ProcessExecutor):
         self.memory_limit_mb = memory_limit_mb
         # TODO: Implement cgroups setup
     
-    def execute(self, tool_fn: Any, params: Dict[str, Any]) -> Dict[str, Any]:
+    def execute(self, tool_fn: Any, params: Dict[str, Any], run_id: str = None) -> Dict[str, Any]:
         # TODO: Set up cgroup, execute, clean up
-        return super().execute(tool_fn, params)
+        return super().execute(tool_fn, params, run_id)
 
 
 __all__ = ["ProcessExecutor", "CgroupsExecutor"]

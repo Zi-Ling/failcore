@@ -11,8 +11,8 @@ from typing import Optional
 import json
 
 from .interface import Gate, GateContext, GateVerdict
-from ..events.attempt import AttemptEvent, AttemptStatus
-from ..rules.schemas import VerdictAction, VerdictSchema, TargetSchema, TargetType
+from ..events.attempt import AttemptEvent, AttemptStatus, VerdictSchema, TargetSchema, TargetType
+from ..guards.semantic.verdict import VerdictAction
 
 
 class EgressGate:
@@ -45,7 +45,7 @@ class EgressGate:
         self.content_inspection_enabled = content_inspection_enabled
         
         # TODO: Initialize actual checkers
-        # self.dlp_scanner = DLPPatternRegistry()
+        # self.dlp_scanner = RuleRegistry()  # Use unified rule system
     
     def check(self, context: GateContext) -> GateVerdict:
         """

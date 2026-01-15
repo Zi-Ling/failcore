@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Optional, Any, Dict, Protocol
 from dataclasses import dataclass
 
-from ..rules.schemas import VerdictAction
+from ..guards.semantic.verdict import VerdictAction
 from ..events.attempt import AttemptEvent
 
 

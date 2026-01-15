@@ -64,8 +64,8 @@ def discover_plugin_validators() -> List[BaseValidator]:
             # Python 3.10+
             validator_eps = entry_points.select(group=VALIDATOR_ENTRY_POINT_GROUP)
         else:
-            # Python 3.9
-            validator_eps = entry_points.get(VALIDATOR_ENTRY_POINT_GROUP, [])
+            # Python 3.9 - entry_points() returns dict-like object
+            validator_eps = entry_points.get(VALIDATOR_ENTRY_POINT_GROUP, []) if hasattr(entry_points, 'get') else []
         
         for ep in validator_eps:
             try:

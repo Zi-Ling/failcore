@@ -18,11 +18,11 @@ from typing import Any, Dict, List, Optional
 
 from failcore.core.validate.validator import BaseValidator
 from failcore.core.validate.contracts import Context, Decision, ValidatorConfig, RiskLevel
-from failcore.core.rules.semantic import (
-    SemanticRule,
+from failcore.core.rules import (
     RuleCategory,
     RuleSeverity,
     RuleRegistry,
+    RuleEngine,
 )
 from failcore.core.guards.semantic.detectors import SemanticDetector
 from failcore.core.guards.semantic.verdict import SemanticVerdict
@@ -62,7 +62,7 @@ class SemanticIntentValidator(BaseValidator):
             registry: Rule registry (optional, will create if None)
         """
         self.registry = registry or RuleRegistry()
-        self.detector = SemanticDetector(registry=self.registry)
+        self.detector = SemanticDetector(rule_registry=self.registry)
         
         # Initialize parsers for deterministic parsing
         self.shell_parser = ShellParser()
@@ -151,7 +151,7 @@ class SemanticIntentValidator(BaseValidator):
         
         # Create detector with config
         detector = SemanticDetector(
-            registry=self.registry,
+            rule_registry=self.registry,
             min_severity=min_severity,
             enabled_categories=enabled_categories,
         )

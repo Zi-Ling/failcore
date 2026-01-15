@@ -1,0 +1,72 @@
+# failcore/config/config.yml.example
+# Example FailCore Configuration
+#
+# This is an EXAMPLE file, not the source of truth.
+# Code defaults are the truth (see FailCoreConfig.default()).
+#
+# To use this file:
+# 1. Copy to ~/.failcore/config.yml (user config)
+# 2. Or copy to your project directory
+#
+# All values have code defaults - this file is optional.
+# Delete this file, system still works with code defaults.
+
+modules:
+  dlp:
+    enabled: false
+    mode: "warn"
+    redact: true
+    max_scan_chars: 65536
+  
+  semantic:
+    enabled: false
+    min_severity: "high"
+    enabled_categories: null
+  
+  effects:
+    enabled: false
+    boundary_preset: "none"
+    enforce_boundary: false
+  
+  taint:
+    enabled: false
+    propagation_mode: "whole"
+    max_path_depth: 3
+    max_paths_per_step: 100
+  
+  drift:
+    enabled: true
+    analysis_only: true
+    magnitude_threshold_medium: 2.0
+    magnitude_threshold_high: 5.0
+    ignore_fields:
+      - "timestamp"
+      - "request_id"
+      - "trace_id"
+      - "session_id"
+      - "run_id"
+      - "step_id"
+      - "metadata"
+      - "_internal"
+
+limits:
+  timeout_ms: 60000
+  max_output_bytes: 10485760
+  max_events: 1000
+  max_file_bytes: 52428800
+  max_total_file_bytes: 524288000
+  max_concurrency: 10
+  max_cost_usd: null
+  max_tokens: null
+
+proxy:
+  host: "127.0.0.1"
+  port: 8000
+  upstream_timeout_s: 60.0
+  enable_streaming: true
+  enable_dlp: true
+  dlp_strict_mode: false
+
+analysis:
+  drift: true
+  optimizer: false

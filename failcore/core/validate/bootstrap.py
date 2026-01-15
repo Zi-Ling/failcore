@@ -16,10 +16,14 @@ from __future__ import annotations
 from typing import List, Optional
 import logging
 
+from typing import TYPE_CHECKING
+
 from .validator import BaseValidator
 from .registry import ValidatorRegistry
 from .contracts import Context, Decision, ValidatorConfig, DecisionOutcome, RiskLevel, Policy
-from .engine import ValidationEngine
+
+if TYPE_CHECKING:
+    from .engine import ValidationEngine
 
 try:
     from ..errors.exceptions import FailCoreError
@@ -219,25 +223,42 @@ def is_bootstrapped(registry: ValidatorRegistry) -> bool:
 
 # Auto-register on import
 _auto_registered = False
+_auto_registry: Optional[ValidatorRegistry] = None
 
 
-def auto_register() -> None:
-    """Auto-register built-in builtin on first call"""
-    global _auto_registered
+def auto_register(registry: Optional[ValidatorRegistry] = None) -> ValidatorRegistry:
+    """
+    Auto-register built-in builtin on first call.
+    
+    Args:
+        registry: Optional registry to register to. If None, creates a new one.
+    
+    Returns:
+        ValidatorRegistry instance with builtin validators registered
+    """
+    global _auto_registered, _auto_registry
+    
+    if registry is None:
+        if _auto_registry is None:
+            _auto_registry = create_default_registry()
+        return _auto_registry
+    
     if not _auto_registered:
-        register_builtin_validators()
+        register_builtin_validators(registry)
         _auto_registered = True
+    
+    return registry
 
 
 def reset_auto_register_flag() -> None:
     """
     Reset the auto-register flag.
     
-    This is useful for testing when you need to re-register builtin
-    after calling reset_global_registry().
+    This is useful for testing when you need to re-register builtin.
     """
-    global _auto_registered
+    global _auto_registered, _auto_registry
     _auto_registered = False
+    _auto_registry = None
 
 
 def create_default_registry() -> ValidatorRegistry:
@@ -326,7 +347,8 @@ def create_default_engine(
     policy: Optional[Policy] = None,
     registry: Optional[ValidatorRegistry] = None,
     strict_mode: bool = False,
-) -> ValidationEngine:
+):
+    # Return type: ValidationEngine (imported lazily to avoid circular dependency)
     """
     Create default validation engine (factory function).
     
@@ -355,6 +377,8 @@ def create_default_engine(
     if policy:
         ensure_registered(registry, policy)
     
+    # Lazy import to avoid circular dependency
+    from .engine import ValidationEngine
     engine = ValidationEngine(registry=registry, policy=policy, strict_mode=strict_mode)
     
     return engine

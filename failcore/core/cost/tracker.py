@@ -59,7 +59,6 @@ class CostTracker:
                         api_calls=data.get("api_calls", 1),
                         model=data.get("model"),
                         provider=data.get("provider"),
-                        timestamp=data.get("timestamp", ""),
                     )
                     usages.append(usage)
         

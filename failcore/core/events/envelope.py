@@ -21,8 +21,6 @@ class EventType(str, Enum):
     EGRESS = "EGRESS"        # Post-execution egress event
     RUN_START = "RUN_START"  # Run lifecycle
     RUN_END = "RUN_END"
-    STEP_START = "STEP_START"  # Step lifecycle (optional)
-    STEP_END = "STEP_END"
 
 
 @dataclass

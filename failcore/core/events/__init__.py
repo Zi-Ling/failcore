@@ -19,16 +19,20 @@ Constraint:
 - Verdict MUST be deterministically associated with attempt_id
 """
 
-from .attempt import AttemptEvent, AttemptStatus
-from .egress import EgressEvent
+from .attempt import AttemptEvent, AttemptStatus, VerdictSchema, TargetSchema, TargetType
+from .egress import EgressEvent, EvidenceSchema
 from .envelope import TraceEnvelope, EventType
 
 __all__ = [
     # Attempt events
     "AttemptEvent",
     "AttemptStatus",
+    "VerdictSchema",
+    "TargetSchema",
+    "TargetType",
     # Egress events
     "EgressEvent",
+    "EvidenceSchema",
     # Envelope
     "TraceEnvelope",
     "EventType",

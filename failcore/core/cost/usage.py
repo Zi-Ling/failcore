@@ -22,7 +22,7 @@ Architecture Note:
 
 from typing import Any, Optional, Dict, Tuple, Callable
 from .models import CostUsage
-from ..config.cost import (
+from failcore.config.cost import (
     USAGE_CANDIDATE_PATHS,
     KNOWN_PROVIDER_REPORTED,
     STANDARD_TOKEN_FIELDS,

@@ -16,6 +16,8 @@ class VerdictAction(str, Enum):
     WARN = "warn"        # Allow but warn
     LOG = "log"          # Allow but log
     BLOCK = "block"      # Block execution
+    SANITIZE = "sanitize"  # Sanitize parameters
+    WARN_APPROVAL_NEEDED = "warn_approval_needed"  # Warn that approval is needed
 
 
 @dataclass
@@ -30,7 +32,7 @@ class SemanticVerdict:
     - Evidence
     """
     action: VerdictAction
-    violations: List[Any]  # List of SemanticRule (avoiding circular import)
+    violations: List[Any]  # List of Rule from failcore.core.rules
     tool_name: str
     params: Dict[str, Any]
     context: Dict[str, Any] = field(default_factory=dict)

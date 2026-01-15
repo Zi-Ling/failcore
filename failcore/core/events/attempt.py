@@ -22,7 +22,37 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 
-from ..rules.schemas import VerdictSchema, TargetSchema
+from ..guards.semantic.verdict import VerdictAction
+
+
+class TargetType(str, Enum):
+    """Target type for side effects"""
+    FILESYSTEM = "filesystem"
+    NETWORK = "network"
+    EXECUTION = "execution"
+
+
+@dataclass
+class TargetSchema:
+    """Target schema for side effects"""
+    type: TargetType
+    inferred: Optional[str] = None
+    observed: Optional[str] = None
+    inferred_confidence: Optional[str] = None
+    observed_confidence: Optional[str] = None
+
+
+@dataclass
+class VerdictSchema:
+    """Verdict schema for gate decisions"""
+    action: VerdictAction
+    reason: str
+    rule_name: Optional[str] = None
+    rule_category: Optional[str] = None
+    confidence: float = 1.0
+    gate_type: str = "preflight"
+    triggered_by: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
 
 
 class AttemptStatus(str, Enum):

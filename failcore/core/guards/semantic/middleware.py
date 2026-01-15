@@ -6,7 +6,7 @@ Middleware for semantic intent validation
 
 from typing import Dict, Any, Optional, Callable
 from .detectors import SemanticDetector
-from failcore.core.rules.semantic import RuleRegistry, RuleSeverity
+from failcore.core.rules import RuleRegistry, RuleSeverity
 from .verdict import VerdictAction
 
 
@@ -46,7 +46,7 @@ class SemanticGuardMiddleware:
         """
         self.enabled = enabled
         self.detector = detector or SemanticDetector(
-            registry=registry or RuleRegistry(),
+            rule_registry=registry or RuleRegistry(),
             min_severity=min_severity,
         )
         self.block_on_violation = block_on_violation

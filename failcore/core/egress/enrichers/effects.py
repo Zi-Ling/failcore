@@ -160,7 +160,7 @@ class EffectsEnricher:
             return SideEffectCategory.EXEC
         
         else:
-            return SideEffectCategory.NONE
+            return None
     
     def _extract_target(
         self,

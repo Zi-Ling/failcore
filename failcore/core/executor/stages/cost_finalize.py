@@ -153,7 +153,7 @@ class CostFinalizeStage:
                 max_cost = max(costs)
                 min_cost = min(costs)
                 if max_cost > 0:
-                    from ...config.cost import COST_CONFLICT_THRESHOLD
+                    from ....config.cost import COST_CONFLICT_THRESHOLD
                     diff_ratio = (max_cost - min_cost) / max_cost
                     if diff_ratio > COST_CONFLICT_THRESHOLD:
                         # Conflict detected - use more conservative (max) value
@@ -228,7 +228,7 @@ class CostFinalizeStage:
             ts=utc_now_iso(),
             level=LogLevel.WARN,  # Warning level
             event={
-                "type": EventType.STEP_END.value,  # Use STEP_END for cost conflict warnings
+                "type": EventType.RESULT.value,
                 "severity": "warn",
                 "step": {
                     "id": state.step.id,

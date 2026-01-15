@@ -156,7 +156,7 @@ class PolicyMatrix:
             True if should block
         """
         policy = self.get_policy(sensitivity)
-        return policy.action in (DLPAction.BLOCK, DLPAction.REQUIRE_APPROVAL)
+        return policy.action in (DLPAction.BLOCK, DLPAction.WARN_APPROVAL_NEEDED)
     
     def should_sanitize(self, sensitivity: DataSensitivity) -> bool:
         """

@@ -12,7 +12,7 @@ from typing import Any, Dict, Optional
 
 from ..cache import ScanCache, ScannerID, ScanResult
 from ..semantic.detectors import SemanticDetector
-from failcore.core.rules.semantic import RuleRegistry, RuleSeverity
+from failcore.core.rules import RuleRegistry, RuleSeverity
 
 
 def scan_semantic(
@@ -60,7 +60,7 @@ def scan_semantic(
     
     # Initialize components
     detector_instance = detector or SemanticDetector(
-        registry=registry or RuleRegistry(),
+        rule_registry=registry or RuleRegistry(),
         min_severity=RuleSeverity.HIGH,
     )
     

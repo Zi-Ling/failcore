@@ -13,8 +13,8 @@ from pathlib import Path
 import sys
 import json
 
-from ...core.validate.registry import get_global_registry
-from ...core.validate.bootstrap import auto_register
+from ...core.validate.registry import ValidatorRegistry
+from ...core.validate.bootstrap import create_default_registry, auto_register
 from ...core.validate.loader import (
     get_policy_dir,
     ensure_policy_files,
@@ -101,8 +101,7 @@ def init_policy(args):
 def list_validators(args):
     """List all available validators"""
     try:
-        auto_register()
-        registry = get_global_registry()
+        registry = auto_register()
         
         validators = registry.list_validators()
         
@@ -241,8 +240,8 @@ def explain(args):
         )
         
         # Run validation
-        auto_register()
-        engine = ValidationEngine(policy=policy)
+        registry = auto_register()
+        engine = ValidationEngine(registry=registry, policy=policy)
         decisions = engine.evaluate(context)
         
         # Get triggered validators
