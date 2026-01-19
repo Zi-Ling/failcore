@@ -4,7 +4,7 @@ site_description: Execution-time safety runtime for AI agents
 repo_url: https://github.com/zi-ling/failcore
 repo_name: zi-ling/failcore
 
-# Dev docs base URL (served at /failcore/dev/)
+
 site_url: https://zi-ling.github.io/failcore/dev/
 
 docs_dir: docs
@@ -23,6 +23,10 @@ plugins:
   - search
   - i18n:
       docs_structure: folder
+
+      reconfigure_material: true
+      reconfigure_search: true
+
       languages:
         - locale: en
           name: English
@@ -30,9 +34,6 @@ plugins:
           build: true
           nav:
             - Home: index.md
-            - Versions:
-                - Main (Stable): /failcore/
-                - Dev (Current): /failcore/dev/
             - Introduction:
                 - What is FailCore: introduction/what-is-failcore.md
                 - When You Need It: introduction/when-you-need-it.md
@@ -79,59 +80,58 @@ plugins:
         - locale: zh
           name: 简体中文
           build: true
+          # 关键：这里不要再写 zh/ 前缀（因为 zh 语言根目录已是 docs/zh/）
           nav:
-            - 首页: zh/index.md
-            - 版本:
-                - 主线（稳定）: /failcore/
-                - 开发版: /failcore/dev/
+            - 首页: index.md
             - 介绍:
-                - 什么是 FailCore: zh/introduction/what-is-failcore.md
-                - 何时需要 FailCore: zh/introduction/when-you-need-it.md
+                - 什么是 FailCore: introduction/what-is-failcore.md
+                - 何时需要 FailCore: introduction/when-you-need-it.md
             - 快速开始:
-                - 安装: zh/getting-started/install.md
-                - 首次运行: zh/getting-started/first-run.md
-                - 发生了什么: zh/getting-started/what-just-happened.md
-                - 部署模式: zh/getting-started/deployment-patterns.md
+                - 安装: getting-started/install.md
+                - 首次运行: getting-started/first-run.md
+                - 发生了什么: getting-started/what-just-happened.md
+                - 部署模式: getting-started/deployment-patterns.md
             - 核心概念:
-                - 执行边界: zh/concepts/execution-boundary.md
-                - 副作用: zh/concepts/side-effects.md
-                - 策略: zh/concepts/policy.md
-                - 追踪和重放: zh/concepts/trace-and-replay.md
+                - 执行边界: concepts/execution-boundary.md
+                - 副作用: concepts/side-effects.md
+                - 策略: concepts/policy.md
+                - 追踪和重放: concepts/trace-and-replay.md
             - 指南:
-                - 文件系统安全: zh/guides/fs-safety.md
-                - 网络控制: zh/guides/network-control.md
-                - 成本控制: zh/guides/cost-guard.md
-                - MCP 保护: zh/guides/mcp-guard.md
+                - 文件系统安全: guides/fs-safety.md
+                - 网络控制: guides/network-control.md
+                - 成本控制: guides/cost-guard.md
+                - MCP 保护: guides/mcp-guard.md
             - 工具:
-                - CLI 工具: zh/tools/cli.md
-                - Web UI: zh/tools/ui.md
-                - 报告: zh/tools/reports.md
+                - CLI 工具: tools/cli.md
+                - Web UI: tools/ui.md
+                - 报告: tools/reports.md
             - 集成:
-                - 概述: zh/integrations/overview.md
-                - LangChain: zh/integrations/langchain.md
-                - MCP: zh/integrations/mcp.md
+                - 概述: integrations/overview.md
+                - LangChain: integrations/langchain.md
+                - MCP: integrations/mcp.md
             - 参考:
-                - 配置: zh/reference/configuration.md
-                - 策略语法: zh/reference/policy-syntax.md
-                - 错误代码: zh/reference/error-codes.md
+                - 配置: reference/configuration.md
+                - 策略语法: reference/policy-syntax.md
+                - 错误代码: reference/error-codes.md
             - 运维:
-                - 部署: zh/operations/deployment.md
-                - 日志和审计: zh/operations/logging-audit.md
-                - 故障排除: zh/operations/troubleshooting.md
+                - 部署: operations/deployment.md
+                - 日志和审计: operations/logging-audit.md
+                - 故障排除: operations/troubleshooting.md
             - 设计:
-                - 为什么不是 Docker: zh/design/why-not-docker.md
-                - 为什么不只是提示: zh/design/why-not-only-prompt.md
-                - 设计哲学: zh/design/philosophy.md
+                - 为什么不是 Docker: design/why-not-docker.md
+                - 为什么不只是提示: design/why-not-only-prompt.md
+                - 设计哲学: design/philosophy.md
             - 附录:
-                - 常见问题: zh/appendix/faq.md
-                - 术语表: zh/appendix/glossary.md
-                - 路线图: zh/appendix/roadmap.md
+                - 常见问题: appendix/faq.md
+                - 术语表: appendix/glossary.md
+                - 路线图: appendix/roadmap.md
 
 extra:
-  alternate:
-    - name: English
-      link: /failcore/
-      lang: en
-    - name: 简体中文
-      link: /failcore/zh/
-      lang: zh
+  version:
+    provider: static
+    default: Dev
+    versions:
+      - name: Main
+        url: /failcore/
+      - name: Dev
+        url: /failcore/dev/
