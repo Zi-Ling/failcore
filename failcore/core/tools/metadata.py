@@ -14,16 +14,16 @@ from typing import Dict, Optional
 
 
 class RiskLevel(str, Enum):
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
+    LOW = "LOW"
+    MEDIUM = "MEDIUM"
+    HIGH = "HIGH"
 
 
 class SideEffect(str, Enum):
-    FS = "fs"             # File system boundary (read/write enforced by policy)
-    NETWORK = "network"   # Network I/O boundary
-    EXEC = "exec"         # Local execution (shell, subprocess, binaries)
-    PROCESS = "process"   # Process lifecycle control (spawn, kill, signals)
+    FS = "FS"             # File system boundary (read/write enforced by policy)
+    NETWORK = "NETWORK"   # Network I/O boundary
+    EXEC = "EXEC"         # Local execution (shell, subprocess, binaries)
+    PROCESS = "PROCESS"   # Process lifecycle control (spawn, kill, signals)
 
 
 class DefaultAction(str, Enum):
@@ -33,9 +33,9 @@ class DefaultAction(str, Enum):
     Applies ONLY when no active policy/validator makes a decision.
     This action NEVER overrides run-level policy or strict mode.
     """
-    ALLOW = "allow"
-    WARN = "warn"
-    BLOCK = "block"
+    ALLOW = "ALLOW"
+    WARN = "WARN"
+    BLOCK = "BLOCK"
 
 
 class Determinism(str, Enum):
@@ -47,9 +47,9 @@ class Determinism(str, Enum):
     - NON_DETERMINISTIC: Outputs vary (e.g., get_time, random)
     - UNKNOWN: Not specified (use conservative confidence)
     """
-    DETERMINISTIC = "deterministic"
-    NON_DETERMINISTIC = "non_deterministic"
-    UNKNOWN = "unknown"
+    DETERMINISTIC = "DETERMINISTIC"
+    NON_DETERMINISTIC = "NON_DETERMINISTIC"
+    UNKNOWN = "UNKNOWN"
 
 
 @dataclass(frozen=True)

@@ -117,13 +117,10 @@ class RunCtx:
             allow_outside_root=allow_outside_root,
         )
         
-        failcore_root = get_failcore_root()
-        
-        # Create default run directory for this context
-        now = datetime.now()
-        date = now.strftime("%Y%m%d")
-        time = now.strftime("%H%M%S")
-        default_run_dir = failcore_root / "runs" / date / f"{self._run_id}_{time}"
+        # Create run context using paths.py utilities
+        from ..utils.paths import init_run, create_run_directory
+        run_ctx = init_run(command_name="run", run_id=self._run_id)
+        default_run_dir = create_run_directory(run_ctx, exist_ok=True)
         
         # Resolve sandbox path with security constraints
         if sandbox is None:
@@ -153,7 +150,7 @@ class RunCtx:
         self._validation_engine = None
         if policy:
             try:
-                self._policy_obj, self._validation_engine = self._load_policy(policy, strict)
+                self._policy_obj, self._validation_engine = self._load_policy(policy, strict, sandbox)
             except Exception as e:
                 raise ValueError(
                     f"Failed to load policy '{policy}': {e}\n"
@@ -261,7 +258,7 @@ class RunCtx:
         # Step counter
         self._step_counter = 0
     
-    def _load_policy(self, policy: str, strict: bool) -> tuple[Optional[Policy], Optional[ValidationEngine]]:
+    def _load_policy(self, policy: str, strict: bool, sandbox: str) -> tuple[Optional[Policy], Optional[ValidationEngine]]:
         """
         Load policy from file or preset name and create ValidationEngine.
         
@@ -273,6 +270,7 @@ class RunCtx:
         Args:
             policy: Policy name or path
             strict: Strict mode flag (affects engine execution, not policy data)
+            sandbox: Sandbox root directory path
         
         Returns:
             (Policy object, ValidationEngine instance) or (None, None) if policy not found
@@ -544,7 +542,7 @@ class RunCtx:
                 pass
         
         # Analysis features (drift, optimizer) - controlled by config
-        from ...config.analysis import is_drift_enabled, is_optimizer_enabled
+        from ..config.analysis import is_drift_enabled, is_optimizer_enabled
         
         if self._trace_path and Path(self._trace_path).exists():
             # Drift analysis (if enabled by config)

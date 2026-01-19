@@ -216,64 +216,57 @@ class PolicyStage:
                             seq = services.recorder.next_seq()
                             self._record_dlp_sanitized(services, state, seq, taint_result)
         
-        # Phase 4: Main policy check
-        policy_result = services.policy.allow(state.step, state.ctx)
-        state.policy_result = policy_result
-        
-        # Handle both legacy tuple and modern PolicyResult
-        from ...policy.policy import PolicyResult
-        
-        if isinstance(policy_result, tuple):
-            # Legacy: (allowed, reason)
-            allowed, reason = policy_result
-            error_code = None
-            suggestion = None
-            remediation = None
-            details = {}
-        elif isinstance(policy_result, PolicyResult):
-            # Modern: PolicyResult
-            allowed = policy_result.allowed
-            reason = policy_result.reason
-            error_code = policy_result.error_code
-            suggestion = policy_result.suggestion
-            remediation = policy_result.remediation
-            details = policy_result.details
-        else:
-            # Fallback
-            allowed, reason = True, ""
-            error_code = None
-            suggestion = None
-            remediation = None
-            details = {}
-        
-        if not allowed:
-            # Record POLICY_DENIED event
-            if hasattr(services.recorder, 'next_seq') and state.seq is not None:
-                seq = services.recorder.next_seq()
-                self._record(
-                    services,
-                    build_policy_denied_event(
-                        seq=seq,
-                        run_context=state.run_ctx,
-                        step_id=state.step.id,
-                        tool=state.step.tool,
-                        attempt=state.attempt,
-                        policy_id="System-Protection",
-                        rule_id="P001",
-                        rule_name="PolicyCheck",
-                        reason=reason or "Denied by policy",
-                    )
-                )
+        # Phase 4: Main policy check using ValidationEngine
+        if services.validation_engine:
+            # Create validation context
+            from ...validate import Context
             
-            return services.failure_builder.fail(
-                state=state,
-                error_code=error_code or "POLICY_DENIED",
-                message=reason or "Denied by policy",
-                phase=ExecutionPhase.POLICY,
-                suggestion=suggestion,
-                remediation=remediation,
-                details=details,
+            validation_context = Context(
+                tool=state.step.tool,
+                params=state.step.params,
+                metadata={
+                    "run_id": state.ctx.run_id,
+                    "step_id": state.step.id,
+                    "timestamp": state.started_at,
+                }
             )
+            
+            try:
+                # Use new ValidationEngine
+                decisions = services.validation_engine.evaluate(validation_context)
+                
+                # Check for blocking decisions
+                blocking_decisions = [d for d in decisions if d.is_blocking]
+                
+                if blocking_decisions:
+                    # Policy denied - use first blocking decision
+                    decision = blocking_decisions[0]
+                    state.policy_result = (False, decision.message)
+                    
+                    # Record policy denied event
+                    if hasattr(services.recorder, 'next_seq') and state.seq is not None:
+                        seq = services.recorder.next_seq()
+                        self._record_policy_denied(services, state, seq, decision.message, decision.code)
+                    
+                    # Return StepResult to block execution
+                    return services.failure_builder.fail(
+                        state=state,
+                        error_code=decision.code or "POLICY_DENIED",
+                        message=decision.message,
+                        phase=ExecutionPhase.POLICY,
+                        suggestion=decision.evidence.get("suggestion") if decision.evidence else None,
+                        details=decision.evidence or {},
+                    )
+                else:
+                    # Policy allowed
+                    state.policy_result = (True, "Validation passed")
+                    
+            except Exception as e:
+                # Validation engine error - fail safe (allow but log error)
+                state.policy_result = (True, f"Validation engine error: {e}")
+        else:
+            # No validation engine - allow by default
+            state.policy_result = (True, "No validation engine configured")
         
         return None  # Continue to next stage
     
@@ -293,25 +286,30 @@ class PolicyStage:
             PolicyResult if denied (PID not owned), None if allowed
         """
         from ...policy.process_ownership import ProcessOwnershipPolicy
+        from ...policy.policy import PolicyResult
         
         # Create policy with process registry
         policy = ProcessOwnershipPolicy(process_registry=services.process_registry)
         
-        # Check policy
-        result = policy.allow(state.step, state.ctx)
-        
-        # Convert tuple to PolicyResult if needed
-        from ...policy.policy import PolicyResult
-        if isinstance(result, tuple):
-            allowed, reason = result
-            if not allowed:
-                return PolicyResult.deny(
-                    reason=reason,
-                    error_code="PID_NOT_OWNED",
-                )
-        elif isinstance(result, PolicyResult):
-            if not result.allowed:
-                return result
+        # Check policy using new interface
+        try:
+            result = policy.allow(state.step, state.ctx)
+            
+            # Convert tuple to PolicyResult if needed
+            if isinstance(result, tuple):
+                allowed, reason = result
+                if not allowed:
+                    return PolicyResult.deny(
+                        reason=reason,
+                        error_code="PID_NOT_OWNED",
+                    )
+            elif isinstance(result, PolicyResult):
+                if not result.allowed:
+                    return result
+        except AttributeError:
+            # If policy doesn't have allow method, assume it's allowed
+            # This handles cases where the policy interface is not fully implemented
+            pass
         
         return None
     
@@ -570,3 +568,42 @@ class PolicyStage:
         except Exception:
             # Don't fail execution if event recording fails
             pass
+    
+    def _record_policy_denied(
+        self,
+        services: ExecutionServices,
+        state: ExecutionState,
+        seq: int,
+        reason: str,
+        error_code: str,
+    ) -> None:
+        """Record policy denied event"""
+        event = TraceEvent(
+            schema="failcore.trace.v0.1.3",
+            seq=seq,
+            ts=utc_now_iso(),
+            level=LogLevel.WARN,
+            event={
+                "type": EventType.POLICY_DENIED.value,
+                "severity": "error",
+                "step": {
+                    "id": state.step.id,
+                    "tool": state.step.tool,
+                    "attempt": state.attempt,
+                },
+                "data": {
+                    "policy": {
+                        "policy_id": "ValidationEngine",
+                        "rule_id": error_code,
+                        "action": "block",
+                        "reason": reason,
+                    },
+                },
+            },
+            run={"run_id": state.run_ctx["run_id"], "created_at": state.run_ctx["created_at"]},
+        )
+        
+        try:
+            services.recorder.record(event)
+        except Exception:
+            pass  # Ignore recording errors

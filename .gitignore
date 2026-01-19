@@ -1,6 +1,6 @@
 .failcore/
-tests/
-examples/
+_tests/
+_examples/
 .pylintrc
 
 # Python

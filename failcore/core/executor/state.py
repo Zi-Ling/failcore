@@ -17,7 +17,6 @@ from typing import Any, Dict, Optional, List, TYPE_CHECKING
 from failcore.core.types.step import Step, RunContext, StepOutput, StepError
 from ..tools import ToolProvider
 from ..trace import TraceRecorder
-from ..policy.policy import Policy
 from ..cost import CostGuardian, CostEstimator, CostUsage, UsageExtractor
 from ..cost.execution import CostRunAccumulator, CostRecorder
 from ..replay.execution import ReplayExecutionHook
@@ -29,6 +28,7 @@ from ...infra.storage.cost import CostStorage
 # Avoid circular import
 if TYPE_CHECKING:
     from .failure import FailureBuilder
+    from ..validate import ValidationEngine
 
 
 @dataclass
@@ -76,7 +76,7 @@ class ExecutionServices:
     # Core services
     tools: ToolProvider
     recorder: TraceRecorder
-    policy: Policy
+    validation_engine: Optional["ValidationEngine"]  # New validation architecture
     
     # Cost services
     cost_guardian: Optional[CostGuardian]
