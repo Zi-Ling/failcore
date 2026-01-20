@@ -1,0 +1,76 @@
+name: Examples
+
+on:
+  push:
+    branches: [ main, dev ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  examples:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install failcore
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .
+        # Install optional dependencies for examples
+        pip install langchain-core || true
+        pip install mcp || true
+    
+    - name: Check examples directory exists
+      run: |
+        if [ ! -d "examples" ]; then
+          echo "Examples directory not found, skipping examples validation"
+          exit 0
+        fi
+    
+    - name: Validate example syntax
+      run: |
+        if [ -d "examples" ]; then
+          echo "Checking Python syntax in examples..."
+          find examples/ -name "*.py" -exec python -m py_compile {} \;
+          echo "All examples have valid Python syntax"
+        else
+          echo "No examples directory found, skipping validation"
+        fi
+    
+    - name: Test basic examples (if they exist)
+      run: |
+        if [ -d "examples/basic" ]; then
+          echo "Testing basic examples..."
+          cd examples/basic/
+          for file in *.py; do
+            if [ -f "$file" ]; then
+              echo "Checking $file..."
+              python -c "import ast; ast.parse(open('$file').read())"
+            fi
+          done
+        else
+          echo "No basic examples found, skipping"
+        fi
+      continue-on-error: true  # Don't fail CI if examples have runtime issues
+    
+    - name: Test security examples (if they exist)
+      run: |
+        if [ -d "examples/security" ]; then
+          echo "Testing security examples..."
+          cd examples/security/
+          for file in *.py; do
+            if [ -f "$file" ]; then
+              echo "Checking $file..."
+              python -c "import ast; ast.parse(open('$file').read())"
+            fi
+          done
+        else
+          echo "No security examples found, skipping"
+        fi
+      continue-on-error: true

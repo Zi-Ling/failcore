@@ -1,7 +1,10 @@
 # \failcore\core\tools\registry.py
 
-from typing import Callable, Dict, Optional, Any, List
+from typing import Callable, Dict, Optional, Any, List, TYPE_CHECKING
 import os
+
+if TYPE_CHECKING:
+    from ..validate import Policy
 
 # ---------------------------
 # Tool Registry
@@ -12,13 +15,13 @@ ToolFn = Callable[..., Any]
 
 class ToolRegistry:
     """
-    Enhanced tool registry with metadata and auto-rule assembly
+    Enhanced tool registry with metadata and validation policy management
     
     Features:
     - Tool metadata tracking (risk_level, side_effect, default_action)
-    - Automatic validation rule assembly based on metadata
+    - Automatic validation policy creation based on metadata
     - Strict mode enforcement for HIGH risk tools
-    - Precondition/Postcondition validator registration
+    - Validator registration and management
     """
     def __init__(self, sandbox_root: Optional[str] = None) -> None:
         """
@@ -28,17 +31,21 @@ class ToolRegistry:
             sandbox_root: Sandbox root directory for path validation
         """
         from .spec import ToolSpec
-        from ..validate import RuleAssembler, ValidationRuleSet, ValidationPreset
+        from ..validate import Policy, ValidationEngine, ValidatorRegistry
         
         self._tools: Dict[str, ToolFn] = {}
         self._specs: Dict[str, ToolSpec] = {}  # Store full ToolSpec
-        self._preconditions: Dict[str, List] = {}  # tool_name -> [builtin]
-        self._postconditions: Dict[str, List] = {}  # tool_name -> [builtin]
-        self._presets: Dict[str, ValidationPreset] = {}  # tool_name -> preset
+        self._policies: Dict[str, Policy] = {}  # tool_name -> policy
+        self._validators: Dict[str, List] = {}  # tool_name -> [validators]
         
-        # Rule assembler for automatic validation
+        # Validation components
         self.sandbox_root = sandbox_root or os.getcwd()
-        self._rule_assembler = RuleAssembler(sandbox_root=self.sandbox_root)
+        self._validator_registry = ValidatorRegistry()
+        self._validation_engine = ValidationEngine(
+            registry=self._validator_registry,
+            policy=None,  # Will be set per tool
+            strict_mode=False
+        )
 
     def register(self, name: str, fn: ToolFn) -> None:
         """
@@ -53,27 +60,27 @@ class ToolRegistry:
     def register_tool(
         self,
         spec: 'ToolSpec',
-        preset: Optional['ValidationPreset'] = None,
+        policy: Optional['Policy'] = None,
         auto_assemble: bool = True,
     ) -> None:
         """
         Register a tool with full metadata and validation      
         Args:
             spec: ToolSpec with metadata
-            preset: Optional validation preset
-            auto_assemble: Auto-assemble validation rules based on metadata
+            policy: Optional validation policy
+            auto_assemble: Auto-assemble validation policy based on metadata
             
         Raises:
             ValueError: If HIGH risk tool lacks strict validation
         """
         from .metadata import validate_metadata_runtime, RiskLevel
-        from ..validate.rules import ValidationRuleSet
+        from ..validate import fs_safe_policy, net_safe_policy, default_safe_policy
         
         name = spec.name
         
         # Validate metadata constraints
-        # Consider strict mode enabled if: preset provided OR auto_assemble will add builtin
-        has_strict = preset is not None or auto_assemble
+        # Consider strict mode enabled if: policy provided OR auto_assemble will create policy
+        has_strict = policy is not None or auto_assemble
         
         try:
             validate_metadata_runtime(spec.tool_metadata, strict_enabled=has_strict)
@@ -84,57 +91,66 @@ class ToolRegistry:
         self._tools[name] = spec.fn
         self._specs[name] = spec
         
-        # Store preset if provided
-        if preset:
-            self._presets[name] = preset
-            rules = preset.to_rule_set()
-            self._preconditions[name] = rules.preconditions
-            self._postconditions[name] = rules.postconditions
+        # Store policy if provided
+        if policy:
+            self._policies[name] = policy
         
-        # Auto-assemble validation rules if enabled
+        # Auto-assemble validation policy if enabled
         elif auto_assemble:
-            rules = self._rule_assembler.assemble(
-                tool_metadata=spec.tool_metadata,
-                output_contract=spec.extras.get("output_contract"),
-                path_param_names=spec.extras.get("path_params"),
-                network_param_names=spec.extras.get("network_params"),
-                network_allowlist=spec.extras.get("network_allowlist"),
-            )
-            
-            if not rules.is_empty():
-                self._preconditions[name] = rules.preconditions
-                self._postconditions[name] = rules.postconditions
+            policy = self._create_policy_from_metadata(spec)
+            if policy:
+                self._policies[name] = policy
         
         # For HIGH risk tools without validation, raise error
         if spec.tool_metadata.risk_level == RiskLevel.HIGH:
-            if name not in self._preconditions and name not in self._postconditions:
+            if name not in self._policies:
                 if not has_strict:
                     raise ValueError(
                         f"HIGH risk tool '{name}' must have strict validation. "
-                        f"Either provide a preset or enable auto_assemble with proper metadata."
+                        f"Either provide a policy or enable auto_assemble with proper metadata."
                     )
     
-    def register_precondition(self, tool_name: str, validator) -> None:
+    def _create_policy_from_metadata(self, spec: 'ToolSpec') -> Optional['Policy']:
         """
-        Register precondition validator for a tool    
+        Create validation policy based on tool metadata.
+        
         Args:
-            tool_name: Tool name
-            validator: PreconditionValidator instance
+            spec: ToolSpec with metadata
+            
+        Returns:
+            Policy instance or None if no validation needed
         """
-        if tool_name not in self._preconditions:
-            self._preconditions[tool_name] = []
-        self._preconditions[tool_name].append(validator)
+        from .metadata import SideEffect
+        from ..validate import fs_safe_policy, net_safe_policy, default_safe_policy
+        
+        side_effect = spec.tool_metadata.side_effect
+        
+        # Choose policy based on side effect type
+        if side_effect == SideEffect.FS:
+            return fs_safe_policy(sandbox_root=self.sandbox_root)
+        elif side_effect == SideEffect.NETWORK:
+            # Get network allowlist from extras if available
+            allowlist = spec.extras.get("network_allowlist")
+            return net_safe_policy(allowlist=allowlist)
+        elif side_effect in (SideEffect.EXEC, SideEffect.PROCESS):
+            return default_safe_policy()
+        else:
+            # No side effects, no validation needed
+            return None
     
-    def register_postcondition(self, tool_name: str, validator) -> None:
+    def register_validator(self, tool_name: str, validator) -> None:
         """
-        Register postcondition validator for a tool
+        Register validator for a tool    
         Args:
             tool_name: Tool name
-            validator: PostconditionValidator instance
+            validator: BaseValidator instance
         """
-        if tool_name not in self._postconditions:
-            self._postconditions[tool_name] = []
-        self._postconditions[tool_name].append(validator)
+        if tool_name not in self._validators:
+            self._validators[tool_name] = []
+        self._validators[tool_name].append(validator)
+        
+        # Also register with the validator registry
+        self._validator_registry.register(validator)
 
     def get(self, name: str) -> Optional[ToolFn]:
         """Get tool function by name"""
@@ -144,13 +160,35 @@ class ToolRegistry:
         """Get full ToolSpec by name"""
         return self._specs.get(name)
     
-    def get_preconditions(self, name: str) -> List:
-        """Get precondition builtin for a tool"""
-        return self._preconditions.get(name, [])
+    def get_policy(self, name: str) -> Optional['Policy']:
+        """Get validation policy for a tool"""
+        return self._policies.get(name)
     
-    def get_postconditions(self, name: str) -> List:
-        """Get postcondition builtin for a tool"""
-        return self._postconditions.get(name, [])
+    def get_validators(self, name: str) -> List:
+        """Get validators for a tool"""
+        return self._validators.get(name, [])
+    
+    def get_validation_engine(self, tool_name: str) -> Optional['ValidationEngine']:
+        """
+        Get validation engine configured for a specific tool.
+        
+        Args:
+            tool_name: Tool name
+            
+        Returns:
+            ValidationEngine instance or None if no policy exists
+        """
+        policy = self._policies.get(tool_name)
+        if not policy:
+            return None
+            
+        # Create engine with tool-specific policy
+        from ..validate import ValidationEngine
+        return ValidationEngine(
+            registry=self._validator_registry,
+            policy=policy,
+            strict_mode=False
+        )
     
     def list(self) -> list[str]:
         return list(self._tools.keys())
@@ -176,8 +214,14 @@ class ToolRegistry:
             result["strict_required"] = spec.tool_metadata.strict_required
         
         # Add validator counts
-        result["preconditions_count"] = len(self._preconditions.get(name, []))
-        result["postconditions_count"] = len(self._postconditions.get(name, []))
+        policy = self._policies.get(name)
+        validators = self._validators.get(name, [])
+        result["policy_enabled"] = policy is not None
+        result["validators_count"] = len(validators)
+        
+        if policy:
+            enabled_validators = policy.get_enabled_validators()
+            result["enabled_validators_count"] = len(enabled_validators)
         
         return result
 

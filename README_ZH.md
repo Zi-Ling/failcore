@@ -6,6 +6,9 @@
 
 [![PyPI version](https://badge.fury.io/py/failcore.svg)](https://badge.fury.io/py/failcore)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Tests](https://github.com/zi-ling/failcore/workflows/Tests/badge.svg)](https://github.com/zi-ling/failcore/actions/workflows/test.yml)
+[![Code Quality](https://github.com/zi-ling/failcore/workflows/Code%20Quality/badge.svg)](https://github.com/zi-ling/failcore/actions/workflows/quality.yml)
+[![Examples](https://github.com/zi-ling/failcore/workflows/Examples/badge.svg)](https://github.com/zi-ling/failcore/actions/workflows/examples.yml)
 
 **当 Agent 出问题时，你不需要更好的 Prompt ——你需要一个“断路器”。**
 

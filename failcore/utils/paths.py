@@ -257,11 +257,11 @@ class RunContext:
     Represents a single FailCore run.
 
     Directory structure:
-        <root>/.failcore/runs/<date>/run_<HHMMSS>/
+        <root>/.failcore/runs/<date>/run_<HHMMSSMMM>/
             ├── trace.jsonl
             └── sandbox/
         OR for proxy:
-        <root>/.failcore/runs/<date>/proxy_<HHMMSS>/
+        <root>/.failcore/runs/<date>/proxy_<HHMMSSMMM>/
             ├── proxy.jsonl
     """
     command_name: str
@@ -275,12 +275,12 @@ class RunContext:
 
     @property
     def time_str(self) -> str:
-        return self.started_at.strftime("%H%M%S")
+        return self.started_at.strftime("%H%M%S%f")[:9]  # HHMMSSMMM (包含毫秒前3位)
 
     @property
     def run_dir_name(self) -> str:
-        # Simplified naming: run_<HHMMSS> or proxy_<HHMMSS>
-        # Remove run_id and command suffix for clarity
+        # Simplified naming: run_<HHMMSSMMM> or proxy_<HHMMSSMMM>
+        # Include milliseconds to avoid conflicts in rapid execution
         if self.command_name == "proxy":
             return f"proxy_{self.time_str}"
         return f"run_{self.time_str}"

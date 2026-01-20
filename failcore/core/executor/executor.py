@@ -322,7 +322,7 @@ class Executor:
         services = ExecutionServices(
             tools=tools,
             recorder=self.recorder,
-            policy=self.policy,
+            validation_engine=self.validation_engine,
             cost_guardian=cost_guardian_instance,
             cost_estimator=cost_estimator_instance,
             cost_storage=cost_storage,
